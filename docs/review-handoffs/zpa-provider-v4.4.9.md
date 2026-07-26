@@ -12,18 +12,25 @@
 - Regenerate module types for the reviewed list-to-set, capabilities, and portal
   schema transitions without adding provider-specific behavior to the generic
   transform or field-lineage engines.
+- Preserve the portal capability block as a singleton module input even though
+  the `4.4.9` schema removed `max_items: 1`: the provider still consumes only
+  element zero. Express that fail-closed constraint as pack metadata interpreted
+  by the generic module generator, without naming ZPA resources or fields in
+  generic code.
 - Keep ZTC, registry membership, API mappings, and evidence-free browser
   empty-string omissions unchanged.
 
 ## Base / Head
 
 - Base: `origin/main` at `51a6577aa5036a6e3c094df3d1b79cb4d2f8735c`.
-- Implementation head: branch `feature/zpa-provider-4.4.9` at
+- Original implementation: branch `feature/zpa-provider-4.4.9` at
   `21517493d95abb320b8fc9a602da22cc3a408c7e`.
-- Handoff: the branch tip has one documentation-only commit containing this
-  file after the implementation head.
+- First-review handoff: `fa970eeef28e00b60ea389f33817a757d3711aa0`.
+- Accepted correction: `f4466252b45434fc8087af7cd2d05335175d456d`.
+- Handoff: the branch tip has a documentation-only commit updating this file
+  after the accepted correction.
 - Diff command:
-  `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...21517493d95abb320b8fc9a602da22cc3a408c7e`.
+  `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...f4466252b45434fc8087af7cd2d05335175d456d`.
 
 ## Files Changed
 
@@ -31,11 +38,14 @@
   the access-rule override and generated demo output; the ZPA source-evidence
   matrix and endpoint fixture; bounded schema/source tests; module and parity
   compatibility fixtures; the full-demo `DROPS_CHECK` gate; current-pin
-  documentation and changelog; this handoff.
+  documentation and changelog; the generic `module_single_blocks` override
+  validator and module-generator overlay; the portal pack override; focused
+  generator and Terraform-cardinality tests; this handoff.
 - Files intentionally left untouched: ZPA registry membership and fetch/API
-  mappings; the generic transform, projection, module-generator, and
+  mappings; the generic transform, projection, field-lineage, and
   source-analysis implementations; every ZIA and ZTC pack file; both browser
-  overrides apart from tests proving no new default omission exists.
+  overrides apart from tests proving no new default omission exists. The
+  checked-in provider schema remains byte-for-byte the signed upstream schema.
 
 ## Source Inputs Consulted
 
@@ -48,7 +58,9 @@
 - Provider source files: `zscaler/terraform-provider-zpa` tag `v4.4.9`, commit
   `1d4f43cc4c59a24d8380f0c655a07b6da7199465`, plus the exact `v4.4.6`
   tag for the version-to-version comparison. The optional bound-source tests
-  replay the complete provider file and cited range hashes.
+  replay the complete provider file and cited range hashes. A pinned-source AST
+  assertion also verifies that `expandPrivilegedPortalCapabilitiesRule`
+  consumes `privCapsList[0]` exactly once and does not iterate the collection.
 - Pack metadata: ZPA pack manifest, 54-entry registry, overrides, checked-in
   schema, seven available raw demo fixtures, parity fixture, and generated
   module compatibility corpus.
@@ -68,7 +80,9 @@
   independently replayed. Its SHA-256 is
   `ec3fada6f362a38491b08e86dfa10920a81507e1bd95cdf8d62b425ce2c53e2e`.
 - Schemas: `packs/zpa/schemas/provider/zpa.json`; inventory remains 55 resource
-  schemas and 71 data-source schemas.
+  schemas and 71 data-source schemas. The schema is not edited to restore the
+  removed portal `max_items`; the constraint is a pack-owned module-generation
+  overlay.
 - Fixtures: the endpoint fixture moves from `zpa-v4.4.6-endpoint-v1` to
   `zpa-v4.4.9-endpoint-v1`. Its source manifest SHA-256 is
   `84fa0b2b2002888fc96f69910e97b6a62f78f74057cc13792435e82dcd77425f`.
@@ -78,6 +92,8 @@
   their SHA-256 values are respectively
   `5fb57177483130e360ccf5ccc20fe5c0f30eeaecbf700121b918cb1a159d7a37`
   and `baeeca9097824387c1779f2dba3e05be5e3e2c2480c94c1cf29cf6270332d106`.
+  The portal generated module deliberately remains an optional singleton object
+  rather than exposing the schema's now-unbounded list.
 - Demo or lab outputs: committed JSON demo output was regenerated. No
   credentialed tenant output is retained.
 - Artifact drift intentionally expected: 16 effective schema transitions, ZPA
@@ -95,17 +111,23 @@
 - Expected generated-output changes: the 16 schema transitions are one
   Optional+Computed-to-Optional bool, three list-to-set nested blocks, six
   appearances of the device-posture bool, two capability booleans, removal of
-  one nested-block `max_items`, and three portal sandbox booleans.
+  one nested-block `max_items`, and three portal sandbox booleans. The raw
+  schema transition is retained, but the portal module interface remains
+  singleton because the provider still ignores all elements after index zero.
 - Expected no-op areas: no new resources become fetch, adoption, or API-mapping
-  targets; no generic engine behavior changes; parity values remain unchanged;
-  ZIA and ZTC are untouched.
+  targets; transform, projection, field-lineage, and source-analysis behavior
+  does not change; parity values remain unchanged; ZIA and ZTC are untouched.
+  The only generic production behavior added is the pack-declared,
+  generator-only singleton overlay.
 
 ## Invariants Claimed
 
 - Evidence must not be silently dropped: the one closed access-rule hold has
   both schema and provider `d.Get`/`d.Set` evidence, and the generated demo
   proves the false value survives transform. `DROPS_CHECK=1` gates the full
-  exercised demo corpus.
+  exercised demo corpus. Portal capability cardinality is constrained before
+  provider execution, preventing a second configured element from being
+  silently ignored.
 - Generic matcher evidence must not outrank source-backed evidence: no matcher
   or lineage implementation changed. The exact pinned-source AST assertion is
   test-only and verifies only the device-posture field's direct provider
@@ -122,7 +144,9 @@
 - Adoption safety invariants: none of the three list-to-set resources uses
   `key_field`, `import_id`, or `sort_lists` identity derived from the changed
   blocks, so the change affects generated values/types rather than Terraform
-  resource addresses. No adoption classification or import path changes.
+  resource addresses. No adoption classification or import path changes. The
+  singleton overlay deep-clones the schema used for module generation and does
+  not mutate the cached provider schema used by other consumers.
 
 ## Tests Run
 
@@ -134,7 +158,8 @@
   check-tfvars-fmt check-pack`; `make check`; `go vet ./...`; repository-wide
   `gofmt -d`; and `git diff --check`.
 - Relevant output summary: all commands pass. `make check` passes on the exact
-  implementation commit. The external replay validates all pinned provider
+  accepted correction commit `f4466252b45434fc8087af7cd2d05335175d456d`.
+  The external replay validates all pinned provider
   and SDK bindings and reproduces the 15-observed/one-ambiguous report. The
   full Go suite passes.
 - Commands: with Terraform `v1.15.4`,
@@ -142,10 +167,36 @@
   INFRAWRIGHT_V2_CHECKPOINT=1 go test -count=1 -timeout=18m -v -run
   '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw`.
 - Relevant output summary: 151/151 generated-module semantics, 20/20 demo-root
-  semantics, and the HCL-tfvars deployment case pass.
+  semantics, and the HCL-tfvars deployment case pass. A wrapper around the
+  generated portal module proves one capability object validates and a
+  two-object value is rejected by Terraform before provider execution.
 - Tests not run and why: no credentialed ZPA tenant fetch/import/no-op-plan or
   upstream acceptance suite was run because credentials and tenant mutation
   were not authorized.
+
+## Adversarial Review Correction
+
+- Finding: the first fresh, read-only review requested changes because the
+  `4.4.9` schema removed `max_items: 1` from
+  `privileged_portal_capabilities`, while the provider expand function still
+  reads only element zero. Trusting the raw cardinality would expose a module
+  input whose additional values are silently discarded.
+- Root cause: generated module cardinality followed the provider schema without
+  a way for source-backed pack evidence to impose a stricter fail-closed
+  boundary.
+- Correction: add a validated generic `module_single_blocks` override. The
+  module generator applies it to a deep clone of its schema, and the ZPA portal
+  override declares only `privileged_portal_capabilities`. No ZPA resource or
+  field name is hardcoded in generic production code, and transform behavior is
+  unchanged.
+- Regression proof: unit tests cover override validation, missing/stale paths,
+  conflicting minimum cardinality, singleton HCL rendering, and cached-schema
+  immutability; the pinned provider-source AST test guards the element-zero
+  behavior; the Terraform checkpoint accepts one object and rejects two.
+- Correction verification: focused Go tests, external provider/SDK replay,
+  `make check-pack PACK=zpa`, full `go test -count=1 ./...`, `go vet ./...`,
+  repository-wide `gofmt -d`, `git diff --check`, `make check`, and the complete
+  Terraform semantic checkpoint all pass.
 
 ## Known Deferrals
 
@@ -166,6 +217,15 @@
   represented as source-verified round-trip support.
 - Follow-up owner or trigger: provider source wiring or credentialed
   create/import/read/no-op-plan evidence for each resource.
+- Deferred work: credentialed true-to-false update verification for
+  `zpa_policy_access_rule_v2`, whose SDK field is tagged `omitempty`, and the
+  pre-existing portal Read condition that gates capabilities using a different
+  field.
+- Reason it is safe to defer: both are disclosed upstream-runtime risks rather
+  than regressions introduced by this branch. The first needs a live tenant
+  round trip; the second does not weaken the new write-side cardinality guard.
+- Follow-up owner or trigger: a sanitized provider-state fixture, upstream
+  provider fix, or authorized credentialed no-op-plan test.
 - Deferred work: broaden the ZPA raw corpus and perform any ZTC refresh.
 - Reason it is safe to defer: the 7/54 ZPA and 0/16 ZTC raw-fixture limits are
   explicit, and no provider-wide `DROPS_CHECK` completeness claim is made.
@@ -175,13 +235,16 @@
 
 - Highest-risk files or paths: the regenerated provider schema; access-rule
   override and demo drift; source matrix and endpoint fixture provenance;
-  `provider_refresh_test.go`; the pinned-source AST assertion; module/parity
-  compatibility snapshots.
+  `provider_refresh_test.go`; the metadata override validator; module-generator
+  clone/overlay logic; the portal override; the pinned-source AST assertion;
+  the V2 Terraform cardinality test; module/parity compatibility snapshots.
 - Specific assumptions to attack: the schema diff has exactly the documented
   16 transitions; only access rule and access-rule-v2 directly read and expand
   the device-posture bool; list-to-set changes do not influence item identity;
   no evidence-free browser omission was added; the full-demo drop gate is not
-  vacuously presented as 54-resource coverage.
+  vacuously presented as 54-resource coverage; the singleton overlay cannot
+  mutate shared schema state or silently become stale; one portal capability
+  succeeds and two fail before the provider can discard data.
 - Source evidence the reviewer should verify: the signed `4.4.9` schema digest;
   exact `v4.4.9` provider `d.Get` and `d.Set` sites; the `v4.4.6 -> v4.4.9`
   source/range differences; SDK `v3.8.42` bindings; matrix and endpoint report
@@ -194,5 +257,5 @@
   false-valued booleans disappearing; dotted nested `drop_if_default` paths;
   treating shared-schema inheritance as provider behavior; list/set ordering;
   mistaking generated module exposure for source-backed support; treating seven
-  raw fixtures as provider-wide coverage; accidental ZTC or generic-engine
-  drift.
+  raw fixtures as provider-wide coverage; stale or over-broad singleton
+  overrides; accidental ZTC or transform/lineage-engine drift.
