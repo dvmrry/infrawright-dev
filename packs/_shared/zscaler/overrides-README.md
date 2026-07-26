@@ -81,8 +81,15 @@ predicates must not reference fields that also appear as either side of
 orders. Exceptions are data, not code: prefer an entry here over editing the
 transform.
 
-The same JSON file may also carry one GENERATOR key: `sample` (a dict
-merged over the generated module test fixture's example item) — for
+The same JSON file may also carry GENERATOR keys. `sample` is a dict
+merged over the generated module test fixture's example item — for
 required attributes with provider-validated enums where the default
 `"example"` value cannot pass a mock plan, e.g.
 `"sample": {"protocols": ["ANY_RULE"]}`.
+`module_single_blocks` is a list of dotted nested-block paths whose executable
+provider behavior consumes at most one element even though its published
+schema declares an unconstrained list or set. The module retains the existing
+singleton-object shape and Terraform rejects multiple values before provider
+execution. This is a source-evidence escape hatch: record the upstream source
+and reason in the provider evidence document, and remove the entry when the
+schema or provider implementation becomes self-consistent.

@@ -153,6 +153,21 @@ func TestProvider449RefreshKeepsClaimsBoundedToExercisedRawSurface(t *testing.T)
 			}
 		}
 	}
+
+	portalData, err := os.ReadFile(filepath.Join(root, "packs", "zpa", "overrides", "zpa_policy_portal_access_rule.json"))
+	if err != nil {
+		t.Fatalf("read portal-rule override: %v", err)
+	}
+	var portalOverride struct {
+		ModuleSingleBlocks []string `json:"module_single_blocks"`
+	}
+	if err := json.Unmarshal(portalData, &portalOverride); err != nil {
+		t.Fatalf("decode portal-rule override: %v", err)
+	}
+	wantPortalSingletons := []string{"privileged_portal_capabilities"}
+	if !reflect.DeepEqual(portalOverride.ModuleSingleBlocks, wantPortalSingletons) {
+		t.Errorf("portal module_single_blocks = %v, want %v", portalOverride.ModuleSingleBlocks, wantPortalSingletons)
+	}
 }
 
 func assertRefreshNestingMode(t *testing.T, schema refreshSchema, resourceType string, path []string, want string) {

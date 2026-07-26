@@ -338,6 +338,7 @@ func TestEndpointFixtureOptionalExternalBindings(t *testing.T) {
 		t.Fatalf("sourcebind.QualifiedInputs.Snapshot(endpoint fixture roots) error = %v, want nil", err)
 	}
 	assertDevicePostureSourceWiring(t, snapshot.Provider.Files)
+	assertPortalCapabilitySingletonExpansion(t, snapshot.Provider.Files)
 	got, err := sourceanalysis.Analyze(context.Background(), inputs)
 	if err != nil {
 		t.Fatalf("sourceanalysis.Analyze(endpoint fixture roots) error = %v, want nil", err)
@@ -354,6 +355,56 @@ func TestEndpointFixtureOptionalExternalBindings(t *testing.T) {
 		}
 		t.Errorf("sourceanalysis.Analyze(endpoint fixture roots) differs from hand-authored authority: got SHA-256 %s and summary %+v; want SHA-256 %s and summary %+v", digest(gotBytes), gotReport.Summary, endpointReportSHA256, want.Summary)
 	}
+}
+
+func assertPortalCapabilitySingletonExpansion(t *testing.T, files []sourcebind.CapturedFile) {
+	t.Helper()
+	const sourcePath = "zpa/resource_zpa_policy_portal_access_rule.go"
+	for _, file := range files {
+		if file.Path != sourcePath {
+			continue
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), file.Path, file.Bytes, 0)
+		if err != nil {
+			t.Fatalf("parse bound provider source %s: %v", file.Path, err)
+		}
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Name.Name != "expandPrivilegedPortalCapabilitiesRule" {
+				continue
+			}
+			zeroIndexes := 0
+			otherIndexes := 0
+			ranges := 0
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				switch typed := node.(type) {
+				case *ast.IndexExpr:
+					identifier, ok := typed.X.(*ast.Ident)
+					if !ok || identifier.Name != "privCapsList" {
+						return true
+					}
+					literal, ok := typed.Index.(*ast.BasicLit)
+					if ok && literal.Kind == token.INT && literal.Value == "0" {
+						zeroIndexes++
+					} else {
+						otherIndexes++
+					}
+				case *ast.RangeStmt:
+					identifier, ok := typed.X.(*ast.Ident)
+					if ok && identifier.Name == "privCapsList" {
+						ranges++
+					}
+				}
+				return true
+			})
+			if zeroIndexes != 1 || otherIndexes != 0 || ranges != 0 {
+				t.Errorf("provider portal capability expansion accesses privCapsList as zero=%d other=%d ranges=%d, want exactly one [0] access and no other traversal", zeroIndexes, otherIndexes, ranges)
+			}
+			return
+		}
+		t.Fatalf("%s has no expandPrivilegedPortalCapabilitiesRule function", sourcePath)
+	}
+	t.Fatalf("bound provider source omitted %s", sourcePath)
 }
 
 func assertDevicePostureSourceWiring(t *testing.T, files []sourcebind.CapturedFile) {

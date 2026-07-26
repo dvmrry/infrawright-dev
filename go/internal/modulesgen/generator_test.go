@@ -2,6 +2,7 @@ package modulesgen
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -173,6 +174,107 @@ func TestZPAProvider449ModuleShapesMatchReviewedSchemaTransitions(t *testing.T) 
 	portalVariables, _ := portal.Get(FileVariables)
 	for _, field := range []string{"access_uninspected_file_sandbox", "upload_inspected_sandbox", "upload_inspected_scan"} {
 		mustMatch(t, portalVariables, field+`\s+= optional\(bool\)`)
+	}
+	mustMatch(t, portalVariables, `privileged_portal_capabilities = optional\(object\(\{`)
+	mustNotMatch(t, portalVariables, `privileged_portal_capabilities = optional\(list\(`)
+	portalMain, _ := portal.Get(FileMain)
+	mustMatch(t, portalMain, `for_each = each\.value\.privileged_portal_capabilities == null \? \[\] : \[each\.value\.privileged_portal_capabilities\]`)
+}
+
+func TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema(t *testing.T) {
+	schema := metadata.JsonObject{
+		"block": metadata.JsonObject{
+			"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			},
+			"block_types": metadata.JsonObject{
+				"capabilities": metadata.JsonObject{
+					"nesting_mode": "list",
+					"block": metadata.JsonObject{
+						"attributes": metadata.JsonObject{
+							"enabled": metadata.JsonObject{"type": "bool", "optional": true},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, root := syntheticRoot(t, syntheticRootOptions{
+		Schema:       schema,
+		OverrideText: `{"module_single_blocks":["capabilities"]}`,
+	})
+	rendered, err := RenderModuleFiles(root, "sample_resource")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(module_single_blocks): %v", err)
+	}
+	variables, _ := rendered.Get(FileVariables)
+	mustMatch(t, variables, `capabilities = optional\(object\(\{`)
+	mustNotMatch(t, variables, `capabilities = optional\(list\(`)
+	main, _ := rendered.Get(FileMain)
+	mustMatch(t, main, `for_each = each\.value\.capabilities == null \? \[\] : \[each\.value\.capabilities\]`)
+
+	authority, err := root.LoadResourceSchema("sample_resource")
+	if err != nil {
+		t.Fatalf("LoadResourceSchema(sample_resource): %v", err)
+	}
+	block, err := metadata.TerraformBlockForSchema(authority, "sample_resource")
+	if err != nil {
+		t.Fatalf("TerraformBlockForSchema(sample_resource): %v", err)
+	}
+	blockTypes, err := metadata.TerraformBlockTypesForBlock(block, "sample_resource.block")
+	if err != nil {
+		t.Fatalf("TerraformBlockTypesForBlock(sample_resource): %v", err)
+	}
+	capabilities, err := metadata.TerraformRequireObject(blockTypes["capabilities"], "capabilities")
+	if err != nil {
+		t.Fatalf("TerraformRequireObject(capabilities): %v", err)
+	}
+	if _, mutated := capabilities["max_items"]; mutated {
+		t.Fatal("module_single_blocks mutated the cached provider schema authority")
+	}
+}
+
+func TestModuleSingleBlocksFailOnMissingConflictingOrStaleSchemaPaths(t *testing.T) {
+	baseBlock := func() metadata.JsonObject {
+		return metadata.JsonObject{
+			"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			},
+			"block_types": metadata.JsonObject{
+				"capabilities": metadata.JsonObject{
+					"nesting_mode": "list",
+					"block":        metadata.JsonObject{"attributes": metadata.JsonObject{}},
+				},
+			},
+		}
+	}
+	tests := []struct {
+		name      string
+		path      string
+		mutate    func(metadata.JsonObject)
+		wantError string
+	}{
+		{"missing", "absent", func(metadata.JsonObject) {}, "does not exist"},
+		{"stale", "capabilities", func(block metadata.JsonObject) {
+			block["block_types"].(metadata.JsonObject)["capabilities"].(metadata.JsonObject)["max_items"] = float64(1)
+		}, "already singleton"},
+		{"minimum conflict", "capabilities", func(block metadata.JsonObject) {
+			block["block_types"].(metadata.JsonObject)["capabilities"].(metadata.JsonObject)["min_items"] = float64(2)
+		}, "min_items greater than one"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			block := baseBlock()
+			testCase.mutate(block)
+			_, root := syntheticRoot(t, syntheticRootOptions{
+				Schema:       metadata.JsonObject{"block": block},
+				OverrideText: fmt.Sprintf(`{"module_single_blocks":[%q]}`, testCase.path),
+			})
+			_, err := RenderModuleFiles(root, "sample_resource")
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("RenderModuleFiles(module_single_blocks) error = %v, want error containing %q", err, testCase.wantError)
+			}
+		})
 	}
 }
 

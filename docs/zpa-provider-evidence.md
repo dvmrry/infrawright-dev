@@ -55,6 +55,16 @@ forwarding, redirection, timeout, and the LSS nested policy resource merely
 inherit its schema declaration. Their generated inputs remain upstream-schema
 surface and require provider-side source or runtime evidence before use.
 
+The portal cardinality change is schema-only, not executable behavior. In
+provider `v4.4.9`, `expandPrivilegedPortalCapabilitiesRule` still reads only
+`privCapsList[0]` and labels the block `MaxItems: 1`; later configured elements
+would be silently ignored. The pack therefore declares
+`module_single_blocks: ["privileged_portal_capabilities"]`. Module generation
+retains the prior singleton-object input shape while leaving the checked-in
+provider schema byte-exact, so Terraform rejects multiple objects before the
+provider runs. Remove that constraint only after provider source consumes every
+declared element or the published schema restores its one-item limit.
+
 The three list-to-set changes alter generated variable/config body types, not
 resource instance addresses: none of the affected resources derives
 `key_field`, `import_id`, or `sort_lists` identity from those blocks. The full

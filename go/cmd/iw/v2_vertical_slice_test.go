@@ -993,6 +993,48 @@ func v2VerifyGeneratedModuleSemantics(
 		t.Fatalf("generated module Terraform semantics: %d/%d passed", passed, len(resourceTypes))
 	}
 	t.Logf("generated module Terraform semantics: %d/%d passed", passed, v2GeneratedModuleCount)
+	v2VerifyZPAPortalCapabilityCardinality(t, terraform, moduleDirectory, environment)
+}
+
+func v2VerifyZPAPortalCapabilityCardinality(
+	t *testing.T,
+	terraform, moduleDirectory string,
+	environment []string,
+) {
+	t.Helper()
+	root := t.TempDir()
+	moduleSource := filepath.Join(moduleDirectory, "zpa_policy_portal_access_rule")
+	writeConfiguration := func(capabilities string) {
+		t.Helper()
+		configuration := fmt.Sprintf(`module "portal" {
+  source = %q
+  items = {
+    example = {
+      name                               = "example"
+      privileged_portal_capabilities = %s
+    }
+  }
+}
+`, moduleSource, capabilities)
+		if err := os.WriteFile(filepath.Join(root, "main.tf"), []byte(configuration), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(portal cardinality main.tf) error = %v, want nil", err)
+		}
+	}
+
+	writeConfiguration(`{
+        delete_file = true
+      }`)
+	v2InitializeTerraformRoot(t, "ZPA portal singleton capability", terraform, root, environment)
+	v2RunSuccessfully(t, root, terraform, []string{"validate", "-no-color"}, environment)
+
+	writeConfiguration(`[
+        { delete_file = true },
+        { request_approvals = true },
+      ]`)
+	if _, err := v2RunBoundedCommand(t, root, terraform, []string{"validate", "-no-color"}, environment); err == nil {
+		t.Fatal("ZPA portal module accepted two privileged_portal_capabilities objects; want Terraform validation failure before provider execution")
+	}
+	t.Log("ZPA portal capability cardinality: one object validated; two objects rejected before provider execution")
 }
 
 func v2VerifyDemoEnvironmentSemantics(

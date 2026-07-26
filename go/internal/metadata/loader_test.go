@@ -52,8 +52,8 @@ func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
 	if len(registry.Entries) != 151 {
 		t.Fatalf("registry entries = %d, want 151", len(registry.Entries))
 	}
-	if len(overrides.Entries) != 76 {
-		t.Fatalf("override entries = %d, want 76", len(overrides.Entries))
+	if len(overrides.Entries) != 77 {
+		t.Fatalf("override entries = %d, want 77", len(overrides.Entries))
 	}
 	if product, _ := registry.Entries["zia_url_categories"]["product"].(string); product != "zia" {
 		t.Fatalf("zia_url_categories product = %q, want zia", product)
@@ -214,6 +214,39 @@ func TestStrictVocabulariesRejectSilentTypos(t *testing.T) {
 	if _, err := ValidateOverride(JsonObject{"rename": JsonObject{"one": "two"}}, "override.json"); err == nil ||
 		!strings.Contains(err.Error(), "unknown override key rename") {
 		t.Fatalf("expected unknown override key error, got %v", err)
+	}
+}
+
+func TestModuleSingleBlockOverrideRequiresCanonicalUniquePaths(t *testing.T) {
+	valid, err := ValidateOverride(JsonObject{
+		"module_single_blocks": []any{"outer.inner", "singleton"},
+	}, "override.json")
+	if err != nil {
+		t.Fatalf("ValidateOverride(valid module_single_blocks) error = %v, want nil", err)
+	}
+	if got := valid["module_single_blocks"].([]any); !reflect.DeepEqual(got, []any{"outer.inner", "singleton"}) {
+		t.Errorf("module_single_blocks = %v, want preserved paths", got)
+	}
+
+	tests := []struct {
+		name      string
+		value     any
+		wantError string
+	}{
+		{"not an array", "singleton", "must be an array"},
+		{"empty", []any{}, "must not be empty"},
+		{"non-string", []any{float64(1)}, "must be a non-empty dotted block path"},
+		{"empty segment", []any{"outer..inner"}, "must be a canonical dotted block path"},
+		{"noncanonical segment", []any{"outer.Inner"}, "must be a canonical dotted block path"},
+		{"duplicate", []any{"singleton", "singleton"}, "contains duplicate path"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := ValidateOverride(JsonObject{"module_single_blocks": testCase.value}, "override.json")
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("ValidateOverride(module_single_blocks) error = %v, want error containing %q", err, testCase.wantError)
+			}
+		})
 	}
 }
 

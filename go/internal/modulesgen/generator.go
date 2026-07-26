@@ -132,6 +132,113 @@ type moduleContext struct {
 	SampleOverride metadata.JsonObject
 }
 
+// cloneModuleSchemaValue detaches the schema view used by module rendering.
+// LoadedPackRoot caches provider schemas and exposes them read-only to every
+// consumer, so generator-only behavioral constraints must never mutate that
+// shared authority.
+func cloneModuleSchemaValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, child := range typed {
+			cloned[key] = cloneModuleSchemaValue(child)
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, child := range typed {
+			cloned[index] = cloneModuleSchemaValue(child)
+		}
+		return cloned
+	default:
+		return value
+	}
+}
+
+func minimumItemsExceedsOne(value any) bool {
+	switch typed := value.(type) {
+	case float64:
+		return typed > 1
+	case json.Number:
+		parsed, err := typed.Float64()
+		return err == nil && parsed > 1
+	default:
+		return false
+	}
+}
+
+// applyModuleSingleBlocks overlays source-verified provider behavior on the
+// module renderer without altering the checked-in provider schema. A listed
+// list/set block is rendered as the generator's existing singleton object
+// shape, so Terraform rejects multiple configured elements before provider
+// execution. Dotted paths support nested blocks without adapter names in code.
+func applyModuleSingleBlocks(
+	schema metadata.JsonObject,
+	resourceType string,
+	override metadata.JsonObject,
+) (metadata.JsonObject, error) {
+	raw, exists := override["module_single_blocks"]
+	if !exists {
+		return schema, nil
+	}
+	paths, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s override module_single_blocks must be an array", resourceType)
+	}
+	cloned, ok := cloneModuleSchemaValue(schema).(metadata.JsonObject)
+	if !ok {
+		return nil, fmt.Errorf("%s schema clone is not an object", resourceType)
+	}
+	rootBlock, err := metadata.TerraformBlockForSchema(cloned, resourceType)
+	if err != nil {
+		return nil, err
+	}
+	for index, rawPath := range paths {
+		path, ok := rawPath.(string)
+		if !ok || path == "" {
+			return nil, fmt.Errorf("%s override module_single_blocks[%d] must be a non-empty path", resourceType, index)
+		}
+		block := rootBlock
+		label := resourceType + ".block"
+		segments := strings.Split(path, ".")
+		for segmentIndex, segment := range segments {
+			blockTypes, err := metadata.TerraformBlockTypesForBlock(block, label)
+			if err != nil {
+				return nil, err
+			}
+			rawBlockType, exists := blockTypes[segment]
+			if !exists {
+				return nil, fmt.Errorf("%s override module_single_blocks path %q does not exist in the provider schema", resourceType, path)
+			}
+			blockType, err := metadata.TerraformRequireObject(rawBlockType, label+".block_types."+segment)
+			if err != nil {
+				return nil, err
+			}
+			blockTypeLabel := label + ".block_types." + segment
+			if segmentIndex == len(segments)-1 {
+				if metadata.TerraformBlockIsSingle(blockType) {
+					return nil, fmt.Errorf("%s override module_single_blocks path %q is already singleton in the provider schema; remove the stale override", resourceType, path)
+				}
+				mode, _ := blockType["nesting_mode"].(string)
+				if mode != "list" && mode != "set" {
+					return nil, fmt.Errorf("%s override module_single_blocks path %q has unsupported nesting_mode %q", resourceType, path, mode)
+				}
+				if minimumItemsExceedsOne(blockType["min_items"]) {
+					return nil, fmt.Errorf("%s override module_single_blocks path %q conflicts with provider min_items greater than one", resourceType, path)
+				}
+				blockType["max_items"] = float64(1)
+				continue
+			}
+			block, err = metadata.TerraformRequireObject(blockType["block"], blockTypeLabel+".block")
+			if err != nil {
+				return nil, err
+			}
+			label = blockTypeLabel + ".block"
+		}
+	}
+	return cloned, nil
+}
+
 // jsonQuote ports the JSON.stringify(string) calls the original source treemodules/
 // generator.ts's error messages interpolate (e.g. `unknown active
 // resource type ${JSON.stringify(resourceType)}`).
@@ -807,6 +914,10 @@ func buildModuleContext(root metadata.LoadedPackRoot, resourceType string) (modu
 	// wrapper -- there purely to narrow an `unknown` return type -- has no
 	// reachable Go analogue: the type system already guarantees this.
 	schema, err := root.LoadResourceSchema(resourceType)
+	if err != nil {
+		return moduleContext{}, err
+	}
+	schema, err = applyModuleSingleBlocks(schema, resourceType, resource.Override)
 	if err != nil {
 		return moduleContext{}, err
 	}
