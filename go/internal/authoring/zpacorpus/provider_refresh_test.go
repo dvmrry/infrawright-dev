@@ -336,10 +336,6 @@ func TestProvider449SchemaTransitionDispositionsAreExact(t *testing.T) {
 		reconstructed[path] = value
 	}
 	for _, transition := range zpaProvider449TransitionDispositions {
-		actual := current[transition.Path]
-		if actual == "" {
-			actual = refreshAbsent
-		}
 		if transition.Before == refreshAbsent {
 			delete(reconstructed, transition.Path)
 		} else {
