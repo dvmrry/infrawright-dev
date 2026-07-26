@@ -11,13 +11,14 @@ so console renames and key changes resolve as *moves*, never destroy/recreate. A
 The adoption/codegen core is provider-neutral: provider-specific enumeration,
 identity, schema, and diagnostic metadata live in **packs** under
 `packs/<name>/`. Live collection has a separate boundary. Packs select
-provider sources and resource list/detail metadata, while the Go runtime
-supplies compiled collector adapters for authentication, URL composition,
-pagination, retries, and deterministic pull-file output. The shipped CLI
-currently includes Zscaler collector adapters; Cloudflare, Google, AWS, and
-NetBox provide provider-lab and metadata evidence but do not by themselves add
-live fetch support. Adding a pack therefore does not make a provider
-collectable without a matching compiled adapter.
+provider sources and resource list/detail metadata. Compiled collector adapters
+own authentication and URL composition; the generic Go coordinator and
+transport own pagination, retries, failure handling, and deterministic
+pull-file output. The shipped CLI currently includes Zscaler collector
+adapters; Cloudflare, Google, AWS, and NetBox provide provider-lab and metadata
+evidence but do not by themselves add live fetch support. Adding a pack
+therefore does not make a provider collectable without a matching compiled
+adapter.
 
 ## Primary Adoption Workflow
 
