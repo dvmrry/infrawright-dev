@@ -1181,17 +1181,6 @@ run "one_capability_plan" {
 	t.Log("ZPA portal capability cardinality: one tuple element preserved in plan; two elements and keyed-object bypass rejected before provider execution")
 }
 
-func TestZPAPortalCapabilityCardinalityTerraform(t *testing.T) {
-	repositoryRoot := repoRoot(t)
-	terraform := v2RequiredTerraformExecutable(t)
-	v2VerifyZPAPortalCapabilityCardinality(
-		t,
-		repositoryRoot,
-		terraform,
-		v2FocusedTerraformEnvironment(t, terraform),
-	)
-}
-
 func v2VerifyDemoEnvironmentSemantics(
 	t *testing.T,
 	repositoryRoot, workspace, goBinary, terraform, deploymentPath, overlay string,

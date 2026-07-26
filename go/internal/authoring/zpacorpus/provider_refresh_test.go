@@ -16,7 +16,7 @@ import (
 
 const (
 	zpaPreviousProviderSchemaEnv        = "ZPA_PREVIOUS_PROVIDER_SCHEMA"
-	zpaProvider446SemanticProjectionSHA = "1b3af8e5a63c2b51e38eda1910b7c8de5b16f42452d2deeb4a0f901df30b3961"
+	zpaProvider446SemanticProjectionSHA = "5d22584cd9d10d0dd4734143dd80a40e3f72a93ae227d060163674c36957cdfd"
 	refreshAbsent                       = "null"
 	refreshOptionalBool                 = `{"kind":"attribute","optional":true,"type":"bool"}`
 	refreshOptionalComputedBool         = `{"computed":true,"kind":"attribute","optional":true,"type":"bool"}`
@@ -98,11 +98,18 @@ var zpaProvider449TransitionDispositions = []refreshSchemaTransition{
 		"retain as schema-visible but not source-verified provider behavior"),
 }
 
-func refreshNode(kind string, source metadata.JsonObject, keys ...string) (string, error) {
+func refreshNode(kind string, source metadata.JsonObject, excludedKeys ...string) (string, error) {
+	excluded := map[string]struct{}{
+		"description":      {},
+		"description_kind": {},
+	}
+	for _, key := range excludedKeys {
+		excluded[key] = struct{}{}
+	}
 	node := metadata.JsonObject{"kind": kind}
-	for _, key := range keys {
-		if value, exists := source[key]; exists {
-			node[key] = value
+	for key, value := range source {
+		if _, skip := excluded[key]; !skip {
+			node[key] = refreshSemanticValue(value)
 		}
 	}
 	encoded, err := json.Marshal(node)
@@ -110,6 +117,27 @@ func refreshNode(kind string, source metadata.JsonObject, keys ...string) (strin
 		return "", fmt.Errorf("marshal %s schema node: %w", kind, err)
 	}
 	return string(encoded), nil
+}
+
+func refreshSemanticValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, child := range typed {
+			if key != "description" && key != "description_kind" {
+				cloned[key] = refreshSemanticValue(child)
+			}
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, child := range typed {
+			cloned[index] = refreshSemanticValue(child)
+		}
+		return cloned
+	default:
+		return value
+	}
 }
 
 func refreshSemanticProjection(data []byte) (map[string]string, error) {
@@ -120,7 +148,11 @@ func refreshSemanticProjection(data []byte) (map[string]string, error) {
 	projection := map[string]string{}
 	var walkBlock func(metadata.JsonObject, string) error
 	walkBlock = func(block metadata.JsonObject, path string) error {
-		projection[path] = `{"kind":"block"}`
+		var err error
+		projection[path], err = refreshNode("block", block, "attributes", "block_types")
+		if err != nil {
+			return err
+		}
 		attributes, err := metadata.TerraformAttributesForBlock(block, path)
 		if err != nil {
 			return err
@@ -130,7 +162,7 @@ func refreshSemanticProjection(data []byte) (map[string]string, error) {
 			if err != nil {
 				return err
 			}
-			projection[path+"/attributes/"+name], err = refreshNode("attribute", attribute, "type", "required", "optional", "computed")
+			projection[path+"/attributes/"+name], err = refreshNode("attribute", attribute)
 			if err != nil {
 				return err
 			}
@@ -145,7 +177,7 @@ func refreshSemanticProjection(data []byte) (map[string]string, error) {
 			if err != nil {
 				return err
 			}
-			projection[blockTypePath], err = refreshNode("block_type", blockType, "nesting_mode", "min_items", "max_items")
+			projection[blockTypePath], err = refreshNode("block_type", blockType, "block")
 			if err != nil {
 				return err
 			}
@@ -166,8 +198,11 @@ func refreshSemanticProjection(data []byte) (map[string]string, error) {
 		}
 		for resourceType, rawSchema := range surface {
 			path := surfaceName + "/" + resourceType
-			projection[path] = `{"kind":"schema"}`
 			schema, err := metadata.TerraformRequireObject(rawSchema, path)
+			if err != nil {
+				return nil, err
+			}
+			projection[path], err = refreshNode("schema", schema, "block")
 			if err != nil {
 				return nil, err
 			}
@@ -216,6 +251,38 @@ func refreshTransitionKey(transition refreshSchemaTransition) string {
 	return transition.Path + "\x00" + transition.Before + "\x00" + transition.After
 }
 
+func refreshDispositionProblems(current map[string]string, dispositions []refreshSchemaTransition) []string {
+	seenPaths := make(map[string]struct{}, len(dispositions))
+	var problems []string
+	for _, transition := range dispositions {
+		switch {
+		case strings.TrimSpace(transition.Path) == "":
+			problems = append(problems, "transition has an empty path")
+		case transition.Before == "" || transition.After == "":
+			problems = append(problems, fmt.Sprintf("transition %s has an empty before/after value", transition.Path))
+		case transition.Before == transition.After:
+			problems = append(problems, fmt.Sprintf("transition %s is a no-op", transition.Path))
+		}
+		if strings.TrimSpace(transition.Disposition) == "" {
+			problems = append(problems, fmt.Sprintf("transition %s has an empty disposition", transition.Path))
+		}
+		if _, duplicate := seenPaths[transition.Path]; duplicate {
+			problems = append(problems, fmt.Sprintf("transition %s has a duplicate path", transition.Path))
+		}
+		seenPaths[transition.Path] = struct{}{}
+
+		actual := current[transition.Path]
+		if actual == "" {
+			actual = refreshAbsent
+		}
+		if actual != transition.After {
+			problems = append(problems, fmt.Sprintf("current schema transition %s = %s, want disposition after value %s", transition.Path, actual, transition.After))
+		}
+	}
+	sort.Strings(problems)
+	return problems
+}
+
 func requireRefreshTransitionSet(t *testing.T, actual, dispositions []refreshSchemaTransition) {
 	t.Helper()
 	actualKeys := make(map[string]string, len(actual))
@@ -224,13 +291,7 @@ func requireRefreshTransitionSet(t *testing.T, actual, dispositions []refreshSch
 	}
 	dispositionKeys := make(map[string]string, len(dispositions))
 	for _, transition := range dispositions {
-		if strings.TrimSpace(transition.Disposition) == "" {
-			t.Errorf("transition %s has an empty disposition", transition.Path)
-		}
 		key := refreshTransitionKey(transition)
-		if _, duplicate := dispositionKeys[key]; duplicate {
-			t.Errorf("transition %s has a duplicate disposition", transition.Path)
-		}
 		dispositionKeys[key] = fmt.Sprintf("%s: %s -> %s", transition.Path, transition.Before, transition.After)
 	}
 	var missing, stale []string
@@ -263,6 +324,9 @@ func TestProvider449SchemaTransitionDispositionsAreExact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refreshSemanticProjection(%q) error = %v, want nil", currentPath, err)
 	}
+	if problems := refreshDispositionProblems(current, zpaProvider449TransitionDispositions); len(problems) > 0 {
+		t.Fatalf("ZPA 4.4.9 transition dispositions are malformed:\n%s", strings.Join(problems, "\n"))
+	}
 
 	// Reversing every disposition must reproduce the pre-bump semantic
 	// fingerprint. This rejects both undispositioned and stale transitions
@@ -275,9 +339,6 @@ func TestProvider449SchemaTransitionDispositionsAreExact(t *testing.T) {
 		actual := current[transition.Path]
 		if actual == "" {
 			actual = refreshAbsent
-		}
-		if actual != transition.After {
-			t.Errorf("current schema transition %s = %s, want disposition after value %s", transition.Path, actual, transition.After)
 		}
 		if transition.Before == refreshAbsent {
 			delete(reconstructed, transition.Path)
@@ -311,6 +372,76 @@ func TestProvider449SchemaTransitionDispositionsAreExact(t *testing.T) {
 	requireRefreshTransitionSet(t, refreshSchemaTransitions(previous, current), zpaProvider449TransitionDispositions)
 	for _, transition := range zpaProvider449TransitionDispositions {
 		t.Logf("schema transition %s: %s", transition.Path, transition.Disposition)
+	}
+}
+
+func TestRefreshTransitionDispositionsRejectMalformedEntries(t *testing.T) {
+	current := map[string]string{"path": "after"}
+	valid := refreshSchemaTransition{Path: "path", Before: "before", After: "after", Disposition: "reviewed"}
+	for _, testCase := range []struct {
+		name         string
+		dispositions []refreshSchemaTransition
+		want         string
+	}{
+		{name: "empty disposition", dispositions: []refreshSchemaTransition{{Path: "path", Before: "before", After: "after"}}, want: "empty disposition"},
+		{name: "exact duplicate", dispositions: []refreshSchemaTransition{valid, valid}, want: "duplicate path"},
+		{name: "conflicting duplicate path", dispositions: []refreshSchemaTransition{valid, {Path: "path", Before: "other", After: "after", Disposition: "reviewed"}}, want: "duplicate path"},
+		{name: "no-op", dispositions: []refreshSchemaTransition{{Path: "path", Before: "after", After: "after", Disposition: "reviewed"}}, want: "no-op"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			problems := strings.Join(refreshDispositionProblems(current, testCase.dispositions), "\n")
+			if !strings.Contains(problems, testCase.want) {
+				t.Fatalf("refreshDispositionProblems() = %q, want problem containing %q", problems, testCase.want)
+			}
+		})
+	}
+}
+
+func TestRefreshSemanticProjectionIncludesGeneratorConsumedAttributeSemantics(t *testing.T) {
+	projection := func(attribute metadata.JsonObject) map[string]string {
+		t.Helper()
+		data, err := json.Marshal(metadata.JsonObject{
+			"resource_schemas": metadata.JsonObject{
+				"sample_resource": metadata.JsonObject{
+					"block": metadata.JsonObject{
+						"attributes": metadata.JsonObject{"sample": attribute},
+					},
+				},
+			},
+			"data_source_schemas": metadata.JsonObject{},
+		})
+		if err != nil {
+			t.Fatalf("json.Marshal(synthetic provider schema) error = %v, want nil", err)
+		}
+		projected, err := refreshSemanticProjection(data)
+		if err != nil {
+			t.Fatalf("refreshSemanticProjection(synthetic provider schema) error = %v, want nil", err)
+		}
+		return projected
+	}
+	base := metadata.JsonObject{"type": "string", "optional": true}
+	for _, testCase := range []struct {
+		name      string
+		attribute metadata.JsonObject
+	}{
+		{name: "sensitive", attribute: metadata.JsonObject{"type": "string", "optional": true, "sensitive": true}},
+		{name: "deprecated", attribute: metadata.JsonObject{"type": "string", "optional": true, "deprecated": true}},
+		{name: "nested attribute type", attribute: metadata.JsonObject{
+			"optional": true,
+			"nested_type": metadata.JsonObject{
+				"nesting_mode": "list",
+				"attributes": metadata.JsonObject{
+					"enabled": metadata.JsonObject{"type": "bool", "optional": true},
+				},
+			},
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			transitions := refreshSchemaTransitions(projection(base), projection(testCase.attribute))
+			if len(transitions) != 1 || transitions[0].Path != "resource_schemas/sample_resource/block/attributes/sample" {
+				t.Fatalf("refreshSchemaTransitions(%s) = %+v, want one sample attribute transition", testCase.name, transitions)
+			}
+		})
 	}
 }
 
