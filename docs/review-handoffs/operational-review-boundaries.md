@@ -10,13 +10,21 @@
 ## Base / Head
 
 - Base: `aa062eb584a40c8ba93ab3f0dca17e9881d20f4d`
-- Implementation head: `f1e50daba3fc0eb2211498c1611b283ba16bebd8`
-- Diff command: `git diff aa062eb584a40c8ba93ab3f0dca17e9881d20f4d..f1e50daba3fc0eb2211498c1611b283ba16bebd8`
+- Initial implementation head: `f1e50daba3fc0eb2211498c1611b283ba16bebd8`
+- Review-correction implementation head:
+  `f66e26401e002308dde1762ab7f63ee072fd45c0`.
+- Exact review head: the handoff-only commit after
+  `f66e26401e002308dde1762ab7f63ee072fd45c0`; it is supplied to the reviewer
+  explicitly and introduces no further implementation change.
+- Diff command: `git diff aa062eb584a40c8ba93ab3f0dca17e9881d20f4d..<exact-review-head>`
 
 ## Files Changed
 
 - `AGENTS.md`
 - `README.md`
+- `docs/adversarial-review.md`
+- `docs/adversarial-review-run-prompt.md`
+- `docs/review-handoffs/operational-review-boundaries.md`
 - Files intentionally left untouched: runtime code, collector code, pack
   metadata, workflows, generated artifacts, and the broader cleanup backlog.
 
@@ -56,8 +64,8 @@
 - Ambiguity must stay classified instead of being coerced to success: unchanged.
 - Provider-readiness counts must stay explainable: unchanged.
 - Adoption safety invariants: changes to identity keys, moved-block handling,
-  saved-plan classification, and apply guardrails now explicitly require the
-  existing fresh-context adversarial-review process.
+  import IDs and blocks, saved-plan classification, and apply guardrails now
+  explicitly require the existing fresh-context adversarial-review process.
 
 ## Tests Run
 
@@ -87,4 +95,23 @@
 - Generated artifacts the reviewer should compare: None.
 - Edge cases that could silently overclaim, remap, drop, or weaken evidence:
   wording that implies pack metadata alone enables live fetch, or a review list
-  that omits identity, move, classification, or apply-authority changes.
+  that omits identity, import, move, classification, or apply-authority changes.
+
+## Initial Review Resolution
+
+- Finding: README assigned pagination, retries, and output to adapters.
+  Root cause: the sentence collapsed adapter, coordinator, and transport
+  responsibilities. Fix: it now assigns only authentication and URL composition
+  to compiled adapters and names the generic coordinator/transport ownership.
+  Verification: compare against `CollectorAdapter`, `FetchResources`, and the
+  HTTP transport implementation.
+- Finding: only `AGENTS.md` carried the new triggers. Root cause: the reusable
+  workflow and run prompt duplicated the old list. Fix: the same operational
+  triggers now appear in all three required review documents. Verification:
+  compare the lists directly.
+- Finding: import-ID derivation and the import-block lifecycle were absent.
+  Root cause: the original slice named moves and classification but overlooked
+  the import-only path accepted by the classifier. Fix: both import-ID mapping
+  and `import {}` generation/filtering/staging/lifecycle are explicit triggers
+  in all three documents. Verification: trace adoption metadata through import
+  rendering/staging and import-only classification.
