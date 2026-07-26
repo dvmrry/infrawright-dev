@@ -13,10 +13,14 @@
 
 ## Base / Head
 
-- Base: `22b5b95ccd90132efb5446798ad6eddc91b7bc99` (the pushed, unmerged
+- Base: `f0701aabc6b58b9d09c5fa13a558c079bc20e444` (the pushed, reviewed
   `feature/zpa-provider-4.4.9` tip).
-- Head: `8ef47bf91a19c26fb2cff0491ad926c5377163df`.
-- Diff command: `git diff 22b5b95ccd90132efb5446798ad6eddc91b7bc99..8ef47bf91a19c26fb2cff0491ad926c5377163df`.
+- Original implementation: `38f0ae1de838c6e8de5fa2b4722df9ee30d617a9`.
+- Review correction: `8ef47bf91a19c26fb2cff0491ad926c5377163df`.
+- Updated-base merge: `6913c25d8040585c0df47588cc4e6bca92099171`.
+- Handoff: the branch tip has a documentation-only commit updating this file
+  after the updated-base merge.
+- Diff command: `git diff f0701aabc6b58b9d09c5fa13a558c079bc20e444..6913c25d8040585c0df47588cc4e6bca92099171`.
 
 ## Files Changed
 
@@ -123,6 +127,13 @@
   correction, `make check-core` passed against a physical empty pack root with
   Terraform absent from `PATH` in 27.49 seconds. Vet, formatting, and diff
   hygiene passed.
+- Updated-base integration: merging the reviewed ZPA tip preserved all four
+  remediation commits and left the child diff at the same eight files, 864
+  additions, and 14 deletions. The focused singleton clone/cardinality tests
+  and the disposition well-formedness/projection tests all passed in 2.6
+  seconds; `git diff --check` and worktree status were clean. The full corpus
+  was not repeated because the parent correction and child implementation had
+  already passed their promotion gates independently and the merge was clean.
 - Focused regression and pre-fix/unsafe-mutation proof:
   - Replacing the tuple singleton marker with the previous `max_items = 1`
     object behavior made the synthetic contract fail its accepted singleton
