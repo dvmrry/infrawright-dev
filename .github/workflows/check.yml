@@ -47,8 +47,6 @@ jobs:
     name: Go v2 vertical-slice checkpoint
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/terraform-plugin-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -59,10 +57,14 @@ jobs:
         with:
           terraform_version: "1.15.4"
           terraform_wrapper: false
+      - name: Configure Terraform provider plugin cache
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-plugin-cache" >> "$GITHUB_ENV"
       - name: Cache Terraform provider plugins
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          path: ${{ runner.temp }}/terraform-plugin-cache
           key: terraform-plugins-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packs/*/pack.json') }}
           restore-keys: |
             terraform-plugins-${{ runner.os }}-${{ runner.arch }}-
