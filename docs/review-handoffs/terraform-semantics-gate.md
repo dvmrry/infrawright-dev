@@ -34,6 +34,21 @@
 - Diff command:
   `git diff aa062eb584a40c8ba93ab3f0dca17e9881d20f4d...27e29cabfafd02f3c8e91cdfdfb2ed2dbd107c58`.
 
+## Adversarial Review Result
+
+- A fresh max-effort Codex reviewer inspected the exact implementation diff
+  read-only with no builder context and returned **Approve** with no blocking
+  findings.
+- The reviewer independently ran the exact checkpoint from a cold explicit
+  plugin cache. It passed in 395.58 seconds, matched the handoff's candidate
+  binary hash, passed 151/151 module suites and 20/20 demo roots, and reproduced
+  the exact one-plan HCL evidence.
+- The reviewer verified that the cache contained exactly the four active
+  providers and pins: ZCC `0.1.0-beta.1`, ZIA `4.8.0`, ZPA `4.4.6`, and ZTC
+  `0.2.0`.
+- Non-blocking risk: the updated GitHub-hosted workflow had not run before
+  branch publication. Normal required PR checks must pass before merge.
+
 ## Files Changed
 
 - `.github/workflows/check.yml`
