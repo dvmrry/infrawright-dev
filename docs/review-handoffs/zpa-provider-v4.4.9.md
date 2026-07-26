@@ -200,6 +200,14 @@
   and the keyed-object counterexample are rejected before provider execution.
   One preceding sweep had a transient `zpa_application_server` init failure;
   the exact retry passed that module and the complete 151/151 surface.
+- Promotion-efficiency baseline: first refresh commit
+  `21517493d95abb320b8fc9a602da22cc3a408c7e` at 2026-07-26 14:00:15 -0400 to
+  corrected review-ready tip `22b5b95ccd90132efb5446798ad6eddc91b7bc99`
+  at 2026-07-26 15:39:43 -0400 was 1h39m28s (about 99 minutes). The builder and
+  reviewers attempted seven full-corpus Terraform sweeps, including failed and
+  interrupted attempts; this count is reconstructed from the completed run,
+  correction, and review sequence and is the baseline future refreshes must
+  record contemporaneously.
 - Tests not run and why: no credentialed ZPA tenant fetch/import/no-op-plan or
   upstream acceptance suite was run because credentials and tenant mutation
   were not authorized.

@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 )
 
@@ -393,6 +395,25 @@ func v2FullZIAPackRoot(t *testing.T, repositoryRoot string) string {
 	return root
 }
 
+func v2FocusedZPAPackRoot(t *testing.T, repositoryRoot string) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "packs")
+	shared := filepath.Join(root, "_shared")
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", shared, err)
+	}
+	links := map[string]string{
+		filepath.Join(root, "zpa"):       filepath.Join(repositoryRoot, "packs", "zpa"),
+		filepath.Join(shared, "zscaler"): filepath.Join(repositoryRoot, "packs", "_shared", "zscaler"),
+	}
+	for link, target := range links {
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatalf("os.Symlink(%q, %q) error = %v, want the focused ZPA pack", target, link, err)
+		}
+	}
+	return root
+}
+
 func v2PluginCacheDirectory(t *testing.T, home string) string {
 	t.Helper()
 	pluginCache := os.Getenv("TF_PLUGIN_CACHE_DIR")
@@ -407,6 +428,53 @@ func v2PluginCacheDirectory(t *testing.T, home string) string {
 		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", pluginCache, err)
 	}
 	return pluginCache
+}
+
+func v2RequiredTerraformExecutable(t *testing.T) string {
+	t.Helper()
+	terraform, err := exec.LookPath("terraform")
+	if err != nil {
+		t.Fatalf("exec.LookPath(%q) error = %v, want a real Terraform executable", "terraform", err)
+	}
+	terraform, err = filepath.Abs(terraform)
+	if err != nil {
+		t.Fatalf("filepath.Abs(%q) error = %v, want nil", terraform, err)
+	}
+	terraform, err = filepath.EvalSymlinks(terraform)
+	if err != nil {
+		t.Fatalf("filepath.EvalSymlinks(%q) error = %v, want a regular Terraform executable", terraform, err)
+	}
+	return terraform
+}
+
+// v2FocusedTerraformEnvironment gives one-resource Terraform contracts only
+// the runtime state they need. It deliberately does not require the vertical
+// checkpoint's CLI build, fetch fixture, deployment, or opt-in environment.
+func v2FocusedTerraformEnvironment(t *testing.T, terraform string) []string {
+	t.Helper()
+	home := t.TempDir()
+	temporaryBase := os.TempDir()
+	if runtime.GOOS != "windows" {
+		temporaryBase = "/tmp"
+	}
+	temporary, err := os.MkdirTemp(temporaryBase, "iw-tf-contract-")
+	if err != nil {
+		t.Fatalf("os.MkdirTemp(%q, %q) error = %v, want nil", temporaryBase, "iw-tf-contract-", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(temporary); err != nil {
+			t.Errorf("os.RemoveAll(%q) error = %v, want nil", temporary, err)
+		}
+	})
+	return []string{
+		"CHECKPOINT_DISABLE=1",
+		"HOME=" + home,
+		"PATH=" + filepath.Dir(terraform),
+		"TF_IN_AUTOMATION=1",
+		"TF_INPUT=0",
+		"TF_PLUGIN_CACHE_DIR=" + v2PluginCacheDirectory(t, home),
+		"TMPDIR=" + temporary,
+	}
 }
 
 func TestV2PluginCacheDirectoryUsesExplicitCacheWithHermeticFallback(t *testing.T) {
@@ -993,15 +1061,34 @@ func v2VerifyGeneratedModuleSemantics(
 		t.Fatalf("generated module Terraform semantics: %d/%d passed", passed, len(resourceTypes))
 	}
 	t.Logf("generated module Terraform semantics: %d/%d passed", passed, v2GeneratedModuleCount)
-	v2VerifyZPAPortalCapabilityCardinality(t, terraform, moduleDirectory, environment)
 }
 
 func v2VerifyZPAPortalCapabilityCardinality(
 	t *testing.T,
-	terraform, moduleDirectory string,
+	repositoryRoot, terraform string,
 	environment []string,
 ) {
 	t.Helper()
+	profile := filepath.Join(repositoryRoot, "packs", "zpa.packset.json")
+	packRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot:   v2FocusedZPAPackRoot(t, repositoryRoot),
+		ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("metadata.LoadPackRoot(ZPA portal contract) error = %v, want nil", err)
+	}
+	moduleDirectory := filepath.Join(t.TempDir(), "modules")
+	if _, err := modulesgen.GenerateModule(
+		packRoot,
+		"zpa_policy_portal_access_rule",
+		modulesgen.GenerateModuleOptions{
+			OutputRoot: moduleDirectory,
+			FormatHCL:  modulesgen.NewHCLFormatter(),
+		},
+	); err != nil {
+		t.Fatalf("modulesgen.GenerateModule(zpa_policy_portal_access_rule) error = %v, want nil", err)
+	}
+
 	root := t.TempDir()
 	moduleSource := filepath.Join(moduleDirectory, "zpa_policy_portal_access_rule")
 	providerRequirements, err := os.ReadFile(filepath.Join(moduleSource, "versions.tf"))
@@ -1222,18 +1309,13 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	}
 
 	root := repoRoot(t)
-	terraform, err := exec.LookPath("terraform")
-	if err != nil {
-		t.Fatalf("exec.LookPath(%q) error = %v, want a real Terraform executable", "terraform", err)
-	}
-	terraform, err = filepath.Abs(terraform)
-	if err != nil {
-		t.Fatalf("filepath.Abs(%q) error = %v, want nil", terraform, err)
-	}
-	terraform, err = filepath.EvalSymlinks(terraform)
-	if err != nil {
-		t.Fatalf("filepath.EvalSymlinks(%q) error = %v, want a regular Terraform executable", terraform, err)
-	}
+	terraform := v2RequiredTerraformExecutable(t)
+	v2VerifyZPAPortalCapabilityCardinality(
+		t,
+		root,
+		terraform,
+		v2FocusedTerraformEnvironment(t, terraform),
+	)
 	goBinary := v2BuildGoBinary(t, root)
 
 	wantPullPath := filepath.Join(root, "packs", "_shared", "zscaler", "demo", v2ResourceType+".json")

@@ -327,6 +327,137 @@ func TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema(
 	}
 }
 
+// TestModuleSingleBlocksTerraformCardinality is the cheap, pack-independent
+// Terraform contract for the singleton encoding. The V2 checkpoint separately
+// proves that the real ZPA portal resource selects this generic behavior.
+func TestModuleSingleBlocksTerraformCardinality(t *testing.T) {
+	executable := terraformExecutable(t)
+	schema := metadata.JsonObject{
+		"block": metadata.JsonObject{
+			"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			},
+			"block_types": metadata.JsonObject{
+				"capabilities": metadata.JsonObject{
+					"nesting_mode": "list",
+					"block": metadata.JsonObject{
+						"attributes": metadata.JsonObject{
+							"enabled": metadata.JsonObject{"type": "bool", "optional": true},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, packRoot := syntheticRoot(t, syntheticRootOptions{
+		Schema:       schema,
+		OverrideText: `{"module_single_blocks":["capabilities"]}`,
+	})
+	generatedRoot := t.TempDir()
+	if _, err := GenerateModule(packRoot, "sample_resource", GenerateModuleOptions{
+		OutputRoot: generatedRoot,
+		FormatHCL:  NewHCLFormatter(),
+	}); err != nil {
+		t.Fatalf("GenerateModule(module_single_blocks Terraform contract): %v", err)
+	}
+	variables, err := os.ReadFile(filepath.Join(generatedRoot, "sample_resource", "variables.tf"))
+	if err != nil {
+		t.Fatalf("read generated variables.tf: %v", err)
+	}
+
+	root := t.TempDir()
+	moduleDirectory := filepath.Join(root, "module")
+	writeRawFile(t, filepath.Join(moduleDirectory, "variables.tf"), string(variables))
+	writeRawFile(t, filepath.Join(moduleDirectory, "outputs.tf"), `output "capabilities" {
+  value = var.items["example"].capabilities
+}
+`)
+	writeRawFile(t, filepath.Join(root, "tests", "cardinality.tftest.hcl"), `run "one_capability_plan" {
+  command = plan
+
+  assert {
+    condition     = output.capabilities[0].enabled == true
+    error_message = "the singleton capability value was not preserved"
+  }
+}
+`)
+	writeConfiguration := func(capabilities string) {
+		t.Helper()
+		writeRawFile(t, filepath.Join(root, "main.tf"), fmt.Sprintf(`module "subject" {
+  source = "./module"
+  items = {
+    example = {
+      name         = "example"
+      capabilities = %s
+    }
+  }
+}
+
+output "capabilities" {
+  value = module.subject.capabilities
+}
+`, capabilities))
+	}
+
+	home := t.TempDir()
+	environment := append(os.Environ(),
+		"CHECKPOINT_DISABLE=1",
+		"HOME="+home,
+		"TF_DATA_DIR="+filepath.Join(root, ".terraform-data"),
+		"TF_IN_AUTOMATION=1",
+		"TF_INPUT=0",
+	)
+	run := func(arguments ...string) ([]byte, error) {
+		t.Helper()
+		command := exec.Command(executable, arguments...)
+		command.Dir = root
+		command.Env = environment
+		return command.CombinedOutput()
+	}
+
+	writeConfiguration(`[
+      { enabled = true },
+    ]`)
+	if output, err := run("init", "-backend=false", "-no-color"); err != nil {
+		t.Fatalf("terraform init failed: %v\n%s", err, output)
+	}
+	if output, err := run("test", "-test-directory=tests", "-no-color"); err != nil {
+		t.Fatalf("terraform singleton plan failed: %v\n%s", err, output)
+	}
+
+	for _, testCase := range []struct {
+		name  string
+		value string
+	}{
+		{
+			name: "two elements",
+			value: `[
+      { enabled = true },
+      { enabled = false },
+    ]`,
+		},
+		{
+			name: "keyed object bypass",
+			value: `{
+      first  = { enabled = true }
+      second = { enabled = false }
+    }`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeConfiguration(testCase.value)
+			output, err := run("validate", "-no-color")
+			if err == nil {
+				t.Fatalf("terraform accepted %s; want tuple rejection", testCase.name)
+			}
+			diagnostic := string(output)
+			if !strings.Contains(diagnostic, "Invalid value for input variable") || !strings.Contains(diagnostic, "tuple required") {
+				t.Fatalf("terraform rejection for %s = %q, want input-variable tuple diagnostic", testCase.name, diagnostic)
+			}
+		})
+	}
+}
+
 func TestModuleSingleBlocksApplyStrictTupleToDottedNestedPath(t *testing.T) {
 	_, root := syntheticRoot(t, syntheticRootOptions{
 		Schema: metadata.JsonObject{

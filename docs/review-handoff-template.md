@@ -59,6 +59,10 @@ answer.
 
 - Commands:
 - Relevant output summary:
+- Focused regression and pre-fix/unsafe-mutation proof:
+- Promotion efficiency: elapsed time from first candidate commit to final
+  corrected review-ready tip; attempted full-corpus sweep count (including
+  failed or interrupted attempts):
 - Tests not run and why:
 
 ## Known Deferrals
