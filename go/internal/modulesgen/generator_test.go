@@ -191,6 +191,8 @@ func TestCloneModuleSchemaValueDetachesNestedMapsAndSlices(t *testing.T) {
 		"blocks": []any{
 			metadata.JsonObject{"leaf": "original"},
 		},
+		"values":        []any{"original"},
+		"nested_slices": []any{[]any{"original"}},
 	}
 	var cloned metadata.JsonObject = cloneModuleSchemaValue(original)
 	cloned["top"] = "changed"
@@ -208,7 +210,21 @@ func TestCloneModuleSchemaValueDetachesNestedMapsAndSlices(t *testing.T) {
 		t.Fatalf("cloneModuleSchemaValue(original)[blocks][0] = %T, want map[string]any", clonedBlocks[0])
 	}
 	clonedSliceBlock["leaf"] = "changed"
-	cloned["blocks"] = append(clonedBlocks, metadata.JsonObject{"leaf": "added"})
+	clonedBlocks[0] = metadata.JsonObject{"leaf": "replacement"}
+	clonedValues, ok := cloned["values"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[values] = %T, want []any", cloned["values"])
+	}
+	clonedValues[0] = "changed"
+	clonedNestedSlices, ok := cloned["nested_slices"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[nested_slices] = %T, want []any", cloned["nested_slices"])
+	}
+	clonedNestedSlice, ok := clonedNestedSlices[0].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[nested_slices][0] = %T, want []any", clonedNestedSlices[0])
+	}
+	clonedNestedSlice[0] = "changed"
 
 	if got := original["top"]; got != "original" {
 		t.Errorf("cloneModuleSchemaValue(original) mutated top-level original value = %v, want original", got)
@@ -233,6 +249,24 @@ func TestCloneModuleSchemaValueDetachesNestedMapsAndSlices(t *testing.T) {
 	}
 	if got := originalSliceBlock["leaf"]; got != "original" {
 		t.Errorf("cloneModuleSchemaValue(original) mutated sliced original value = %v, want original", got)
+	}
+	originalValues, ok := original["values"].([]any)
+	if !ok {
+		t.Fatalf("original[values] = %T, want []any", original["values"])
+	}
+	if got := originalValues[0]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated original slice element = %v, want original", got)
+	}
+	originalNestedSlices, ok := original["nested_slices"].([]any)
+	if !ok {
+		t.Fatalf("original[nested_slices] = %T, want []any", original["nested_slices"])
+	}
+	originalNestedSlice, ok := originalNestedSlices[0].([]any)
+	if !ok {
+		t.Fatalf("original[nested_slices][0] = %T, want []any", originalNestedSlices[0])
+	}
+	if got := originalNestedSlice[0]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated nested original slice element = %v, want original", got)
 	}
 }
 
