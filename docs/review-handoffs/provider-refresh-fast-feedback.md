@@ -15,14 +15,17 @@
 
 - Base: `22b5b95ccd90132efb5446798ad6eddc91b7bc99` (the pushed, unmerged
   `feature/zpa-provider-4.4.9` tip).
-- Head: `38f0ae1de838c6e8de5fa2b4722df9ee30d617a9`.
-- Diff command: `git diff 22b5b95ccd90132efb5446798ad6eddc91b7bc99..38f0ae1de838c6e8de5fa2b4722df9ee30d617a9`.
+- Head: `8ef47bf91a19c26fb2cff0491ad926c5377163df`.
+- Diff command: `git diff 22b5b95ccd90132efb5446798ad6eddc91b7bc99..8ef47bf91a19c26fb2cff0491ad926c5377163df`.
 
 ## Files Changed
 
-- `go/cmd/iw/v2_vertical_slice_test.go`: extracts the ZPA portal cardinality
-  contract into a standalone Terraform test that generates one module and
-  runs before the checkpoint's binary build and 151-module sweep.
+- `go/cmd/iw/v2_vertical_slice_test.go`: generates only the ZPA portal module
+  and runs its real-provider-shape contract before the checkpoint's binary
+  build and 151-module sweep.
+- `go/internal/modulesgen/generator_test.go`: adds the independently runnable,
+  synthetic, pack-independent Terraform contract for singleton module input
+  encoding. It initializes no provider and performs no registry download.
 - `go/internal/authoring/zpacorpus/provider_refresh_test.go`: commits the exact
   16 schema-transition dispositions and enforces them against a semantic
   projection of the provider schema.
@@ -50,7 +53,8 @@
   focused test.
 - Existing docs or design records: `docs/adversarial-review.md`, the builder
   and reviewer templates, and the ZPA 4.4.9 review handoff.
-- Other source evidence: `go/internal/modulesgen` generation behavior and the
+- Other source evidence: `go/internal/modulesgen` generation behavior, the
+  synthetic-pack helper, the empty-pack distribution contract, and the
   existing V2 checkpoint Terraform harness.
 
 ## Generated Artifacts
@@ -59,17 +63,20 @@
 - Schemas: none changed.
 - Fixtures: none changed.
 - Snapshots: none changed.
-- Demo or lab outputs: none committed. The focused test generates only
-  `zpa_policy_portal_access_rule` in a temporary directory.
+- Demo or lab outputs: none committed. The cheap contract generates one
+  synthetic module in a temporary directory; the checkpoint generates only
+  `zpa_policy_portal_access_rule` before entering its existing corpus setup.
 - Artifact drift intentionally expected: none.
 
 ## Expected Delta
 
-- Expected behavior change: `TestZPAPortalCapabilityCardinalityTerraform` runs
-  without `INFRAWRIGHT_V2_CHECKPOINT`, CLI build, fetch fixture, deployment, or
-  full module generation. The full checkpoint executes the same contract
-  first. A schema refresh now fails until its semantic transitions and
-  dispositions form an exact set.
+- Expected behavior change: `TestModuleSingleBlocksTerraformCardinality` runs
+  without a pack, provider plugin, network access, checkpoint opt-in, CLI
+  build, fetch fixture, deployment, or full module generation. It skips when
+  Terraform is absent, matching the repository's existing formatter
+  cross-checks. The full checkpoint executes the real ZPA integration first.
+  A schema refresh now fails until its semantic transitions and dispositions
+  form an exact, well-formed set.
 - Expected report/count/coverage changes: none.
 - Expected generated-output changes: none.
 - Expected no-op areas: runtime CLI behavior, pack selection, transform and
@@ -80,7 +87,9 @@
 - Evidence must not be silently dropped: the current ZPA semantic projection,
   with every disposition reversed, must reproduce the pinned ZPA 4.4.6
   projection hash. An optional previous-schema input also compares the literal
-  transition set and reports missing or stale dispositions.
+  transition set and reports missing or stale dispositions. The always-on path
+  rejects empty dispositions, duplicate paths, no-op entries, current-value
+  mismatches, and empty before/after values.
 - Generic matcher evidence must not outrank source-backed evidence: unchanged;
   no matcher or evidence-precedence code changed.
 - Source precedence/provenance must remain explicit: unchanged; disposition
@@ -92,35 +101,59 @@
 - Adoption safety invariants: unchanged; no adoption or transform path changed.
 - Terraform cardinality: one `privileged_portal_capabilities` element plans;
   two elements and the prior keyed-object bypass fail before provider
-  execution.
+  execution. The semantic projection retains every non-documentation schema
+  field recursively, including nested attribute types, `sensitive`,
+  `deprecated`, and resource schema versions.
 
 ## Tests Run
 
 - Commands:
-  - `TF_PLUGIN_CACHE_DIR=/tmp/infrawright-terraform-plugin-cache go test -count=1 -run '^TestZPAPortalCapabilityCardinalityTerraform$' ./cmd/iw`
+  - `go test -count=1 -run '^TestModuleSingleBlocksTerraformCardinality$' ./internal/modulesgen`
   - `ZPA_PREVIOUS_PROVIDER_SCHEMA=/tmp/infrawright-zpa-446-schema.XXXXXX.json go test -count=1 -run '^TestProvider449SchemaTransitionDispositionsAreExact$' ./internal/authoring/zpacorpus`
+  - `go test -count=1 -run '^(TestProvider449SchemaTransitionDispositionsAreExact|TestRefreshTransitionDispositionsRejectMalformedEntries|TestRefreshSemanticProjectionIncludesGeneratorConsumedAttributeSemantics)$' ./internal/authoring/zpacorpus`
   - `TF_PLUGIN_CACHE_DIR=/tmp/infrawright-terraform-plugin-cache make check`
   - `TF_PLUGIN_CACHE_DIR=/tmp/infrawright-terraform-plugin-cache INFRAWRIGHT_V2_CHECKPOINT=1 go test -count=1 -timeout=18m -v -run '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw`
-  - `go vet ./...`; `gofmt -l` on both changed Go files; `git diff --check`.
-- Relevant output summary: focused portal contract passed in about 3 seconds;
-  exact 16-transition comparison passed in under 1 second; `make check` passed
-  in 49.66 seconds; the sole full promotion passed 151/151 generated modules,
-  20/20 demo roots, and the HCL-tfvars plan in 399.07 seconds. Vet, formatting,
-  and diff hygiene passed.
+  - `/usr/bin/env -u TF PATH=/etc/profiles/per-user/dm/bin:/usr/bin:/bin /run/current-system/sw/bin/make check-core`
+  - `go vet ./...`; `gofmt -l` on all changed Go files; `git diff --check`.
+- Relevant output summary: the synthetic Terraform contract passed in under 1
+  second with no provider installation; exact 16-transition comparison passed
+  in under 1 second; `make check` passed the initial candidate in 49.66
+  seconds; the sole full promotion passed 151/151 generated modules, 20/20
+  demo roots, and the HCL-tfvars plan in 399.07 seconds. After review
+  correction, `make check-core` passed against a physical empty pack root with
+  Terraform absent from `PATH` in 27.49 seconds. Vet, formatting, and diff
+  hygiene passed.
 - Focused regression and pre-fix/unsafe-mutation proof:
   - Replacing the tuple singleton marker with the previous `max_items = 1`
-    object behavior made the standalone Terraform contract fail; restoring the
-    safe implementation made it pass.
-  - Mutating one committed transition path made the schema test report the
-    current-value mismatch, reconstructed-hash mismatch, missing real
-    transition, and stale fake transition; restoring it made the test pass.
-- Promotion efficiency: the first candidate and corrected review-ready
-  implementation are both `38f0ae1de838c6e8de5fa2b4722df9ee30d617a9`
-  (zero post-candidate correction time); one full-corpus Terraform sweep was
-  attempted and it passed.
+    object behavior made the synthetic contract fail its accepted singleton
+    case with `object required, but have tuple`; restoring the safe
+    implementation made it pass.
+  - Emptying one committed disposition made the normal, no-environment schema
+    test fail immediately. Synthetic guards also reject exact/conflicting
+    duplicate paths and no-op entries. The previous path mutation still
+    reports the current-value/hash mismatch plus missing/stale transitions.
+- Promotion efficiency: first candidate
+  `38f0ae1de838c6e8de5fa2b4722df9ee30d617a9` at 16:54:38 -0400 to corrected
+  review-ready implementation `8ef47bf91a19c26fb2cff0491ad926c5377163df`
+  at 17:19:15 -0400 was 24m37s. One full-corpus Terraform sweep was attempted;
+  no sweep was repeated after review findings.
 - Tests not run and why: no credentialed provider or tenant tests were run;
-  runtime behavior and provider data did not change. `make check` constituents
-  were not rerun individually after the passing superset.
+  runtime behavior and provider data did not change. The full checkpoint and
+  `make check` were not repeated after the test-only correction: the affected
+  contracts were reproduced with focused commands and `check-core`, as the
+  new promotion rules require.
+
+## Review Corrections
+
+- Unconditional pack-specific test -> the cheap test coupled the Go suite to
+  repository ZPA and provider download -> moved the invariant to a synthetic
+  pack-independent generator contract, retained real ZPA only in the opt-in
+  checkpoint -> proved with the Terraform-absent empty-root `check-core` run.
+- Optional-only disposition validation -> well-formedness lived below the
+  previous-schema environment guard and the semantic projection was too
+  narrow -> made validation unconditional and recursively retained all
+  non-documentation schema semantics -> proved with malformed-ledger mutations
+  and synthetic `sensitive`, `deprecated`, and nested-type transitions.
 
 ## Known Deferrals
 
@@ -139,12 +172,13 @@
 
 - Highest-risk files or paths:
   `go/internal/authoring/zpacorpus/provider_refresh_test.go` and the focused
-  Terraform helpers in `go/cmd/iw/v2_vertical_slice_test.go`.
-- Specific assumptions to attack: the focused test truly sheds checkpoint
-  prerequisites; its counterexamples fail for semantic reasons rather than
-  incidental setup; reversing dispositions plus the baseline hash rejects all
-  undispositioned and stale transitions; JSON semantic projection is stable;
-  and the process additions remain narrow enough to be followed.
+  Terraform contract in `go/internal/modulesgen/generator_test.go`.
+- Specific assumptions to attack: the synthetic test has no pack/provider
+  dependency and its counterexamples fail on the asserted tuple diagnostic;
+  the real ZPA checkpoint still runs first; reversing well-formed dispositions
+  plus the baseline hash rejects all undispositioned and stale transitions;
+  recursive semantic projection is deterministic; and the process additions
+  remain narrow enough to be followed.
 - Source evidence the reviewer should verify: the exact base/current schema
   transition set, current portal module generation path, and the original
   unsafe cardinality encoding.
