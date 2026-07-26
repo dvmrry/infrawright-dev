@@ -29,10 +29,14 @@
 - First correction, rejected by focused recheck:
   `f4466252b45434fc8087af7cd2d05335175d456d`.
 - Second correction: `2596ae04a28c4405aebb9c4578f79056fc396bb5`.
+- Clone-boundary correction:
+  `d69d63a17b596567bf4e72789058eb24f2a502fc`.
+- Focused-review test correction:
+  `1ffff278b89726ef03099e7fa0cf3e44d5d7543f`.
 - Handoff: the branch tip has a documentation-only commit updating this file
-  after the second correction.
+  after the focused-review test correction.
 - Diff command:
-  `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...2596ae04a28c4405aebb9c4578f79056fc396bb5`.
+  `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...1ffff278b89726ef03099e7fa0cf3e44d5d7543f`.
 
 ## Files Changed
 
@@ -41,8 +45,9 @@
   matrix and endpoint fixture; bounded schema/source tests; module and parity
   compatibility fixtures; the full-demo `DROPS_CHECK` gate; current-pin
   documentation and changelog; the generic `module_single_blocks` override
-  validator and module-generator overlay; the portal pack override; focused
-  generator and Terraform-cardinality tests; this handoff.
+  validator, typed deep-clone boundary, and module-generator overlay; the
+  portal pack override; focused generator and Terraform-cardinality tests;
+  this handoff.
 - Files intentionally left untouched: ZPA registry membership and fetch/API
   mappings; the generic transform, projection, field-lineage, and
   source-analysis implementations; every ZIA and ZTC pack file; both browser
@@ -151,7 +156,10 @@
   blocks, so the change affects generated values/types rather than Terraform
   resource addresses. No adoption classification or import path changes. The
   singleton overlay deep-clones the schema used for module generation and does
-  not mutate the cached provider schema used by other consumers.
+  not mutate the cached provider schema used by other consumers. Its top-level
+  contract accepts and returns `metadata.JsonObject`, so a future change from a
+  type alias to a defined type cannot silently bypass the clone at the API
+  boundary.
 
 ## Tests Run
 
@@ -167,6 +175,20 @@
   The external replay validates all pinned provider
   and SDK bindings and reproduces the 15-observed/one-ambiguous report. The
   full Go suite passes.
+- Clone-boundary correction commands:
+  `go test -count=1 -run
+  '^(TestCloneModuleSchemaValueDetachesNestedMapsAndSlices|TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema)$'
+  ./internal/modulesgen`, `make check`, `go vet ./...`, focused `gofmt -l`, and
+  `git diff --check`.
+- Clone-boundary correction output: the focused tests pass in under one second
+  and `make check` passes in 30.55 seconds. Replacing recursive nested-map
+  cloning with a shared-map return makes the focused regression fail on both
+  the direct nested object and the object inside a slice. Replacing recursive
+  slice cloning with a shared-slice return fails on the existing map element,
+  a scalar element, and a nested-slice element; restoring the deep clone
+  passes. No full Terraform corpus was repeated because generated output and
+  provider behavior are unchanged and the focused mutations plus `make check`
+  cover the corrected surface.
 - Commands: with Terraform `v1.15.4`,
   `TF_PLUGIN_CACHE_DIR=/tmp/infrawright-terraform-plugin-cache
   INFRAWRIGHT_V2_CHECKPOINT=1 go test -count=1 -timeout=18m -v -run
@@ -219,6 +241,25 @@
   `make check-pack PACK=zpa`, full `go test -count=1 ./...`, `go vet ./...`,
   repository-wide `gofmt -d`, `git diff --check`, `make check`, and the complete
   Terraform semantic checkpoint all pass.
+- Post-review finding: the clone helper accepted and returned `any`, then
+  asserted the result back to `metadata.JsonObject`. That works while
+  `metadata.JsonObject` is a type alias, but it leaves the ownership boundary
+  implicit and could silently stop cloning the top-level value if the alias
+  became a defined type.
+- Root cause and correction: generic recursive JSON cloning and the typed
+  schema boundary were combined in one `any -> any` function. The boundary now
+  has the compile-time contract `metadata.JsonObject -> metadata.JsonObject`,
+  with scalar/map/slice recursion isolated in a private child helper; the
+  impossible runtime assertion was removed.
+- Regression proof: a dedicated test mutates the cloned top-level value, nested
+  map, map inside a slice, existing scalar slice element, and nested-slice
+  element, and proves the original schema tree is unchanged. The test fails
+  against faithful shallow-map and shallow-slice mutations before the
+  production clone is restored.
+- Focused-review nit and correction: the first test appended and reassigned a
+  slice, which could not prove backing-array isolation because append never
+  changes the original slice header. The test now mutates existing elements
+  in scalar and nested slices and fails against a shared-slice implementation.
 
 ## Known Deferrals
 
@@ -258,8 +299,9 @@
 - Highest-risk files or paths: the regenerated provider schema; access-rule
   override and demo drift; source matrix and endpoint fixture provenance;
   `provider_refresh_test.go`; the metadata override validator; module-generator
-  clone/overlay logic; the portal override; the pinned-source AST assertion;
-  the V2 Terraform cardinality test; module/parity compatibility snapshots.
+  typed clone/overlay logic; the portal override; the pinned-source AST
+  assertion; the V2 Terraform cardinality test; module/parity compatibility
+  snapshots.
 - Specific assumptions to attack: the schema diff has exactly the documented
   16 transitions; only access rule and access-rule-v2 directly read and expand
   the device-posture bool; list-to-set changes do not influence item identity;

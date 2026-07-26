@@ -182,6 +182,94 @@ func TestZPAProvider449ModuleShapesMatchReviewedSchemaTransitions(t *testing.T) 
 	mustMatch(t, portalMain, `for_each = each\.value\.privileged_portal_capabilities == null \? \[\] : each\.value\.privileged_portal_capabilities`)
 }
 
+func TestCloneModuleSchemaValueDetachesNestedMapsAndSlices(t *testing.T) {
+	original := metadata.JsonObject{
+		"top": "original",
+		"block": metadata.JsonObject{
+			"leaf": "original",
+		},
+		"blocks": []any{
+			metadata.JsonObject{"leaf": "original"},
+		},
+		"values":        []any{"original"},
+		"nested_slices": []any{[]any{"original"}},
+	}
+	var cloned metadata.JsonObject = cloneModuleSchemaValue(original)
+	cloned["top"] = "changed"
+	clonedBlock, ok := cloned["block"].(map[string]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[block] = %T, want map[string]any", cloned["block"])
+	}
+	clonedBlock["leaf"] = "changed"
+	clonedBlocks, ok := cloned["blocks"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[blocks] = %T, want []any", cloned["blocks"])
+	}
+	clonedSliceBlock, ok := clonedBlocks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[blocks][0] = %T, want map[string]any", clonedBlocks[0])
+	}
+	clonedSliceBlock["leaf"] = "changed"
+	clonedBlocks[0] = metadata.JsonObject{"leaf": "replacement"}
+	clonedValues, ok := cloned["values"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[values] = %T, want []any", cloned["values"])
+	}
+	clonedValues[0] = "changed"
+	clonedNestedSlices, ok := cloned["nested_slices"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[nested_slices] = %T, want []any", cloned["nested_slices"])
+	}
+	clonedNestedSlice, ok := clonedNestedSlices[0].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[nested_slices][0] = %T, want []any", clonedNestedSlices[0])
+	}
+	clonedNestedSlice[0] = "changed"
+
+	if got := original["top"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated top-level original value = %v, want original", got)
+	}
+	originalBlock, ok := original["block"].(map[string]any)
+	if !ok {
+		t.Fatalf("original[block] = %T, want map[string]any", original["block"])
+	}
+	if got := originalBlock["leaf"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated nested original value = %v, want original", got)
+	}
+	originalBlocks, ok := original["blocks"].([]any)
+	if !ok {
+		t.Fatalf("original[blocks] = %T, want []any", original["blocks"])
+	}
+	if got := len(originalBlocks); got != 1 {
+		t.Fatalf("cloneModuleSchemaValue(original) mutated original slice length = %d, want 1", got)
+	}
+	originalSliceBlock, ok := originalBlocks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("original[blocks][0] = %T, want map[string]any", originalBlocks[0])
+	}
+	if got := originalSliceBlock["leaf"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated sliced original value = %v, want original", got)
+	}
+	originalValues, ok := original["values"].([]any)
+	if !ok {
+		t.Fatalf("original[values] = %T, want []any", original["values"])
+	}
+	if got := originalValues[0]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated original slice element = %v, want original", got)
+	}
+	originalNestedSlices, ok := original["nested_slices"].([]any)
+	if !ok {
+		t.Fatalf("original[nested_slices] = %T, want []any", original["nested_slices"])
+	}
+	originalNestedSlice, ok := originalNestedSlices[0].([]any)
+	if !ok {
+		t.Fatalf("original[nested_slices][0] = %T, want []any", originalNestedSlices[0])
+	}
+	if got := originalNestedSlice[0]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated nested original slice element = %v, want original", got)
+	}
+}
+
 func TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema(t *testing.T) {
 	schema := metadata.JsonObject{
 		"block": metadata.JsonObject{

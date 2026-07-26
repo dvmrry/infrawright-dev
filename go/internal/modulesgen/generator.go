@@ -138,18 +138,24 @@ const moduleSingleBlockMarker = "__infrawright_module_single_block"
 // LoadedPackRoot caches provider schemas and exposes them read-only to every
 // consumer, so generator-only behavioral constraints must never mutate that
 // shared authority.
-func cloneModuleSchemaValue(value any) any {
+func cloneModuleSchemaValue(value metadata.JsonObject) metadata.JsonObject {
+	cloned := make(metadata.JsonObject, len(value))
+	for key, child := range value {
+		cloned[key] = cloneModuleSchemaChild(child)
+	}
+	return cloned
+}
+
+// cloneModuleSchemaChild recursively detaches nested JSON containers while
+// preserving scalar values.
+func cloneModuleSchemaChild(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
-		cloned := make(map[string]any, len(typed))
-		for key, child := range typed {
-			cloned[key] = cloneModuleSchemaValue(child)
-		}
-		return cloned
+		return cloneModuleSchemaValue(metadata.JsonObject(typed))
 	case []any:
 		cloned := make([]any, len(typed))
 		for index, child := range typed {
-			cloned[index] = cloneModuleSchemaValue(child)
+			cloned[index] = cloneModuleSchemaChild(child)
 		}
 		return cloned
 	default:
@@ -188,10 +194,7 @@ func applyModuleSingleBlocks(
 	if !ok {
 		return nil, fmt.Errorf("%s override module_single_blocks must be an array", resourceType)
 	}
-	cloned, ok := cloneModuleSchemaValue(schema).(metadata.JsonObject)
-	if !ok {
-		return nil, fmt.Errorf("%s schema clone is not an object", resourceType)
-	}
+	cloned := cloneModuleSchemaValue(schema)
 	rootBlock, err := metadata.TerraformBlockForSchema(cloned, resourceType)
 	if err != nil {
 		return nil, err
