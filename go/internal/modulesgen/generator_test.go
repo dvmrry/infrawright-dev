@@ -182,6 +182,60 @@ func TestZPAProvider449ModuleShapesMatchReviewedSchemaTransitions(t *testing.T) 
 	mustMatch(t, portalMain, `for_each = each\.value\.privileged_portal_capabilities == null \? \[\] : each\.value\.privileged_portal_capabilities`)
 }
 
+func TestCloneModuleSchemaValueDetachesNestedMapsAndSlices(t *testing.T) {
+	original := metadata.JsonObject{
+		"top": "original",
+		"block": metadata.JsonObject{
+			"leaf": "original",
+		},
+		"blocks": []any{
+			metadata.JsonObject{"leaf": "original"},
+		},
+	}
+	var cloned metadata.JsonObject = cloneModuleSchemaValue(original)
+	cloned["top"] = "changed"
+	clonedBlock, ok := cloned["block"].(map[string]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[block] = %T, want map[string]any", cloned["block"])
+	}
+	clonedBlock["leaf"] = "changed"
+	clonedBlocks, ok := cloned["blocks"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[blocks] = %T, want []any", cloned["blocks"])
+	}
+	clonedSliceBlock, ok := clonedBlocks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[blocks][0] = %T, want map[string]any", clonedBlocks[0])
+	}
+	clonedSliceBlock["leaf"] = "changed"
+	cloned["blocks"] = append(clonedBlocks, metadata.JsonObject{"leaf": "added"})
+
+	if got := original["top"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated top-level original value = %v, want original", got)
+	}
+	originalBlock, ok := original["block"].(map[string]any)
+	if !ok {
+		t.Fatalf("original[block] = %T, want map[string]any", original["block"])
+	}
+	if got := originalBlock["leaf"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated nested original value = %v, want original", got)
+	}
+	originalBlocks, ok := original["blocks"].([]any)
+	if !ok {
+		t.Fatalf("original[blocks] = %T, want []any", original["blocks"])
+	}
+	if got := len(originalBlocks); got != 1 {
+		t.Fatalf("cloneModuleSchemaValue(original) mutated original slice length = %d, want 1", got)
+	}
+	originalSliceBlock, ok := originalBlocks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("original[blocks][0] = %T, want map[string]any", originalBlocks[0])
+	}
+	if got := originalSliceBlock["leaf"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated sliced original value = %v, want original", got)
+	}
+}
+
 func TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema(t *testing.T) {
 	schema := metadata.JsonObject{
 		"block": metadata.JsonObject{
