@@ -13,15 +13,17 @@
 
 ## Base / Head
 
-- Base: `f0701aabc6b58b9d09c5fa13a558c079bc20e444` (the pushed, reviewed
-  `feature/zpa-provider-4.4.9` tip).
+- Base: `origin/main` at
+  `6501cb88e4abb882c3074315150ab21f017bf12f`, the merge commit for reviewed
+  ZPA parent PR #261.
 - Original implementation: `38f0ae1de838c6e8de5fa2b4722df9ee30d617a9`.
 - Review correction: `8ef47bf91a19c26fb2cff0491ad926c5377163df`.
 - Updated-base merge: `6913c25d8040585c0df47588cc4e6bca92099171`.
 - External-review cleanup: `85f24ef1e5aba7fe7d9c64d92a8d5b45a3b9df02`.
+- Post-#261 main merge: `2b8bce93879df046c99ee72740bd09d3ba250b5e`.
 - Handoff: the branch tip has a documentation-only commit updating this file
-  after the external-review cleanup.
-- Diff command: `git diff f0701aabc6b58b9d09c5fa13a558c079bc20e444..85f24ef1e5aba7fe7d9c64d92a8d5b45a3b9df02`.
+  after the post-#261 main merge.
+- Diff command: `git diff 6501cb88e4abb882c3074315150ab21f017bf12f..2b8bce93879df046c99ee72740bd09d3ba250b5e`.
 
 ## Files Changed
 
@@ -135,6 +137,11 @@
   seconds; `git diff --check` and worktree status were clean. The full corpus
   was not repeated because the parent correction and child implementation had
   already passed their promotion gates independently and the merge was clean.
+- Post-merge integration: PR #261 landed on `main` as merge commit `6501cb8`.
+  Merging that exact tip into this branch produced no tree conflict or content
+  change. The focused parent clone/cardinality and child disposition suites
+  passed in 2.2 seconds. The PR must be retargeted to `main` and its CI must
+  pass again on the resulting head before it is marked ready.
 - Focused regression and pre-fix/unsafe-mutation proof:
   - Replacing the tuple singleton marker with the previous `max_items = 1`
     object behavior made the synthetic contract fail its accepted singleton
