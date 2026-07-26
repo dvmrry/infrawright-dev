@@ -12,11 +12,11 @@
 - Regenerate module types for the reviewed list-to-set, capabilities, and portal
   schema transitions without adding provider-specific behavior to the generic
   transform or field-lineage engines.
-- Preserve the portal capability block as a singleton module input even though
-  the `4.4.9` schema removed `max_items: 1`: the provider still consumes only
-  element zero. Express that fail-closed constraint as pack metadata interpreted
-  by the generic module generator, without naming ZPA resources or fields in
-  generic code.
+- Preserve the portal capability block as an at-most-one module input even
+  though the `4.4.9` schema removed `max_items: 1`: the provider still consumes
+  only element zero. Express that fail-closed constraint as a strict optional
+  one-element tuple declared by pack metadata and interpreted by the generic
+  module generator, without naming ZPA resources or fields in generic code.
 - Keep ZTC, registry membership, API mappings, and evidence-free browser
   empty-string omissions unchanged.
 
@@ -26,11 +26,13 @@
 - Original implementation: branch `feature/zpa-provider-4.4.9` at
   `21517493d95abb320b8fc9a602da22cc3a408c7e`.
 - First-review handoff: `fa970eeef28e00b60ea389f33817a757d3711aa0`.
-- Accepted correction: `f4466252b45434fc8087af7cd2d05335175d456d`.
+- First correction, rejected by focused recheck:
+  `f4466252b45434fc8087af7cd2d05335175d456d`.
+- Second correction: `2596ae04a28c4405aebb9c4578f79056fc396bb5`.
 - Handoff: the branch tip has a documentation-only commit updating this file
-  after the accepted correction.
+  after the second correction.
 - Diff command:
-  `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...f4466252b45434fc8087af7cd2d05335175d456d`.
+  `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...2596ae04a28c4405aebb9c4578f79056fc396bb5`.
 
 ## Files Changed
 
@@ -92,8 +94,9 @@
   their SHA-256 values are respectively
   `5fb57177483130e360ccf5ccc20fe5c0f30eeaecbf700121b918cb1a159d7a37`
   and `baeeca9097824387c1779f2dba3e05be5e3e2c2480c94c1cf29cf6270332d106`.
-  The portal generated module deliberately remains an optional singleton object
-  rather than exposing the schema's now-unbounded list.
+  The portal generated module deliberately renders an optional one-element
+  tuple rather than exposing the schema's now-unbounded list or Terraform's
+  lossy singleton-object conversion.
 - Demo or lab outputs: committed JSON demo output was regenerated. No
   credentialed tenant output is retained.
 - Artifact drift intentionally expected: 16 effective schema transitions, ZPA
@@ -112,8 +115,9 @@
   Optional+Computed-to-Optional bool, three list-to-set nested blocks, six
   appearances of the device-posture bool, two capability booleans, removal of
   one nested-block `max_items`, and three portal sandbox booleans. The raw
-  schema transition is retained, but the portal module interface remains
-  singleton because the provider still ignores all elements after index zero.
+  schema transition is retained, but the portal module interface becomes a
+  strict optional one-element tuple because the provider still ignores all
+  elements after index zero.
 - Expected no-op areas: no new resources become fetch, adoption, or API-mapping
   targets; transform, projection, field-lineage, and source-analysis behavior
   does not change; parity values remain unchanged; ZIA and ZTC are untouched.
@@ -126,8 +130,9 @@
   both schema and provider `d.Get`/`d.Set` evidence, and the generated demo
   proves the false value survives transform. `DROPS_CHECK=1` gates the full
   exercised demo corpus. Portal capability cardinality is constrained before
-  provider execution, preventing a second configured element from being
-  silently ignored.
+  provider execution: one tuple element preserves its configured boolean in a
+  mocked plan, while a second element and a keyed-object collection bypass are
+  both rejected.
 - Generic matcher evidence must not outrank source-backed evidence: no matcher
   or lineage implementation changed. The exact pinned-source AST assertion is
   test-only and verifies only the device-posture field's direct provider
@@ -158,7 +163,7 @@
   check-tfvars-fmt check-pack`; `make check`; `go vet ./...`; repository-wide
   `gofmt -d`; and `git diff --check`.
 - Relevant output summary: all commands pass. `make check` passes on the exact
-  accepted correction commit `f4466252b45434fc8087af7cd2d05335175d456d`.
+  second correction commit `2596ae04a28c4405aebb9c4578f79056fc396bb5`.
   The external replay validates all pinned provider
   and SDK bindings and reproduces the 15-observed/one-ambiguous report. The
   full Go suite passes.
@@ -168,13 +173,16 @@
   '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw`.
 - Relevant output summary: 151/151 generated-module semantics, 20/20 demo-root
   semantics, and the HCL-tfvars deployment case pass. A wrapper around the
-  generated portal module proves one capability object validates and a
-  two-object value is rejected by Terraform before provider execution.
+  generated portal module proves a one-element tuple preserves
+  `delete_file = true` in the mocked provider plan, while a two-element tuple
+  and the keyed-object counterexample are rejected before provider execution.
+  One preceding sweep had a transient `zpa_application_server` init failure;
+  the exact retry passed that module and the complete 151/151 surface.
 - Tests not run and why: no credentialed ZPA tenant fetch/import/no-op-plan or
   upstream acceptance suite was run because credentials and tenant mutation
   were not authorized.
 
-## Adversarial Review Correction
+## Adversarial Review Corrections
 
 - Finding: the first fresh, read-only review requested changes because the
   `4.4.9` schema removed `max_items: 1` from
@@ -184,15 +192,21 @@
 - Root cause: generated module cardinality followed the provider schema without
   a way for source-backed pack evidence to impose a stricter fail-closed
   boundary.
-- Correction: add a validated generic `module_single_blocks` override. The
-  module generator applies it to a deep clone of its schema, and the ZPA portal
-  override declares only `privileged_portal_capabilities`. No ZPA resource or
-  field name is hardcoded in generic production code, and transform behavior is
-  unchanged.
-- Regression proof: unit tests cover override validation, missing/stale paths,
-  conflicting minimum cardinality, singleton HCL rendering, and cached-schema
-  immutability; the pinned provider-source AST test guards the element-zero
-  behavior; the Terraform checkpoint accepts one object and rejects two.
+- First correction attempt: add a validated generic `module_single_blocks`
+  override and render the constrained block as the generator's existing
+  singleton object. The first focused recheck rejected this because Terraform
+  accepted `{first = {...}, second = {...}}`, discarded both unknown keys
+  during all-optional object conversion, and planned one empty block.
+- Second correction: retain the pack declaration and deep-cloned schema view,
+  but render a constrained list/set block as an optional one-element tuple.
+  This retains a collection-shaped input while rejecting both multiple elements
+  and the exact keyed-object bypass. No ZPA resource or field name is hardcoded
+  in generic production code, and transform behavior is unchanged.
+- Regression proof: unit tests cover override validation, top-level and dotted
+  paths, missing/stale paths, conflicting minimum cardinality, strict tuple HCL
+  rendering, and cached-schema immutability; the pinned provider-source AST test
+  guards the element-zero behavior; the Terraform checkpoint inspects the
+  mocked one-element plan and rejects the two lossy shapes.
 - Correction verification: focused Go tests, external provider/SDK replay,
   `make check-pack PACK=zpa`, full `go test -count=1 ./...`, `go vet ./...`,
   repository-wide `gofmt -d`, `git diff --check`, `make check`, and the complete
@@ -244,7 +258,8 @@
   no evidence-free browser omission was added; the full-demo drop gate is not
   vacuously presented as 54-resource coverage; the singleton overlay cannot
   mutate shared schema state or silently become stale; one portal capability
-  succeeds and two fail before the provider can discard data.
+  survives the plan; both a two-element list and the prior keyed-object bypass
+  fail before the provider can discard data.
 - Source evidence the reviewer should verify: the signed `4.4.9` schema digest;
   exact `v4.4.9` provider `d.Get` and `d.Set` sites; the `v4.4.6 -> v4.4.9`
   source/range differences; SDK `v3.8.42` bindings; matrix and endpoint report
@@ -258,4 +273,5 @@
   treating shared-schema inheritance as provider behavior; list/set ordering;
   mistaking generated module exposure for source-backed support; treating seven
   raw fixtures as provider-wide coverage; stale or over-broad singleton
-  overrides; accidental ZTC or transform/lineage-engine drift.
+  overrides; lossy Terraform collection-to-object coercion; accidental ZTC or
+  transform/lineage-engine drift.
