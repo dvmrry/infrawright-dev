@@ -52,8 +52,8 @@ func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
 	if len(registry.Entries) != 151 {
 		t.Fatalf("registry entries = %d, want 151", len(registry.Entries))
 	}
-	if len(overrides.Entries) != 74 {
-		t.Fatalf("override entries = %d, want 74", len(overrides.Entries))
+	if len(overrides.Entries) != 76 {
+		t.Fatalf("override entries = %d, want 76", len(overrides.Entries))
 	}
 	if product, _ := registry.Entries["zia_url_categories"]["product"].(string); product != "zia" {
 		t.Fatalf("zia_url_categories product = %q, want zia", product)

@@ -370,6 +370,8 @@ func TestCrossStateModeEmitsSingletonOutputsAndRemoteStateConsumers(t *testing.T
 	smoke := readFileString(t, filepath.Join(outputRoot, "tenant", "zpa_application_segment", "tests", "smoke.tftest.hcl"))
 	mustMatch(t, smoke, `override_data`)
 	mustMatch(t, smoke, `infrawright-test-reference-id`)
+	mustMatch(t, smoke, `run "config_plan"`)
+	mustNotMatch(t, smoke, `run "empty_plan"`)
 
 	remoteOutputRoot := filepath.Join(workspace, "generated-azurerm")
 	generatedRemote, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
@@ -390,6 +392,8 @@ func TestCrossStateModeEmitsSingletonOutputsAndRemoteStateConsumers(t *testing.T
 	remoteSmoke := readFileString(t, filepath.Join(remoteOutputRoot, "tenant", "zpa_application_segment", "tests", "smoke.tftest.hcl"))
 	mustMatch(t, remoteSmoke, `infrawright_remote_state_backend_config = \{`)
 	mustMatch(t, remoteSmoke, `use_azuread_auth\s+= true`)
+	mustMatch(t, remoteSmoke, `run "config_plan"`)
+	mustNotMatch(t, remoteSmoke, `run "empty_plan"`)
 }
 
 func TestAbsentAndExplicitCrossStateProduceIdenticalDeclaredBindingArtifacts(t *testing.T) {
@@ -875,6 +879,7 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 			t.Fatal("expected an hcl-tfvars-validation diagnostic")
 		}
 		tree := snapshotTree(t, outputRoot)
+		mustMatch(t, tree["tenant/zpa_segment_group/tests/smoke.tftest.hcl"], `run "empty_plan"`)
 		mustNotMatch(t, tree["tenant/zpa_segment_group/tests/smoke.tftest.hcl"], `config_plan`)
 	})
 

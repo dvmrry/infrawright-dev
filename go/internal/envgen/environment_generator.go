@@ -970,6 +970,7 @@ type RenderEnvironmentSmokeTestOptions struct {
 	ConfigFormat          string
 	Deployment            deployment.Deployment
 	EnvironmentDirectory  string
+	HasExpressionBindings bool
 	HasConfig             map[string]bool
 	Label                 string
 	Members               []string
@@ -999,6 +1000,14 @@ func RenderEnvironmentSmokeTest(options RenderEnvironmentSmokeTestOptions) (stri
 		return "", fmt.Errorf("env root %s spans providers: %s", options.Label, strings.Join(providers, ", "))
 	}
 	provider := providers[0]
+	var configured []string
+	if options.ConfigFormat == "json" {
+		for _, resourceType := range members {
+			if options.HasConfig[resourceType] {
+				configured = append(configured, resourceType)
+			}
+		}
+	}
 
 	lines := []string{
 		"# GENERATED smoke test — the root composes and plans against a",
@@ -1057,40 +1066,37 @@ func RenderEnvironmentSmokeTest(options RenderEnvironmentSmokeTestOptions) (stri
 	if len(remoteRoots) != 0 {
 		lines = append(lines, "")
 	}
-	lines = append(lines,
-		fmt.Sprintf(`mock_provider "%s" {}`, provider),
-		"",
-		`run "empty_plan" {`,
-		"  command = plan",
-		"",
-		"  variables {",
-	)
-	for _, resourceType := range members {
-		lines = append(lines, fmt.Sprintf("    %s = {}", variableName(options.Topology, resourceType)))
-	}
-	appendReferenceBackendVariable()
-	lines = append(lines, "  }", "}")
-
-	if options.ConfigFormat == "json" {
-		var configured []string
+	lines = append(lines, fmt.Sprintf(`mock_provider "%s" {}`, provider))
+	// Expression overlays address configured item keys directly, so an empty
+	// items map is not a valid plan input when a JSON config plan can replace it.
+	// Retain the empty fallback when no runnable config plan can be emitted.
+	if !options.HasExpressionBindings || len(configured) == 0 {
+		lines = append(lines,
+			"",
+			`run "empty_plan" {`,
+			"  command = plan",
+			"",
+			"  variables {",
+		)
 		for _, resourceType := range members {
-			if options.HasConfig[resourceType] {
-				configured = append(configured, resourceType)
-			}
+			lines = append(lines, fmt.Sprintf("    %s = {}", variableName(options.Topology, resourceType)))
 		}
-		if len(configured) > 0 {
-			lines = append(lines, "", `run "config_plan" {`, "  command = plan", "", "  variables {")
-			for _, resourceType := range configured {
-				name := variableName(options.Topology, resourceType)
-				reference, err := configReference(options.Deployment, options.Tenant, resourceType, options.EnvironmentDirectory)
-				if err != nil {
-					return "", err
-				}
-				lines = append(lines, fmt.Sprintf("    %s = jsondecode(file(\"%s\")).%s", name, reference, name))
+		appendReferenceBackendVariable()
+		lines = append(lines, "  }", "}")
+	}
+
+	if len(configured) > 0 {
+		lines = append(lines, "", `run "config_plan" {`, "  command = plan", "", "  variables {")
+		for _, resourceType := range configured {
+			name := variableName(options.Topology, resourceType)
+			reference, err := configReference(options.Deployment, options.Tenant, resourceType, options.EnvironmentDirectory)
+			if err != nil {
+				return "", err
 			}
-			appendReferenceBackendVariable()
-			lines = append(lines, "  }", "}")
+			lines = append(lines, fmt.Sprintf("    %s = jsondecode(file(\"%s\")).%s", name, reference, name))
 		}
+		appendReferenceBackendVariable()
+		lines = append(lines, "  }", "}")
 	}
 	return strings.Join(lines, "\n") + "\n", nil
 }
@@ -1360,7 +1366,8 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		}
 		smokeSource, err := RenderEnvironmentSmokeTest(RenderEnvironmentSmokeTestOptions{
 			Backend: mainBackend, ConfigFormat: tfvarsFormat, Deployment: options.Deployment,
-			EnvironmentDirectory: directory, HasConfig: hasConfig, Label: selectedRoot.Label, Members: members,
+			EnvironmentDirectory: directory, HasConfig: hasConfig, HasExpressionBindings: len(bindingsByType) > 0,
+			Label: selectedRoot.Label, Members: members,
 			Root: options.Root, RemoteStateReferences: smokeReferences, Tenant: options.Tenant, Topology: topology,
 		})
 		if err != nil {
