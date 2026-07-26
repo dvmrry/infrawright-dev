@@ -1004,13 +1004,33 @@ func v2VerifyZPAPortalCapabilityCardinality(
 	t.Helper()
 	root := t.TempDir()
 	moduleSource := filepath.Join(moduleDirectory, "zpa_policy_portal_access_rule")
+	providerRequirements, err := os.ReadFile(filepath.Join(moduleSource, "versions.tf"))
+	if err != nil {
+		t.Fatalf("os.ReadFile(portal module versions.tf) error = %v, want nil", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "versions.tf"), providerRequirements, 0o600); err != nil {
+		t.Fatalf("os.WriteFile(portal cardinality versions.tf) error = %v, want nil", err)
+	}
+	testDirectory := filepath.Join(root, "tests")
+	if err := os.MkdirAll(testDirectory, 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(portal cardinality tests) error = %v, want nil", err)
+	}
+	testSource := `mock_provider "zpa" {}
+
+run "one_capability_plan" {
+  command = plan
+}
+`
+	if err := os.WriteFile(filepath.Join(testDirectory, "cardinality.tftest.hcl"), []byte(testSource), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(portal cardinality test) error = %v, want nil", err)
+	}
 	writeConfiguration := func(capabilities string) {
 		t.Helper()
 		configuration := fmt.Sprintf(`module "portal" {
   source = %q
   items = {
     example = {
-      name                               = "example"
+      name                           = "example"
       privileged_portal_capabilities = %s
     }
   }
@@ -1021,20 +1041,57 @@ func v2VerifyZPAPortalCapabilityCardinality(
 		}
 	}
 
-	writeConfiguration(`{
-        delete_file = true
-      }`)
-	v2InitializeTerraformRoot(t, "ZPA portal singleton capability", terraform, root, environment)
-	v2RunSuccessfully(t, root, terraform, []string{"validate", "-no-color"}, environment)
-
 	writeConfiguration(`[
+        { delete_file = true },
+      ]`)
+	v2InitializeTerraformRoot(t, "ZPA portal singleton capability", terraform, root, environment)
+	result := v2RunSuccessfully(t, root, terraform, []string{
+		"test", "-test-directory=tests", "-no-color", "-verbose", "-json",
+	}, environment)
+	report, err := v2ParseTerraformTestReport(result.stdout)
+	if err != nil {
+		t.Fatalf("parse ZPA portal capability plan: %v", err)
+	}
+	if err := v2RequirePassedTerraformRuns(report, []string{"one_capability_plan"}); err != nil {
+		t.Fatalf("verify ZPA portal capability plan: %v", err)
+	}
+	changes := report.plans["one_capability_plan"]
+	if len(changes) != 1 {
+		t.Fatalf("ZPA portal capability plan resource changes = %+v, want exactly one", changes)
+	}
+	change := changes[0]
+	wantAddress := `module.portal.zpa_policy_portal_access_rule.this["example"]`
+	if change.Address != wantAddress {
+		t.Fatalf("ZPA portal capability plan address = %q, want %q", change.Address, wantAddress)
+	}
+	capabilities, ok := change.Change.After["privileged_portal_capabilities"].([]any)
+	if !ok || len(capabilities) != 1 {
+		t.Fatalf("ZPA portal capability plan value = %#v, want one block", change.Change.After["privileged_portal_capabilities"])
+	}
+	capability, ok := capabilities[0].(map[string]any)
+	if !ok {
+		t.Fatalf("ZPA portal capability plan block = %#v, want object", capabilities[0])
+	}
+	if deleteFile, ok := capability["delete_file"].(bool); !ok || !deleteFile {
+		t.Fatalf("ZPA portal capability plan delete_file = %#v, want true", capability["delete_file"])
+	}
+
+	requireRejected := func(label, value string) {
+		t.Helper()
+		writeConfiguration(value)
+		if _, err := v2RunBoundedCommand(t, root, terraform, []string{"validate", "-no-color"}, environment); err == nil {
+			t.Fatalf("ZPA portal module accepted %s; want strict tuple rejection before provider execution", label)
+		}
+	}
+	requireRejected("two capability elements", `[
         { delete_file = true },
         { request_approvals = true },
       ]`)
-	if _, err := v2RunBoundedCommand(t, root, terraform, []string{"validate", "-no-color"}, environment); err == nil {
-		t.Fatal("ZPA portal module accepted two privileged_portal_capabilities objects; want Terraform validation failure before provider execution")
-	}
-	t.Log("ZPA portal capability cardinality: one object validated; two objects rejected before provider execution")
+	requireRejected("keyed two-object bypass", `{
+        first  = { delete_file = true }
+        second = { request_approvals = true }
+      }`)
+	t.Log("ZPA portal capability cardinality: one tuple element preserved in plan; two elements and keyed-object bypass rejected before provider execution")
 }
 
 func v2VerifyDemoEnvironmentSemantics(

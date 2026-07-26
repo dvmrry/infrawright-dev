@@ -175,10 +175,11 @@ func TestZPAProvider449ModuleShapesMatchReviewedSchemaTransitions(t *testing.T) 
 	for _, field := range []string{"access_uninspected_file_sandbox", "upload_inspected_sandbox", "upload_inspected_scan"} {
 		mustMatch(t, portalVariables, field+`\s+= optional\(bool\)`)
 	}
-	mustMatch(t, portalVariables, `privileged_portal_capabilities = optional\(object\(\{`)
+	mustMatch(t, portalVariables, `privileged_portal_capabilities = optional\(tuple\(\[object\(\{`)
 	mustNotMatch(t, portalVariables, `privileged_portal_capabilities = optional\(list\(`)
+	mustNotMatch(t, portalVariables, `privileged_portal_capabilities = optional\(object\(`)
 	portalMain, _ := portal.Get(FileMain)
-	mustMatch(t, portalMain, `for_each = each\.value\.privileged_portal_capabilities == null \? \[\] : \[each\.value\.privileged_portal_capabilities\]`)
+	mustMatch(t, portalMain, `for_each = each\.value\.privileged_portal_capabilities == null \? \[\] : each\.value\.privileged_portal_capabilities`)
 }
 
 func TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema(t *testing.T) {
@@ -208,10 +209,11 @@ func TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema(
 		t.Fatalf("RenderModuleFiles(module_single_blocks): %v", err)
 	}
 	variables, _ := rendered.Get(FileVariables)
-	mustMatch(t, variables, `capabilities = optional\(object\(\{`)
+	mustMatch(t, variables, `capabilities = optional\(tuple\(\[object\(\{`)
 	mustNotMatch(t, variables, `capabilities = optional\(list\(`)
+	mustNotMatch(t, variables, `capabilities = optional\(object\(`)
 	main, _ := rendered.Get(FileMain)
-	mustMatch(t, main, `for_each = each\.value\.capabilities == null \? \[\] : \[each\.value\.capabilities\]`)
+	mustMatch(t, main, `for_each = each\.value\.capabilities == null \? \[\] : each\.value\.capabilities`)
 
 	authority, err := root.LoadResourceSchema("sample_resource")
 	if err != nil {
@@ -232,6 +234,49 @@ func TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema(
 	if _, mutated := capabilities["max_items"]; mutated {
 		t.Fatal("module_single_blocks mutated the cached provider schema authority")
 	}
+	if _, mutated := capabilities[moduleSingleBlockMarker]; mutated {
+		t.Fatal("module_single_blocks leaked its generator marker into the cached provider schema authority")
+	}
+}
+
+func TestModuleSingleBlocksApplyStrictTupleToDottedNestedPath(t *testing.T) {
+	_, root := syntheticRoot(t, syntheticRootOptions{
+		Schema: metadata.JsonObject{
+			"block": metadata.JsonObject{
+				"attributes": metadata.JsonObject{
+					"name": metadata.JsonObject{"type": "string", "required": true},
+				},
+				"block_types": metadata.JsonObject{
+					"outer": metadata.JsonObject{
+						"nesting_mode": "list",
+						"block": metadata.JsonObject{
+							"attributes": metadata.JsonObject{},
+							"block_types": metadata.JsonObject{
+								"capabilities": metadata.JsonObject{
+									"nesting_mode": "set",
+									"block": metadata.JsonObject{
+										"attributes": metadata.JsonObject{
+											"enabled": metadata.JsonObject{"type": "bool", "optional": true},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		OverrideText: `{"module_single_blocks":["outer.capabilities"]}`,
+	})
+	rendered, err := RenderModuleFiles(root, "sample_resource")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(nested module_single_blocks): %v", err)
+	}
+	variables, _ := rendered.Get(FileVariables)
+	mustMatch(t, variables, `outer = optional\(list\(object\(\{`)
+	mustMatch(t, variables, `capabilities = optional\(tuple\(\[object\(\{`)
+	main, _ := rendered.Get(FileMain)
+	mustMatch(t, main, `for_each = outer\.value\.capabilities == null \? \[\] : outer\.value\.capabilities`)
 }
 
 func TestModuleSingleBlocksFailOnMissingConflictingOrStaleSchemaPaths(t *testing.T) {

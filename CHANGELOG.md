@@ -25,8 +25,9 @@
   four schemas that inherit it without provider Read/expand wiring.
 - Keep portal capabilities singleton at the generated-module boundary because
   provider `4.4.9` still expands only element zero despite removing the schema's
-  one-item limit; multiple objects now fail Terraform validation before the
-  provider can silently discard them.
+  one-item limit. The generated input is now a strict one-element tuple when
+  present; two-element lists and keyed-object collection bypasses fail before
+  the provider can silently discard them.
 
 ### Breaking changes
 

@@ -60,10 +60,14 @@ provider `v4.4.9`, `expandPrivilegedPortalCapabilitiesRule` still reads only
 `privCapsList[0]` and labels the block `MaxItems: 1`; later configured elements
 would be silently ignored. The pack therefore declares
 `module_single_blocks: ["privileged_portal_capabilities"]`. Module generation
-retains the prior singleton-object input shape while leaving the checked-in
-provider schema byte-exact, so Terraform rejects multiple objects before the
-provider runs. Remove that constraint only after provider source consumes every
-declared element or the published schema restores its one-item limit.
+uses an optional one-element tuple while leaving the checked-in provider schema
+byte-exact. A one-element value preserves its capability booleans in the mocked
+plan; two-element lists and keyed-object collection bypasses are rejected before
+the provider runs. This intentionally changes the old singleton-object module
+input to a list-shaped value so Terraform cannot lossily coerce a keyed map into
+an empty capability object. Remove the constraint only after provider source
+consumes every declared element or the published schema restores its one-item
+limit.
 
 The three list-to-set changes alter generated variable/config body types, not
 resource instance addresses: none of the affected resources derives

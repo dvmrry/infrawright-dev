@@ -132,6 +132,8 @@ type moduleContext struct {
 	SampleOverride metadata.JsonObject
 }
 
+const moduleSingleBlockMarker = "__infrawright_module_single_block"
+
 // cloneModuleSchemaValue detaches the schema view used by module rendering.
 // LoadedPackRoot caches provider schemas and exposes them read-only to every
 // consumer, so generator-only behavioral constraints must never mutate that
@@ -169,9 +171,10 @@ func minimumItemsExceedsOne(value any) bool {
 
 // applyModuleSingleBlocks overlays source-verified provider behavior on the
 // module renderer without altering the checked-in provider schema. A listed
-// list/set block is rendered as the generator's existing singleton object
-// shape, so Terraform rejects multiple configured elements before provider
-// execution. Dotted paths support nested blocks without adapter names in code.
+// list/set block is rendered as a one-element tuple when present, so Terraform
+// rejects multiple elements and object-shaped collection bypasses before
+// provider execution. Dotted paths support nested blocks without adapter names
+// in code.
 func applyModuleSingleBlocks(
 	schema metadata.JsonObject,
 	resourceType string,
@@ -226,7 +229,7 @@ func applyModuleSingleBlocks(
 				if minimumItemsExceedsOne(blockType["min_items"]) {
 					return nil, fmt.Errorf("%s override module_single_blocks path %q conflicts with provider min_items greater than one", resourceType, path)
 				}
-				blockType["max_items"] = float64(1)
+				blockType[moduleSingleBlockMarker] = true
 				continue
 			}
 			block, err = metadata.TerraformRequireObject(blockType["block"], blockTypeLabel+".block")
@@ -237,6 +240,11 @@ func applyModuleSingleBlocks(
 		}
 	}
 	return cloned, nil
+}
+
+func moduleBlockIsSingle(blockType metadata.JsonObject) bool {
+	value, _ := blockType[moduleSingleBlockMarker].(bool)
+	return value
 }
 
 // jsonQuote ports the JSON.stringify(string) calls the original source treemodules/
@@ -379,6 +387,9 @@ func blockInputType(blockType metadata.JsonObject, indent int, label string) (st
 	inner, err := blockObjectType(block, indent, label+".block")
 	if err != nil {
 		return "", err
+	}
+	if moduleBlockIsSingle(blockType) {
+		return fmt.Sprintf("tuple([%s])", inner), nil
 	}
 	if metadata.TerraformBlockIsSingle(blockType) {
 		return inner, nil
