@@ -797,6 +797,7 @@ func loadBindingLayers(
 	onDiagnostic func(string),
 	resource metadata.LoadedResourceMetadata,
 	tenant string,
+	probe StateProbe,
 ) ([]ExpressionBinding, error) {
 	var layers [][]ExpressionBinding
 	generated, err := generatedBindingsFile(dep, tenant, resource.Type)
@@ -815,6 +816,12 @@ func loadBindingLayers(
 				memberSet[m] = true
 			}
 			filtered := filterGeneratedBindings(loaded, memberSet, onDiagnostic, generated)
+			if probe != nil {
+				filtered, err = filterStatelessGeneratedBindings(filtered, resource.Type, probe, onDiagnostic)
+				if err != nil {
+					return nil, err
+				}
+			}
 			if len(filtered) > 0 {
 				layers = append(layers, filtered)
 			}
@@ -1115,7 +1122,12 @@ type GenerateEnvironmentRootsOptions struct {
 	OutputRoot   *string
 	Root         metadata.LoadedPackRoot
 	Selectors    []string
-	Tenant       string
+	// StateAware enables probing each referenced root's Terraform state
+	// before a generated cross-state binding is kept. When false (the
+	// default) generation never reads state, so its output cannot depend on
+	// any tfstate contents.
+	StateAware bool
+	Tenant     string
 }
 
 // GenerateEnvironmentRoots ports the exported generateEnvironmentRoots from
@@ -1202,6 +1214,13 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			backend = &trimmed
 		}
 	}
+	// A nil probe means generation never reads state, so its output cannot
+	// depend on any tfstate contents. Resolved after the backend marker so a
+	// future backend-specific prober can key off it.
+	var probe StateProbe
+	if options.StateAware {
+		probe = localStateProbe(tenantDirectory)
+	}
 	if err := os.MkdirAll(tenantDirectory, 0o777); err != nil {
 		return EnvironmentGenerationResult{}, err
 	}
@@ -1228,7 +1247,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
-			bindings, err := loadBindingLayers(options.Deployment, members, onDiagnostic, res, options.Tenant)
+			bindings, err := loadBindingLayers(options.Deployment, members, onDiagnostic, res, options.Tenant, probe)
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
