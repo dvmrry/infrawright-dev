@@ -12,25 +12,29 @@ import (
 	"testing"
 )
 
-func TestGoTestsDoNotReadDocumentationTree(t *testing.T) {
+func TestGoCodeDoesNotReadDocumentationTree(t *testing.T) {
 	root := filepath.Join(repoRoot(t), "go")
+	guard := filepath.Join("cmd", "iw", "repository_boundary_test.go")
 	var violations []string
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if relative == guard {
 			return nil
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		references, err := documentationPathLiterals(relative, data)
+		references, err := documentationPathReferences(relative, data)
 		if err != nil {
 			return err
 		}
@@ -38,17 +42,17 @@ func TestGoTestsDoNotReadDocumentationTree(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("inspect Go tests for documentation reads: %v", err)
+		t.Fatalf("inspect Go source for documentation reads: %v", err)
 	}
 	if len(violations) > 0 {
 		sort.Strings(violations)
-		t.Fatalf("Go tests contain repository documentation paths:\n%s", strings.Join(violations, "\n"))
+		t.Fatalf("Go source contains repository documentation paths:\n%s", strings.Join(violations, "\n"))
 	}
 }
 
-func documentationPathLiterals(filename string, data []byte) ([]string, error) {
+func documentationPathReferences(filename string, data []byte) ([]string, error) {
 	fileSet := token.NewFileSet()
-	file, err := parser.ParseFile(fileSet, filename, data, 0)
+	file, err := parser.ParseFile(fileSet, filename, data, parser.ParseComments)
 	if err != nil {
 		return nil, err
 	}
@@ -64,11 +68,28 @@ func documentationPathLiterals(filename string, data []byte) ([]string, error) {
 		}
 		return true
 	})
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			const prefix = "//go:embed "
+			if !strings.HasPrefix(comment.Text, prefix) {
+				continue
+			}
+			for _, pattern := range strings.Fields(strings.TrimPrefix(comment.Text, prefix)) {
+				pattern = strings.TrimPrefix(pattern, "all:")
+				if unquoted, err := strconv.Unquote(pattern); err == nil {
+					pattern = unquoted
+				}
+				if isRepositoryDocumentationPath(pattern) {
+					references = append(references, fileSet.Position(comment.Pos()).String())
+				}
+			}
+		}
+	}
 	return references, nil
 }
 
 func isRepositoryDocumentationPath(value string) bool {
-	documentationDirectory := "do" + "cs"
+	documentationDirectory := "docs"
 	value = filepath.ToSlash(value)
 	for strings.HasPrefix(value, "../") {
 		value = strings.TrimPrefix(value, "../")
