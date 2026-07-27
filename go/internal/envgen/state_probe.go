@@ -21,8 +21,9 @@ type StateProbeResult struct {
 }
 
 // StateProbe answers whether rootLabel's state carries reference identifiers
-// for referentType. It is an injection seam: tests supply their own, and the
-// azurerm backend will supply one that pulls remote state.
+// for referentType. It is an injection seam: tests supply their own, and a
+// root configured with a remote backend needs one that pulls its state rather
+// than reading a file beside the root.
 type StateProbe func(rootLabel, referentType string) (StateProbeResult, error)
 
 const (

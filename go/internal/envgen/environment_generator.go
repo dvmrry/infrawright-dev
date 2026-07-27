@@ -1158,7 +1158,7 @@ type GenerateEnvironmentRootsOptions struct {
 	StateAware bool
 	// StateProbe overrides how StateAware resolves a referenced root's
 	// state. Nil selects the local prober. It is the injection seam for
-	// tests and for the backend-specific prober that will serve azurerm.
+	// tests and for a prober that reads state from a configured backend.
 	StateProbe StateProbe
 	Tenant     string
 }
