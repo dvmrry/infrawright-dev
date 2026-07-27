@@ -79,8 +79,14 @@ changed.
   skips only when those paths are absent.
 - Profile loops run each profile as a subtest, so one unavailable profile does
   not blanket-skip unrelated assertions.
-- Tests and assertions were not deleted or weakened to make partial profiles
-  pass.
+- The synthetic root-topology test keeps the engine invariant independent of
+  committed packs. A separate full-profile contract preserves the absolute
+  151-resource count and backend-state-key digest, and skips only when the
+  full profile's selected pack paths are unavailable.
+- No behavioral test or assertion is deleted to make partial profiles pass.
+  The branch briefly weakened the full-profile inventory contract while
+  extracting its engine invariant; that review finding is corrected as
+  described above.
 - Production code was not changed.
 
 ## Focused Verification
@@ -103,6 +109,9 @@ changed.
 - `pruned-pack-go-tests` copies the selected profile to a temporary directory,
   removes the checkout's original `packs/`, moves the pruned directory into
   place, and runs the complete Go suite.
+- Every matrix lane requires at least 2700 executed tests. The `full` profile
+  additionally permits no more than 15 skips, preventing a broadened skip
+  predicate from leaving a green but materially drained gate.
 - `Pruned pack Go tests` is a single aggregate status intended for branch
   protection after all eleven matrix entries pass unfiltered.
 - The prior `pack-profiles` matrix remains a distribution check; it is not
@@ -110,10 +119,12 @@ changed.
 
 ## Outstanding Promotion Requirement
 
-At this implementation head, the eleven-profile unfiltered GitHub Actions run
-is still required. Do not mark the aggregate context required and do not treat
-this branch as complete until the run supplies the final per-profile
-pass/fail, test-count, and skip-count table.
+The first eleven-profile unfiltered GitHub Actions promotion run passed at
+`9281ee9dc98d14b5c1e0c9a8c8ef5008ab5f6c8f`. Review then found that the
+full-profile backend-key inventory assertion had not been preserved and that
+the reported test/skip counts were not enforced. The corrective head must run
+all eleven physically pruned profiles again before the aggregate context can
+be promoted to a required check.
 
 ## Review Focus
 

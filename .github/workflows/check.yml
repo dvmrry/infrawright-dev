@@ -228,8 +228,24 @@ jobs:
 
           tests="$(jq -s '[.[] | select(.Action == "run" and .Test != null)] | length' "$results")"
           skips="$(jq -s '[.[] | select(.Action == "skip" and .Test != null)] | length' "$results")"
-          printf 'profile=%s tests=%s skips=%s status=%s\n' "$PROFILE" "$tests" "$skips" "$status" | tee -a "$GITHUB_STEP_SUMMARY"
-          exit "$status"
+          executed="$((tests - skips))"
+          minimum_executed_tests=2700
+          maximum_full_profile_skips=15
+          coverage_status=0
+          if (( executed < minimum_executed_tests )); then
+            echo "profile $PROFILE executed only $executed tests; minimum coverage floor is $minimum_executed_tests" >&2
+            coverage_status=1
+          fi
+          if [[ "$PROFILE" == "full" ]] && (( skips > maximum_full_profile_skips )); then
+            echo "full profile skipped $skips tests; maximum skip budget is $maximum_full_profile_skips" >&2
+            coverage_status=1
+          fi
+          printf 'profile=%s tests=%s skips=%s executed=%s status=%s coverage_status=%s\n' \
+            "$PROFILE" "$tests" "$skips" "$executed" "$status" "$coverage_status" | tee -a "$GITHUB_STEP_SUMMARY"
+          if (( status != 0 )); then
+            exit "$status"
+          fi
+          exit "$coverage_status"
 
   pruned-pack-go-tests-gate:
     name: Pruned pack Go tests
