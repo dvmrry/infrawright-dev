@@ -844,7 +844,15 @@ func TestStateAwareStillRefusesBindingCycle(t *testing.T) {
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `module.zpa_application_segment.infrawright_reference_ids["app_one"]`,
+					// Both a module target and a remote-state reference. The
+					// module target is what forms the cycle; the remote-state
+					// reference is what gives the filter something to drop, so
+					// filtering ahead of cycle detection is observable at all.
+					// With the module target alone the filter finds no
+					// reference, never probes, and the ordering mutation
+					// survives.
+					"expression": `[module.zpa_application_segment.infrawright_reference_ids["app_one"], ` +
+						`data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]]`,
 				},
 			},
 		},
@@ -858,7 +866,13 @@ func TestStateAwareStillRefusesBindingCycle(t *testing.T) {
 	var calls []string
 	err := fixture.generateWithProbe(t, countingProbe(&calls, false))
 	if err == nil {
-		t.Errorf("state-aware generation error = nil, want the same cycle refusal state-blind generation gives (%v)", blind)
+		t.Fatalf("state-aware generation error = nil, want the same cycle refusal state-blind generation gives (%v)", blind)
+	}
+	// Identical text, not merely non-nil: a state-aware run that refused for
+	// some other reason would satisfy a nil check while the cycle went
+	// undetected.
+	if err.Error() != blind.Error() {
+		t.Errorf("state-aware error = %q, want the state-blind cycle refusal %q", err, blind)
 	}
 	if len(calls) != 0 {
 		t.Errorf("probe calls = %v, want none: a cycle is refused before any state is read", calls)
