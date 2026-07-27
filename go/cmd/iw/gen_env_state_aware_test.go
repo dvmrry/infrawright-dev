@@ -106,6 +106,20 @@ func prepareStateAwareCLIFixture(t *testing.T) stateAwareCLIFixture {
 	return fixture
 }
 
+// fakeTerraformForProbe writes a terraform stand-in that reports every root
+// unapplied: exit 0 with no state document, which is what an initialized but
+// never-applied root produces. Passing it via --terraform keeps this test
+// hermetic -- it asserts the CLI wiring and the fallback, not that a terraform
+// binary is installed on the runner.
+func fakeTerraformForProbe(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "terraform")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o777); err != nil {
+		t.Fatalf("write fake terraform: %v", err)
+	}
+	return path
+}
+
 func runStateAwareGenEnvCLI(
 	t *testing.T,
 	binary string,
@@ -147,7 +161,7 @@ func TestGenEnvStateAwareCLIControlsFallback(t *testing.T) {
 
 	t.Run("enabled falls back and reports", func(t *testing.T) {
 		fixture := prepareStateAwareCLIFixture(t)
-		result := runStateAwareGenEnvCLI(t, binary, fixture, "--state-aware")
+		result := runStateAwareGenEnvCLI(t, binary, fixture, "--state-aware", "--terraform", fakeTerraformForProbe(t))
 		if result.exit != 0 {
 			t.Fatalf("gen-env --state-aware exit = %d, want 0; stdout=%q stderr=%q", result.exit, result.stdout, result.stderr)
 		}
