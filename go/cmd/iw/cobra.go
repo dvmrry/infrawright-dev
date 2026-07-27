@@ -228,7 +228,7 @@ var cobraFlagDescriptions = map[string]string{
 	"--source-facts-compare":    "source-facts comparison path",
 	"--source-manifest":         "qualified source manifest path",
 	"--source-root":             "provider source root directory",
-	"--state-aware":             "inspect local ephemeral state while staging imports",
+	"--state-aware":             "inspect local state before binding references or staging imports",
 	"--tenant":                  "deployment tenant label",
 	"--terraform":               "Terraform executable path",
 	"--work-dir":                "private provider-probe work directory",
