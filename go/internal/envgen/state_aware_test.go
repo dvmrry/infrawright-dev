@@ -476,3 +476,101 @@ func mapKeysForTest(tree map[string]string) []string {
 	sort.Strings(names)
 	return names
 }
+
+// generateStateBlind runs the fixture with state-awareness off and returns the
+// error, so a test can pin that state-aware generation refuses exactly what
+// state-blind generation already refuses.
+func (f stateAwareFixture) generateStateBlind(t *testing.T) error {
+	t.Helper()
+	outputRoot := f.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, f.deploymentPath),
+		FormatHcl:  identityFormatter,
+		OutputRoot: &outputRoot,
+		Root:       syntheticRootForTopology(t),
+		Selectors:  []string{"zpa_application_segment"},
+		Tenant:     "tenant",
+	})
+	return err
+}
+
+// absentProbe reports every referent absent, which is what drives the fallback
+// path. Each test below pairs it with generated evidence that is independently
+// invalid, so the fallback cannot be used to launder the defect.
+func absentProbe() StateProbe {
+	return func(string, string) (StateProbeResult, error) {
+		return StateProbeResult{Usable: false}, nil
+	}
+}
+
+// TestStateAwareStillRefusesBindingWithNoTargetLeaf pins the boundary of the
+// fallback. Dropping a binding is only a fallback because the tfvars literal
+// underneath survives; when the target leaf does not exist there is no literal
+// to fall back to, and reporting "fell back to the literal value" is a lie.
+//
+// The generated binding is the only one for this resource type, so dropping it
+// also empties the type's binding set -- the case where generation skips the
+// schema load and every validation gate outright.
+func TestStateAwareStillRefusesBindingWithNoTargetLeaf(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"app_one": map[string]any{}},
+	})
+
+	blind := fixture.generateStateBlind(t)
+	if blind == nil {
+		t.Fatalf("state-blind generation error = nil, want a refusal for a binding with no target leaf")
+	}
+	if err := fixture.generateWithProbe(t, absentProbe()); err == nil {
+		t.Errorf("state-aware generation error = nil, want the same refusal state-blind generation gives (%v)", blind)
+	}
+}
+
+// TestStateAwareStillRefusesUnknownReferencedRoot pins that state-awareness
+// cannot mask a malformed topology. A generated binding naming a root that does
+// not exist is broken evidence, not a not-yet-applied root: probing it reports
+// absent, and dropping it on that basis would silently discard the refusal.
+func TestStateAwareStillRefusesUnknownReferencedRoot(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_application_segment.generated.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{
+					"expression": `data.terraform_remote_state.unknown_root.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+				},
+			},
+		},
+	})
+
+	blind := fixture.generateStateBlind(t)
+	if blind == nil {
+		t.Fatalf("state-blind generation error = nil, want a refusal for a binding naming an unknown root")
+	}
+	if err := fixture.generateWithProbe(t, absentProbe()); err == nil {
+		t.Errorf("state-aware generation error = nil, want the same refusal state-blind generation gives (%v)", blind)
+	}
+}
+
+// TestStateAwareStillRefusesBindingOutsideProviderSchema pins the schema gate
+// specifically, since it runs before the config and topology gates and would
+// otherwise be the first one a dropped binding escapes.
+func TestStateAwareStillRefusesBindingOutsideProviderSchema(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_application_segment.generated.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"not_a_provider_field": map[string]any{
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+				},
+			},
+		},
+	})
+
+	blind := fixture.generateStateBlind(t)
+	if blind == nil {
+		t.Fatalf("state-blind generation error = nil, want a refusal for a binding outside the provider schema")
+	}
+	if err := fixture.generateWithProbe(t, absentProbe()); err == nil {
+		t.Errorf("state-aware generation error = nil, want the same refusal state-blind generation gives (%v)", blind)
+	}
+}
