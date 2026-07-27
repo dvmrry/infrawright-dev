@@ -829,3 +829,38 @@ func TestEqualTreesComparesKeySets(t *testing.T) {
 		t.Errorf("equalTrees(identical trees) = false, want true")
 	}
 }
+
+// TestStateAwareStillRefusesBindingCycle pins that cycle detection runs before
+// the state filter and is not conditioned on state-awareness. A cycle is
+// malformed evidence: it cannot be resolved by falling back, and a state-aware
+// run that dropped the participating bindings first would emit a root the
+// state-blind run refuses.
+//
+// The absent probe would drop this binding if it were consulted, so the probe
+// must never be reached at all.
+func TestStateAwareStillRefusesBindingCycle(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_application_segment.generated.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{
+					"expression": `module.zpa_application_segment.infrawright_reference_ids["app_one"]`,
+				},
+			},
+		},
+	})
+
+	blind := fixture.generateStateBlind(t)
+	if blind == nil {
+		t.Fatalf("state-blind generation error = nil, want a cycle refusal")
+	}
+
+	var calls []string
+	err := fixture.generateWithProbe(t, countingProbe(&calls, false))
+	if err == nil {
+		t.Errorf("state-aware generation error = nil, want the same cycle refusal state-blind generation gives (%v)", blind)
+	}
+	if len(calls) != 0 {
+		t.Errorf("probe calls = %v, want none: a cycle is refused before any state is read", calls)
+	}
+}
