@@ -666,3 +666,130 @@ func TestReferenceIDsPresentAcceptsAppliedStateShape(t *testing.T) {
 		t.Errorf("referenceIDsPresent(applied state without outputs) usable = true, want false")
 	}
 }
+
+// TestStateAwareMemoizationDistinguishesReferentTypes pins the memoization key.
+// Keyed on the root alone, the first referent type's outcome is reused for
+// every other type in that root, so a root publishing one type's identifiers
+// but not another's classifies both the same way.
+func TestStateAwareMemoizationDistinguishesReferentTypes(t *testing.T) {
+	var calls []string
+	probe := memoizedStateProbe(func(rootLabel, referentType string) (StateProbeResult, error) {
+		calls = append(calls, rootLabel+"."+referentType)
+		return StateProbeResult{Usable: referentType == "type_one"}, nil
+	})
+
+	first, err := probe("shared_root", "type_one")
+	if err != nil {
+		t.Fatalf("probe(type_one) error = %v, want nil", err)
+	}
+	second, err := probe("shared_root", "type_two")
+	if err != nil {
+		t.Fatalf("probe(type_two) error = %v, want nil", err)
+	}
+	if !first.Usable || second.Usable {
+		t.Errorf("probe results = (%v, %v), want type_one usable and type_two not", first.Usable, second.Usable)
+	}
+	if len(calls) != 2 {
+		t.Errorf("probe calls = %v, want one per referent type", calls)
+	}
+	if _, err := probe("shared_root", "type_one"); err != nil {
+		t.Fatalf("repeat probe error = %v, want nil", err)
+	}
+	if len(calls) != 2 {
+		t.Errorf("probe calls after repeat = %v, want the repeat served from the cache", calls)
+	}
+}
+
+// TestStateAwareRejectsBackendFromPersistedMarker pins that the remote-backend
+// refusal reads the persisted .backend marker, not just the --backend flag. A
+// tenant generated once with a backend keeps that marker, and every later run
+// omits the flag; refusing only on the flag would let those runs probe local
+// state that the backend does not hold and report every root absent.
+func TestStateAwareRejectsBackendFromPersistedMarker(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	marker := filepath.Join(fixture.outputRoot, "tenant", ".backend")
+	if err := os.MkdirAll(filepath.Dir(marker), 0o777); err != nil {
+		t.Fatalf("create tenant directory: %v", err)
+	}
+	if err := os.WriteFile(marker, []byte("azurerm\n"), 0o666); err != nil {
+		t.Fatalf("write backend marker: %v", err)
+	}
+
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter,
+		OutputRoot: &outputRoot,
+		Root:       syntheticRootForTopology(t),
+		Selectors:  []string{"zpa_application_segment"},
+		StateAware: true,
+		Tenant:     "tenant",
+	})
+	if err == nil {
+		t.Fatalf("GenerateEnvironmentRoots(persisted backend marker) error = nil, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "azurerm") {
+		t.Errorf("error = %q, want it to name the backend read from the marker", err)
+	}
+}
+
+// TestStateAwareKeepsOperatorBindingWhenAnotherFallsBack pins that a fallback
+// is scoped to the binding that triggered it. Operator bindings are never
+// probed, so a generated binding falling back beside one must not take it with
+// it -- an operator writing a remote-state reference by hand is asserting
+// intent, and that assertion keeps failing loudly.
+func TestStateAwareKeepsOperatorBindingWhenAnotherFallsBack(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{
+			"app_one": map[string]any{"segment_group_id": "sg-1"},
+			"app_two": map[string]any{"segment_group_id": "sg-2"},
+		},
+	})
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_two": map[string]any{
+				"segment_group_id": map[string]any{"expression": `local.operator_asserted_id`},
+			},
+		},
+	})
+
+	if err := fixture.generateWithProbe(t, absentProbe()); err != nil {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil", err)
+	}
+	rendered := readFileString(t, fixture.referrerFile("expression_bindings.tf"))
+	if !strings.Contains(rendered, "local.operator_asserted_id") {
+		t.Errorf("expression_bindings.tf = %q, want the operator binding to survive a sibling's fallback", rendered)
+	}
+}
+
+// TestReferenceIDsPresentAcceptsEmptyPerTypeMap pins the boundary between the
+// two failure modes. An applied root that currently manages none of a type's
+// resources publishes an empty key map; that root has usable state, and the
+// individual key being missing is the case try() is deliberately left to catch
+// at plan time. Reporting it unusable here would suppress that failure.
+func TestReferenceIDsPresentAcceptsEmptyPerTypeMap(t *testing.T) {
+	raw := `{"version":4,"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":{}},` +
+		`"type":["object",{"zpa_segment_group":["object",{}]}]}}}`
+	result, err := referenceIDsPresent([]byte(raw), "zpa_segment_group", "zpa_segment_group")
+	if err != nil {
+		t.Fatalf("referenceIDsPresent(empty per-type map) error = %v, want nil", err)
+	}
+	if !result.Usable {
+		t.Errorf("referenceIDsPresent(empty per-type map) usable = false, want true")
+	}
+}
+
+// TestEqualTreesComparesKeySets guards the comparator the byte-identity tests
+// rely on. Comparing only values reachable by the left tree's keys made trees
+// with different file names compare equal, which silently weakened every test
+// built on it.
+func TestEqualTreesComparesKeySets(t *testing.T) {
+	if equalTrees(map[string]string{"left.tf": ""}, map[string]string{"right.tf": ""}) {
+		t.Errorf("equalTrees(different key sets) = true, want false")
+	}
+	if !equalTrees(map[string]string{"main.tf": "body"}, map[string]string{"main.tf": "body"}) {
+		t.Errorf("equalTrees(identical trees) = false, want true")
+	}
+}
