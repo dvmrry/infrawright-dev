@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -665,6 +666,108 @@ func TestFractionalSampleOverrideNumbersRetainExactPythonJSONSpelling(t *testing
 	mustMatch(t, sample, `"scientific": 1e-06`)
 }
 
+type generatedModuleTreeInventory struct {
+	Directories []string
+	Files       []string
+}
+
+func expectedGeneratedModuleTreeInventory(resourceTypes []string) generatedModuleTreeInventory {
+	inventory := generatedModuleTreeInventory{}
+	for _, resourceType := range resourceTypes {
+		inventory.Directories = append(inventory.Directories,
+			resourceType,
+			filepath.Join(resourceType, "tests"),
+		)
+		for _, name := range ExpectedModuleFiles {
+			inventory.Files = append(inventory.Files, filepath.Join(resourceType, string(name)))
+		}
+	}
+	sort.Strings(inventory.Directories)
+	sort.Strings(inventory.Files)
+	return inventory
+}
+
+func actualGeneratedModuleTreeInventory(root string) (generatedModuleTreeInventory, error) {
+	inventory := generatedModuleTreeInventory{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == root {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			inventory.Directories = append(inventory.Directories, relative)
+		} else {
+			inventory.Files = append(inventory.Files, relative)
+		}
+		return nil
+	})
+	if err != nil {
+		return generatedModuleTreeInventory{}, err
+	}
+	sort.Strings(inventory.Directories)
+	sort.Strings(inventory.Files)
+	return inventory, nil
+}
+
+func generatedModuleTreeDifference(root string, resourceTypes []string) (string, error) {
+	got, err := actualGeneratedModuleTreeInventory(root)
+	if err != nil {
+		return "", err
+	}
+	want := expectedGeneratedModuleTreeInventory(resourceTypes)
+	if reflect.DeepEqual(got, want) {
+		return "", nil
+	}
+	return fmt.Sprintf("directories: got %v, want %v; files: got %v, want %v",
+		got.Directories, want.Directories, got.Files, want.Files), nil
+}
+
+func requireExactGeneratedModuleTree(t *testing.T, root string, resourceTypes []string) {
+	t.Helper()
+	difference, err := generatedModuleTreeDifference(root, resourceTypes)
+	if err != nil {
+		t.Fatalf("inspect generated module tree: %v", err)
+	}
+	if difference != "" {
+		t.Fatalf("generated module tree differs from selected metadata: %s", difference)
+	}
+}
+
+func TestGeneratedModuleTreeExactnessRejectsExtraEmptyAndSelectedProfileSurface(t *testing.T) {
+	emptyRoot := t.TempDir()
+	if difference, err := generatedModuleTreeDifference(emptyRoot, nil); err != nil || difference != "" {
+		t.Fatalf("empty generated tree difference/error = %q/%v, want none", difference, err)
+	}
+	writeRawFile(t, filepath.Join(emptyRoot, "unexpected", "extra.tf"), "")
+	if difference, err := generatedModuleTreeDifference(emptyRoot, nil); err != nil {
+		t.Fatalf("inspect mutated empty tree: %v", err)
+	} else if !strings.Contains(difference, "unexpected") || !strings.Contains(difference, "extra.tf") {
+		t.Fatalf("mutated empty tree difference = %q, want unexpected directory and file", difference)
+	}
+
+	_, packRoot := syntheticRoot(t, syntheticRootOptions{})
+	selectedRoot := t.TempDir()
+	if _, err := GenerateModule(packRoot, "sample_resource", GenerateModuleOptions{
+		OutputRoot: selectedRoot,
+		FormatHCL:  IdentityFormatter,
+	}); err != nil {
+		t.Fatalf("GenerateModule(sample_resource): %v", err)
+	}
+	requireExactGeneratedModuleTree(t, selectedRoot, []string{"sample_resource"})
+	writeRawFile(t, filepath.Join(selectedRoot, "sample_resource", "extra.tf"), "")
+	if difference, err := generatedModuleTreeDifference(selectedRoot, []string{"sample_resource"}); err != nil {
+		t.Fatalf("inspect mutated selected tree: %v", err)
+	} else if !strings.Contains(difference, "extra.tf") {
+		t.Fatalf("mutated selected tree difference = %q, want extra.tf", difference)
+	}
+}
+
 // TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree ports
 // "all active resources generate and validate a complete temporary tree".
 func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.T) {
@@ -686,6 +789,7 @@ func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.
 	if !reflect.DeepEqual(generatedTypes, types) {
 		t.Fatalf("generated resource types = %v, want active metadata types %v", generatedTypes, types)
 	}
+	requireExactGeneratedModuleTree(t, output, types)
 	total := 0
 	for _, module := range generated {
 		total += len(module.Files)
@@ -800,6 +904,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			if !reflect.DeepEqual(generatedTypes, resourceTypes) {
 				t.Fatalf("generated resource types = %v, want active metadata types %v", generatedTypes, resourceTypes)
 			}
+			requireExactGeneratedModuleTree(t, output, resourceTypes)
 			total := 0
 			for _, module := range generated {
 				total += len(module.Files)

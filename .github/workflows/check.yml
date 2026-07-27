@@ -30,12 +30,18 @@ jobs:
           runtime=true
           if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
             runtime=false
+            if ! changed_paths="$(git diff --name-only --no-renames "$base" HEAD)"; then
+              echo "failed to discover changed paths from $base to HEAD" >&2
+              exit 1
+            fi
             while IFS= read -r path; do
               case "$path" in
-                *.md|docs/*|reports/*) ;;
+                docs/*|reports/*|.github/*.md) ;;
+                */*) runtime=true; break ;;
+                *.md) ;;
                 *) runtime=true; break ;;
               esac
-            done < <(git diff --name-only "$base" HEAD)
+            done <<< "$changed_paths"
           fi
           echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
 
@@ -78,7 +84,7 @@ jobs:
 
   full-go-check:
     needs: scope
-    if: needs.scope.outputs.runtime == 'true'
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.runtime == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,7 +102,7 @@ jobs:
   v2-checkpoint:
     name: Go v2 vertical-slice checkpoint
     needs: scope
-    if: needs.scope.outputs.runtime == 'true'
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.runtime == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -160,11 +166,5 @@ jobs:
           done < <(jq -r '.shared[]' "$profile")
           echo "INFRAWRIGHT_PACKS=$root" >> "$GITHUB_ENV"
           echo "PACK_PROFILE=$profile" >> "$GITHUB_ENV"
-      - name: Validate reduced distribution and profile derivability
-        env:
-          PROFILE: ${{ matrix.profile }}
-        run: |
-          make check-distribution
-          cd go
-          go test -count=1 ./internal/metadata \
-            -run "^TestAllCommittedPackProfilesLoadFromReducedRoots/${PROFILE}$|^TestCommittedPackProfilesAreDerivable/${PROFILE}$"
+      - name: Validate reduced distribution
+        run: make check-distribution

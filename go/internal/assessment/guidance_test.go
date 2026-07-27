@@ -677,19 +677,13 @@ func TestRealPackRootSuppliesAllGuidanceLanes(t *testing.T) {
 			wantKey: "rule", wantValue: "cloudflare_dns_record_data_flags_dynamic",
 		},
 	}
-	resources := make(map[string]metadata.LoadedResourceMetadata, len(root.Resources)+len(tests))
-	for resourceType, resource := range root.Resources {
-		resources[resourceType] = resource
-	}
-	for _, test := range tests {
-		resources[test.resourceType] = metadata.LoadedResourceMetadata{
-			Type: test.resourceType, Product: test.provider, Provider: test.provider,
-		}
-	}
-	root.Resources = resources
 	source := NewAssessmentGuidanceSource(root)
 	for _, test := range tests {
 		t.Run(test.resourceType, func(t *testing.T) {
+			resource, installed := root.Resources[test.resourceType]
+			if !installed || resource.Provider != test.provider {
+				t.Skipf("%s pack contract is not installed in the selected profile", test.provider)
+			}
 			address := test.resourceType + `.this["one"]`
 			result := CollectAssessmentGuidance(CollectAssessmentGuidanceOptions{
 				Source: source, Tenant: "tenant", Label: test.resourceType, Members: []string{test.resourceType},
