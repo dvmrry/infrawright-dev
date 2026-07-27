@@ -7,6 +7,8 @@ import (
 	"path"
 	"strings"
 
+	ctyjson "github.com/zclconf/go-cty/cty/json"
+
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
@@ -126,6 +128,26 @@ func referenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbe
 		return StateProbeResult{}, fmt.Errorf(
 			"probe state for root %s: output %s carries no value",
 			rootLabel, InfrawrightReferenceOutput,
+		)
+	}
+	// The type is parsed and the value checked against it with the same
+	// decoder Terraform uses, so a state this probe calls usable is one
+	// Terraform would actually load. Checking only that a type field exists
+	// accepts "type": "garbage" and any value disagreeing with its declared
+	// type -- both of which Terraform refuses with "Invalid output value type
+	// in state", after this code has already rewritten references on the
+	// strength of them.
+	outputType, err := ctyjson.UnmarshalType(output.Type)
+	if err != nil {
+		return StateProbeResult{}, fmt.Errorf(
+			"probe state for root %s: output %s has an invalid type in state: %w",
+			rootLabel, InfrawrightReferenceOutput, err,
+		)
+	}
+	if _, err := ctyjson.Unmarshal(output.Value, outputType); err != nil {
+		return StateProbeResult{}, fmt.Errorf(
+			"probe state for root %s: output %s does not match its declared type in state: %w",
+			rootLabel, InfrawrightReferenceOutput, err,
 		)
 	}
 	var value map[string]any

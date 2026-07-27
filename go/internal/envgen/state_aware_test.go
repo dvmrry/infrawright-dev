@@ -361,17 +361,53 @@ func TestStateAwareRejectsRemoteBackendWithoutProber(t *testing.T) {
 // JSON null decodes to a present key holding nil, and a bare key check reports
 // that usable -- Terraform then halts at plan time on the index. Strings and
 // lists behave the same way.
+//
+// Every case carries a complete v4 envelope and a type its value genuinely
+// satisfies, so the envelope and cty gates all pass and the referent-shape
+// check is the only thing left that can reject it. Without that, removing the
+// shape check leaves this test green because the cases die earlier.
 func TestReferenceIDsPresentRejectsNonObjectReferenceMap(t *testing.T) {
-	for _, testCase := range []struct{ name, value string }{
-		{name: "null", value: "null"},
-		{name: "string", value: `"sg-1"`},
-		{name: "list", value: `["sg-1"]`},
+	for _, testCase := range []struct{ name, value, valueType string }{
+		{name: "null", value: "null", valueType: `"string"`},
+		{name: "string", value: `"sg-1"`, valueType: `"string"`},
+		{name: "list", value: `["sg-1"]`, valueType: `["list","string"]`},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			raw := []byte(`{"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":` + testCase.value + `}}}}`)
+			raw := []byte(`{"version":4,"outputs":{"infrawright_reference_ids":{` +
+				`"value":{"zpa_segment_group":` + testCase.value + `},` +
+				`"type":["object",{"zpa_segment_group":` + testCase.valueType + `}]}}}`)
 			result, err := referenceIDsPresent(raw, "zpa_segment_group", "zpa_segment_group")
 			if err == nil {
 				t.Fatalf("referenceIDsPresent(%s) error = nil (usable=%v), want a malformed-state failure", testCase.value, result.Usable)
+			}
+			if !strings.Contains(err.Error(), "want an object of reference identifiers") {
+				t.Errorf("referenceIDsPresent(%s) error = %q, want the referent-shape refusal rather than an earlier gate", testCase.value, err)
+			}
+		})
+	}
+}
+
+// TestReferenceIDsPresentValidatesOutputTypeAgainstValue pins that the type is
+// parsed and enforced, not merely present. Terraform refuses both of these with
+// "Invalid output value type in state"; a probe that accepts them classifies a
+// state Terraform cannot load, and then rewrites references on that basis.
+func TestReferenceIDsPresentValidatesOutputTypeAgainstValue(t *testing.T) {
+	for _, testCase := range []struct{ name, raw string }{
+		{
+			name: "type is not a type",
+			raw:  `{"version":4,"outputs":{"infrawright_reference_ids":{"value":{},"type":"garbage"}}}`,
+		},
+		{
+			name: "value disagrees with declared type",
+			raw: `{"version":4,"outputs":{"infrawright_reference_ids":` +
+				`{"value":{"zpa_segment_group":{"segment_one":"sg-1"}},` +
+				`"type":["object",{"zpa_segment_group":"string"}]}}}`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result, err := referenceIDsPresent([]byte(testCase.raw), "zpa_segment_group", "zpa_segment_group")
+			if err == nil {
+				t.Fatalf("referenceIDsPresent(%s) error = nil (usable=%v), want a refusal", testCase.name, result.Usable)
 			}
 		})
 	}
