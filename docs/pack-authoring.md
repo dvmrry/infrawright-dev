@@ -14,6 +14,11 @@ By default, packs live under:
 packs/<name>/
 ```
 
+Machine-readable evidence that is meaningful only with one provider pack lives
+under `packs/<name>/evidence/`. It travels with that pack in a reduced
+distribution and is not generic runtime metadata unless pack-specific tooling
+explicitly loads it.
+
 Set `INFRAWRIGHT_PACKS=/path/to/packs` to validate or run against a different
 packs root. The effective root is authoritative for manifest discovery,
 registries, schemas, overrides, and shared pack data. For every selected Fetch resource, it resolves

@@ -3,7 +3,7 @@
 This evidence records the provider-source facts for the 16 fetch-backed ZPA
 resources. The canonical
 machine-readable matrix is
-[`evidence/zpa-provider-v4.4.9.json`](evidence/zpa-provider-v4.4.9.json).
+[`packs/zpa/evidence/zpa-provider-v4.4.9.json`](../packs/zpa/evidence/zpa-provider-v4.4.9.json).
 
 It is deliberately narrower than a compatibility claim. Static provider source
 can establish import dispatch, Read identity assignments, schema shape, and
