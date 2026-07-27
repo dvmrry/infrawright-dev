@@ -15,17 +15,19 @@
 
 ## Base / Head
 
-- Base: `51a6577aa5036a6e3c094df3d1b79cb4d2f8735c`, the merge commit for PR #259 on
-  `origin/main` when this branch was created.
-- Head: `e0bf65896ddebf59864a8d4f50411930ed45a0d6` on
-  `feature/terraform-demo-item-parity`.
+- Base: `07acfd50d9a3a20dee44df48f5d403cc35f526b7`, current `origin/main` after
+  PR #268.
+- Head: the review-ready tip of `feature/terraform-demo-item-parity`; the fresh
+  reviewer must resolve and record its immutable commit with
+  `git rev-parse HEAD` before reviewing.
 - Diff command:
-  `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...e0bf65896ddebf59864a8d4f50411930ed45a0d6`.
+  `git diff 07acfd50d9a3a20dee44df48f5d403cc35f526b7...HEAD`.
 
-## Adversarial Review Result
+## Prior Adversarial Review Evidence
 
-- A fresh max-effort Codex reviewer inspected the exact implementation range
-  read-only and returned **Approve** with no blocking or non-blocking findings.
+- A fresh Codex reviewer inspected the original implementation range ending at
+  `e0bf65896ddebf59864a8d4f50411930ed45a0d6` read-only and returned **Approve**
+  with no blocking or non-blocking findings.
 - The reviewer independently ran the full checkpoint from an isolated provider
   cache in 404.66 seconds and observed 151/151 module suites, 20/20 item-key
   matches, 20/20 demo roots, and the exact one-resource native-HCL plan with no
@@ -36,6 +38,8 @@
 - The reviewer confirmed that missing, null, non-object, and malformed `items`
   fail closed; an empty object remains valid without a resource-specific branch;
   and no production or generated-artifact files changed.
+- That approval is retained as prior evidence only. The refreshed current-main
+  tip requires a new exact-head read-only review before promotion.
 
 ## Files Changed
 
@@ -110,16 +114,18 @@
 
 - Commands:
   - `go test -count=1 -run '^TestV2ConfigItemKeys' ./cmd/iw`
-  - `go vet ./cmd/iw`
-  - `TF_PLUGIN_CACHE_DIR=/tmp/infrawright-semantics-probe.V0uxEg/plugin-cache INFRAWRIGHT_V2_CHECKPOINT=1 go test -count=1 -timeout=18m -v -run '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw`
+  - An ephemeral test overlay invoked `v2VerifyDemoConfigItemParity` with a
+    dropped key and an invented key; both focused `go test` runs were required
+    to exit nonzero and report `0/1 matched`.
+  - `TF_PLUGIN_CACHE_DIR=/tmp/infrawright-pr260-tf-cache.45TYgV INFRAWRIGHT_V2_CHECKPOINT=1 go test -count=1 -timeout=18m -v -run '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw`
   - `make check`
   - `go vet ./...`
-  - `gofmt -d go/cmd/iw/v2_vertical_slice_test.go`
-  - `git diff --check`
+  - `test -z "$(gofmt -l go)"`
+  - `git diff --check origin/main...HEAD`
 - Relevant output summary:
   - focused decoder cases passed for sorted keys, an empty object, missing and
     null `items`, a non-object value, and malformed JSON;
-  - exact semantic checkpoint passed in 395.41 seconds;
+  - exact refreshed semantic checkpoint passed in 406.52 seconds;
   - 151/151 generated module suites passed;
   - candidate-versus-committed item-key parity matched 20/20 resources,
     including the intentionally empty SSL-inspection resource;
@@ -127,9 +133,22 @@
   - native-HCL evidence passed with one expected resource and zero failed,
     errored, or skipped runs;
   - full repository check, vet, formatting, and whitespace checks passed.
+- Focused regression and pre-fix/unsafe-mutation proof: the dropped-key case
+  compared `[alpha]` with `[alpha beta]`; the invented-key case compared
+  `[alpha beta gamma]` with `[alpha beta]`. Each failed its named child
+  assertion and the aggregate `candidate transformed demo item-key parity:
+  0/1 matched` assertion. The ephemeral overlay was removed before staging.
+- Promotion efficiency: approximately 28 hours 45 minutes elapsed from the
+  first candidate commit to this refreshed review-ready tree, including the
+  intervening queued/inactive period. The current-main refresh and validation
+  took approximately 10 minutes. Three local full demo-checkpoint sweeps were
+  attempted across the PR lifecycle (original builder, original reviewer, and
+  refreshed builder); all three passed. The original hosted checkpoint also
+  passed.
 - Tests not run and why: no live tenant, provider acceptance, import, apply, or
   adoption tests were run because this change affects only a hermetic test-side
-  comparison after transform output is produced.
+  comparison after transform output is produced. Current hosted CI remains to
+  run after the refreshed branch is pushed.
 
 ## Known Deferrals
 
