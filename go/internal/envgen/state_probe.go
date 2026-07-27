@@ -54,10 +54,22 @@ func localStateProbe(tenantDirectory string) StateProbe {
 	}
 }
 
+// supportedStateVersion is the Terraform state format this probe understands.
+// Anything else is refused rather than guessed at: reading an unknown envelope
+// and reporting "absent" would silently rewrite references to literals.
+const supportedStateVersion = 4
+
 // referenceIDsPresent reports whether a decoded Terraform state publishes
 // reference identifiers for referentType.
 //
-// Existence of the state file is not sufficient: a root that has been
+// The envelope is checked before the outputs are read. Terraform accepts a file
+// as state only when it carries a recognised version and an outputs object, and
+// only when each output carries both its value and its type metadata; a bare
+// JSON object such as {} is not an applied root with no outputs, it is not
+// state at all. Treating it as absence would fall back on every reference in
+// the run on the strength of a file Terraform itself refuses.
+//
+// Existence of the output is not sufficient either: a root that has been
 // destroyed, or applied before it published the output, leaves a state whose
 // outputs cannot satisfy the reference, and Terraform halts on that with
 // "Unsupported attribute" exactly as it does on a missing state. Both are
@@ -67,18 +79,63 @@ func localStateProbe(tenantDirectory string) StateProbe {
 // corrupt or truncated file never silently rewrites references to literals.
 func referenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbeResult, error) {
 	var state struct {
-		Outputs map[string]struct {
-			Value map[string]any `json:"value"`
-		} `json:"outputs"`
+		Version *int                        `json:"version"`
+		Outputs *map[string]json.RawMessage `json:"outputs"`
 	}
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return StateProbeResult{}, fmt.Errorf("probe state for root %s: %w", rootLabel, err)
 	}
-	output, present := state.Outputs[InfrawrightReferenceOutput]
+	if state.Version == nil {
+		return StateProbeResult{}, fmt.Errorf(
+			"probe state for root %s: document carries no state version, so Terraform would not accept it as state",
+			rootLabel,
+		)
+	}
+	if *state.Version != supportedStateVersion {
+		return StateProbeResult{}, fmt.Errorf(
+			"probe state for root %s: state version %d is unsupported, want %d",
+			rootLabel, *state.Version, supportedStateVersion,
+		)
+	}
+	// A nil pointer covers both an absent "outputs" key and an explicit null:
+	// Terraform always writes an object here, even when it is empty.
+	if state.Outputs == nil {
+		return StateProbeResult{}, fmt.Errorf(
+			"probe state for root %s: state carries no outputs object",
+			rootLabel,
+		)
+	}
+	rawOutput, present := (*state.Outputs)[InfrawrightReferenceOutput]
 	if !present {
 		return StateProbeResult{Usable: false}, nil
 	}
-	value, present := output.Value[referentType]
+	var output struct {
+		Type  json.RawMessage `json:"type"`
+		Value json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(rawOutput, &output); err != nil {
+		return StateProbeResult{}, fmt.Errorf("probe state for root %s: %w", rootLabel, err)
+	}
+	if isAbsentJSON(output.Type) {
+		return StateProbeResult{}, fmt.Errorf(
+			"probe state for root %s: output %s carries no type metadata, so Terraform would not accept it as state",
+			rootLabel, InfrawrightReferenceOutput,
+		)
+	}
+	if isAbsentJSON(output.Value) {
+		return StateProbeResult{}, fmt.Errorf(
+			"probe state for root %s: output %s carries no value",
+			rootLabel, InfrawrightReferenceOutput,
+		)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(output.Value, &value); err != nil {
+		return StateProbeResult{}, fmt.Errorf(
+			"probe state for root %s: %s is not an object of per-resource-type reference identifiers: %w",
+			rootLabel, InfrawrightReferenceOutput, err,
+		)
+	}
+	referent, present := value[referentType]
 	if !present {
 		return StateProbeResult{Usable: false}, nil
 	}
@@ -88,13 +145,19 @@ func referenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbe
 	// halt Terraform at plan time on the index. An absent key is a degenerate
 	// root and falls back, but a key holding a non-object is a malformed
 	// state we cannot reason about, so it fails closed.
-	if _, isObject := value.(map[string]any); !isObject {
+	if _, isObject := referent.(map[string]any); !isObject {
 		return StateProbeResult{}, fmt.Errorf(
 			"probe state for root %s: %s.%s is %T, want an object of reference identifiers",
-			rootLabel, InfrawrightReferenceOutput, referentType, value,
+			rootLabel, InfrawrightReferenceOutput, referentType, referent,
 		)
 	}
 	return StateProbeResult{Usable: true}, nil
+}
+
+// isAbsentJSON reports whether a raw field was omitted or written as null,
+// which the state envelope treats identically.
+func isAbsentJSON(raw json.RawMessage) bool {
+	return len(raw) == 0 || string(raw) == "null"
 }
 
 // memoizedStateProbe caches probe outcomes per (root, referent type) for one
@@ -139,15 +202,19 @@ func filterStatelessGeneratedBindings(
 		if err != nil {
 			return nil, err
 		}
+		// Every reference is probed even once one is known absent: stopping
+		// early would hide a later probe failure behind the earlier absence,
+		// downgrading "state could not be read" to a silent fallback. Any
+		// error therefore beats absence regardless of reference order, and the
+		// first absent root is the one reported.
 		unusable := ""
 		for _, reference := range references {
 			result, err := probe(reference.Root, reference.ResourceType)
 			if err != nil {
 				return nil, err
 			}
-			if !result.Usable {
+			if !result.Usable && unusable == "" {
 				unusable = reference.Root
-				break
 			}
 		}
 		if unusable == "" {

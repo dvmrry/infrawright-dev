@@ -105,10 +105,22 @@ func (f stateAwareFixture) writeReferentState(t *testing.T, outputs map[string]a
 
 // referenceIDOutputs is the shape a generated root actually publishes: the
 // infrawright_reference_ids output carrying a per-resource-type key map.
+// The type metadata is emitted alongside the value because Terraform writes
+// both and refuses a state output carrying only one. A fixture without it is
+// not state, so a probe that accepted it would prove nothing about the files
+// this code actually meets.
 func referenceIDOutputs(referentType string, keys map[string]any) map[string]any {
+	keyTypes := map[string]any{}
+	for key := range keys {
+		keyTypes[key] = "string"
+	}
 	return map[string]any{
 		"infrawright_reference_ids": map[string]any{
 			"value": map[string]any{referentType: keys},
+			"type": []any{
+				"object",
+				map[string]any{referentType: []any{"object", keyTypes}},
+			},
 		},
 	}
 }
@@ -572,5 +584,85 @@ func TestStateAwareStillRefusesBindingOutsideProviderSchema(t *testing.T) {
 	}
 	if err := fixture.generateWithProbe(t, absentProbe()); err == nil {
 		t.Errorf("state-aware generation error = nil, want the same refusal state-blind generation gives (%v)", blind)
+	}
+}
+
+// TestFilterProbesEveryReferenceSoErrorsBeatAbsence pins error precedence in a
+// binding that reaches more than one root. Stopping at the first absent
+// reference means a later reference whose probe fails is never observed, and a
+// probe failure -- the signal that state could not be read at all -- is
+// downgraded to a silent fallback. Any error must beat absence regardless of
+// reference order.
+func TestFilterProbesEveryReferenceSoErrorsBeatAbsence(t *testing.T) {
+	binding := ExpressionBinding{
+		Address: "zpa_application_segment.app_one",
+		Key:     "app_one",
+		Path:    "segment_group_id",
+		Expression: `[data.terraform_remote_state.absent_root.outputs.infrawright_reference_ids.zpa_segment_group["a"], ` +
+			`data.terraform_remote_state.failing_root.outputs.infrawright_reference_ids.zpa_segment_group["b"]]`,
+	}
+	probeFailure := errors.New("probe state for root failing_root: boom")
+	probe := func(rootLabel, referentType string) (StateProbeResult, error) {
+		if rootLabel == "failing_root" {
+			return StateProbeResult{}, probeFailure
+		}
+		return StateProbeResult{Usable: false}, nil
+	}
+
+	_, err := filterStatelessGeneratedBindings([]ExpressionBinding{binding}, "zpa_application_segment", probe, func(string) {})
+	if !errors.Is(err, probeFailure) {
+		t.Errorf("filterStatelessGeneratedBindings error = %v, want the probe failure from the reference after the absent one", err)
+	}
+}
+
+// TestReferenceIDsPresentRequiresStateEnvelope pins that the probe only treats
+// a document as state when it carries the envelope Terraform itself requires.
+// Without the version check an arbitrary JSON object -- including {} -- reads
+// as an applied root with no outputs and silently rewrites references to
+// literals, and an output missing its type metadata reads as usable while
+// Terraform refuses the same file.
+func TestReferenceIDsPresentRequiresStateEnvelope(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "empty object", raw: `{}`},
+		{name: "no version", raw: `{"outputs":{}}`},
+		{name: "unsupported version", raw: `{"version":3,"outputs":{}}`},
+		{name: "null outputs", raw: `{"version":4,"outputs":null}`},
+		{name: "output without type", raw: `{"version":4,"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":{"segment_one":"sg-1"}}}}}`},
+		{name: "output without value", raw: `{"version":4,"outputs":{"infrawright_reference_ids":{"type":["object",{}]}}}`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if _, err := referenceIDsPresent([]byte(testCase.raw), "zpa_segment_group", "zpa_segment_group"); err == nil {
+				t.Errorf("referenceIDsPresent(%s) error = nil, want a refusal for a document Terraform does not accept as state", testCase.raw)
+			}
+		})
+	}
+}
+
+// TestReferenceIDsPresentAcceptsAppliedStateShape pins the positive side of the
+// envelope check, so tightening it cannot degenerate into refusing everything.
+// The shape is what Terraform writes: version 4, outputs carrying both value
+// and type.
+func TestReferenceIDsPresentAcceptsAppliedStateShape(t *testing.T) {
+	applied := `{"version":4,"terraform_version":"1.15.4","serial":1,"lineage":"fixture",` +
+		`"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":{"segment_one":"sg-1"}},` +
+		`"type":["object",{"zpa_segment_group":["object",{"segment_one":"string"}]}]}},"resources":[]}`
+	result, err := referenceIDsPresent([]byte(applied), "zpa_segment_group", "zpa_segment_group")
+	if err != nil {
+		t.Fatalf("referenceIDsPresent(applied state) error = %v, want nil", err)
+	}
+	if !result.Usable {
+		t.Errorf("referenceIDsPresent(applied state) usable = false, want true")
+	}
+
+	noOutputs := `{"version":4,"terraform_version":"1.15.4","serial":1,"lineage":"fixture","outputs":{},"resources":[]}`
+	result, err = referenceIDsPresent([]byte(noOutputs), "zpa_segment_group", "zpa_segment_group")
+	if err != nil {
+		t.Fatalf("referenceIDsPresent(applied state without outputs) error = %v, want nil", err)
+	}
+	if result.Usable {
+		t.Errorf("referenceIDsPresent(applied state without outputs) usable = true, want false")
 	}
 }
