@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 )
 
@@ -31,7 +33,6 @@ const (
 	v2GoModuleProvisioningPhase = "provision candidate Go module cache with go mod download"
 	v2GoModuleProxy             = "https://proxy.golang.org"
 	v2GoOfflineBuildPhase       = "build candidate Go binary from provisioned module cache with GOPROXY=off"
-	v2GeneratedModuleCount      = 151
 	v2ResourceType              = "zia_rule_labels"
 	v2Tenant                    = "demo"
 	v2CommandTimeout            = 5 * time.Minute
@@ -394,6 +395,25 @@ func v2FullZIAPackRoot(t *testing.T, repositoryRoot string) string {
 	return root
 }
 
+func v2FocusedZPAPackRoot(t *testing.T, repositoryRoot string) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "packs")
+	shared := filepath.Join(root, "_shared")
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", shared, err)
+	}
+	links := map[string]string{
+		filepath.Join(root, "zpa"):       filepath.Join(repositoryRoot, "packs", "zpa"),
+		filepath.Join(shared, "zscaler"): filepath.Join(repositoryRoot, "packs", "_shared", "zscaler"),
+	}
+	for link, target := range links {
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatalf("os.Symlink(%q, %q) error = %v, want the focused ZPA pack", target, link, err)
+		}
+	}
+	return root
+}
+
 func v2PluginCacheDirectory(t *testing.T, home string) string {
 	t.Helper()
 	pluginCache := os.Getenv("TF_PLUGIN_CACHE_DIR")
@@ -408,6 +428,53 @@ func v2PluginCacheDirectory(t *testing.T, home string) string {
 		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", pluginCache, err)
 	}
 	return pluginCache
+}
+
+func v2RequiredTerraformExecutable(t *testing.T) string {
+	t.Helper()
+	terraform, err := exec.LookPath("terraform")
+	if err != nil {
+		t.Fatalf("exec.LookPath(%q) error = %v, want a real Terraform executable", "terraform", err)
+	}
+	terraform, err = filepath.Abs(terraform)
+	if err != nil {
+		t.Fatalf("filepath.Abs(%q) error = %v, want nil", terraform, err)
+	}
+	terraform, err = filepath.EvalSymlinks(terraform)
+	if err != nil {
+		t.Fatalf("filepath.EvalSymlinks(%q) error = %v, want a regular Terraform executable", terraform, err)
+	}
+	return terraform
+}
+
+// v2FocusedTerraformEnvironment gives one-resource Terraform contracts only
+// the runtime state they need. It deliberately does not require the vertical
+// checkpoint's CLI build, fetch fixture, deployment, or opt-in environment.
+func v2FocusedTerraformEnvironment(t *testing.T, terraform string) []string {
+	t.Helper()
+	home := t.TempDir()
+	temporaryBase := os.TempDir()
+	if runtime.GOOS != "windows" {
+		temporaryBase = "/tmp"
+	}
+	temporary, err := os.MkdirTemp(temporaryBase, "iw-tf-contract-")
+	if err != nil {
+		t.Fatalf("os.MkdirTemp(%q, %q) error = %v, want nil", temporaryBase, "iw-tf-contract-", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(temporary); err != nil {
+			t.Errorf("os.RemoveAll(%q) error = %v, want nil", temporary, err)
+		}
+	})
+	return []string{
+		"CHECKPOINT_DISABLE=1",
+		"HOME=" + home,
+		"PATH=" + filepath.Dir(terraform),
+		"TF_IN_AUTOMATION=1",
+		"TF_INPUT=0",
+		"TF_PLUGIN_CACHE_DIR=" + v2PluginCacheDirectory(t, home),
+		"TMPDIR=" + temporary,
+	}
 }
 
 func TestV2PluginCacheDirectoryUsesExplicitCacheWithHermeticFallback(t *testing.T) {
@@ -1059,7 +1126,7 @@ func v2RunTerraformTestRuns(
 func v2VerifyGeneratedModuleSemantics(
 	t *testing.T,
 	workspace, goBinary, terraform, deploymentPath, moduleDirectory string,
-	metadataArguments, environment []string,
+	metadataArguments, environment, expectedResourceTypes []string,
 ) {
 	t.Helper()
 	generateArguments := append([]string{
@@ -1072,9 +1139,7 @@ func v2VerifyGeneratedModuleSemantics(
 	v2RunSuccessfully(t, workspace, goBinary, validateArguments, environment)
 
 	resourceTypes := v2DirectoryNames(t, moduleDirectory)
-	if got := len(resourceTypes); got != v2GeneratedModuleCount {
-		t.Fatalf("generated module directories = %d, want %d: %v", got, v2GeneratedModuleCount, resourceTypes)
-	}
+	v2RequireStrings(t, "generated module directories versus selected profile", resourceTypes, expectedResourceTypes)
 	passed := 0
 	for index, resourceType := range resourceTypes {
 		resourceType := resourceType
@@ -1107,7 +1172,125 @@ func v2VerifyGeneratedModuleSemantics(
 	if passed != len(resourceTypes) {
 		t.Fatalf("generated module Terraform semantics: %d/%d passed", passed, len(resourceTypes))
 	}
-	t.Logf("generated module Terraform semantics: %d/%d passed", passed, v2GeneratedModuleCount)
+	t.Logf("generated module Terraform semantics: %d/%d passed", passed, len(resourceTypes))
+}
+
+func v2VerifyZPAPortalCapabilityCardinality(
+	t *testing.T,
+	repositoryRoot, terraform string,
+	environment []string,
+) {
+	t.Helper()
+	profile := filepath.Join(repositoryRoot, "packs", "zpa.packset.json")
+	packRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot:   v2FocusedZPAPackRoot(t, repositoryRoot),
+		ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("metadata.LoadPackRoot(ZPA portal contract) error = %v, want nil", err)
+	}
+	moduleDirectory := filepath.Join(t.TempDir(), "modules")
+	if _, err := modulesgen.GenerateModule(
+		packRoot,
+		"zpa_policy_portal_access_rule",
+		modulesgen.GenerateModuleOptions{
+			OutputRoot: moduleDirectory,
+			FormatHCL:  modulesgen.NewHCLFormatter(),
+		},
+	); err != nil {
+		t.Fatalf("modulesgen.GenerateModule(zpa_policy_portal_access_rule) error = %v, want nil", err)
+	}
+
+	root := t.TempDir()
+	moduleSource := filepath.Join(moduleDirectory, "zpa_policy_portal_access_rule")
+	providerRequirements, err := os.ReadFile(filepath.Join(moduleSource, "versions.tf"))
+	if err != nil {
+		t.Fatalf("os.ReadFile(portal module versions.tf) error = %v, want nil", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "versions.tf"), providerRequirements, 0o600); err != nil {
+		t.Fatalf("os.WriteFile(portal cardinality versions.tf) error = %v, want nil", err)
+	}
+	testDirectory := filepath.Join(root, "tests")
+	if err := os.MkdirAll(testDirectory, 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(portal cardinality tests) error = %v, want nil", err)
+	}
+	testSource := `mock_provider "zpa" {}
+
+run "one_capability_plan" {
+  command = plan
+}
+`
+	if err := os.WriteFile(filepath.Join(testDirectory, "cardinality.tftest.hcl"), []byte(testSource), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(portal cardinality test) error = %v, want nil", err)
+	}
+	writeConfiguration := func(capabilities string) {
+		t.Helper()
+		configuration := fmt.Sprintf(`module "portal" {
+  source = %q
+  items = {
+    example = {
+      name                           = "example"
+      privileged_portal_capabilities = %s
+    }
+  }
+}
+`, moduleSource, capabilities)
+		if err := os.WriteFile(filepath.Join(root, "main.tf"), []byte(configuration), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(portal cardinality main.tf) error = %v, want nil", err)
+		}
+	}
+
+	writeConfiguration(`[
+        { delete_file = true },
+      ]`)
+	v2InitializeTerraformRoot(t, "ZPA portal singleton capability", terraform, root, environment)
+	result := v2RunSuccessfully(t, root, terraform, []string{
+		"test", "-test-directory=tests", "-no-color", "-verbose", "-json",
+	}, environment)
+	report, err := v2ParseTerraformTestReport(result.stdout)
+	if err != nil {
+		t.Fatalf("parse ZPA portal capability plan: %v", err)
+	}
+	if err := v2RequirePassedTerraformRuns(report, []string{"one_capability_plan"}); err != nil {
+		t.Fatalf("verify ZPA portal capability plan: %v", err)
+	}
+	changes := report.plans["one_capability_plan"]
+	if len(changes) != 1 {
+		t.Fatalf("ZPA portal capability plan resource changes = %+v, want exactly one", changes)
+	}
+	change := changes[0]
+	wantAddress := `module.portal.zpa_policy_portal_access_rule.this["example"]`
+	if change.Address != wantAddress {
+		t.Fatalf("ZPA portal capability plan address = %q, want %q", change.Address, wantAddress)
+	}
+	capabilities, ok := change.Change.After["privileged_portal_capabilities"].([]any)
+	if !ok || len(capabilities) != 1 {
+		t.Fatalf("ZPA portal capability plan value = %#v, want one block", change.Change.After["privileged_portal_capabilities"])
+	}
+	capability, ok := capabilities[0].(map[string]any)
+	if !ok {
+		t.Fatalf("ZPA portal capability plan block = %#v, want object", capabilities[0])
+	}
+	if deleteFile, ok := capability["delete_file"].(bool); !ok || !deleteFile {
+		t.Fatalf("ZPA portal capability plan delete_file = %#v, want true", capability["delete_file"])
+	}
+
+	requireRejected := func(label, value string) {
+		t.Helper()
+		writeConfiguration(value)
+		if _, err := v2RunBoundedCommand(t, root, terraform, []string{"validate", "-no-color"}, environment); err == nil {
+			t.Fatalf("ZPA portal module accepted %s; want strict tuple rejection before provider execution", label)
+		}
+	}
+	requireRejected("two capability elements", `[
+        { delete_file = true },
+        { request_approvals = true },
+      ]`)
+	requireRejected("keyed two-object bypass", `{
+        first  = { delete_file = true }
+        second = { request_approvals = true }
+      }`)
+	t.Log("ZPA portal capability cardinality: one tuple element preserved in plan; two elements and keyed-object bypass rejected before provider execution")
 }
 
 func v2VerifyDemoEnvironmentSemantics(
@@ -1244,18 +1427,13 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	}
 
 	root := repoRoot(t)
-	terraform, err := exec.LookPath("terraform")
-	if err != nil {
-		t.Fatalf("exec.LookPath(%q) error = %v, want a real Terraform executable", "terraform", err)
-	}
-	terraform, err = filepath.Abs(terraform)
-	if err != nil {
-		t.Fatalf("filepath.Abs(%q) error = %v, want nil", terraform, err)
-	}
-	terraform, err = filepath.EvalSymlinks(terraform)
-	if err != nil {
-		t.Fatalf("filepath.EvalSymlinks(%q) error = %v, want a regular Terraform executable", terraform, err)
-	}
+	terraform := v2RequiredTerraformExecutable(t)
+	v2VerifyZPAPortalCapabilityCardinality(
+		t,
+		root,
+		terraform,
+		v2FocusedTerraformEnvironment(t, terraform),
+	)
 	goBinary := v2BuildGoBinary(t, root)
 
 	wantPullPath := filepath.Join(root, "packs", "_shared", "zscaler", "demo", v2ResourceType+".json")
@@ -1380,6 +1558,15 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 		"--root", filepath.Join(root, "packs"),
 		"--profile", filepath.Join(root, "packs", "full.packset.json"),
 	}
+	fullProfilePath := filepath.Join(root, "packs", "full.packset.json")
+	fullPackRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot:   filepath.Join(root, "packs"),
+		ProfilePath: &fullProfilePath,
+	})
+	if err != nil {
+		t.Fatalf("load selected full profile for generated module semantics: %v", err)
+	}
+	fullResourceTypes := modulesgen.ActiveGeneratedResourceTypes(fullPackRoot)
 	v2VerifyGeneratedModuleSemantics(
 		t,
 		semanticWorkspace,
@@ -1389,6 +1576,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 		semanticModuleDirectory,
 		fullMetadataArguments,
 		terraformEnvironment,
+		fullResourceTypes,
 	)
 	v2VerifyDemoEnvironmentSemantics(
 		t,

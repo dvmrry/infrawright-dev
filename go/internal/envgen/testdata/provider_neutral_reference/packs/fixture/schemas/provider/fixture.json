@@ -1,0 +1,38 @@
+{
+  "resource_schemas": {
+    "fixture_consumer": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "id": {
+            "type": "string",
+            "computed": true
+          },
+          "name": {
+            "type": "string",
+            "optional": true
+          },
+          "source_id": {
+            "type": "string",
+            "optional": true
+          }
+        }
+      }
+    },
+    "fixture_source": {
+      "version": 0,
+      "block": {
+        "attributes": {
+          "id": {
+            "type": "string",
+            "computed": true
+          },
+          "name": {
+            "type": "string",
+            "optional": true
+          }
+        }
+      }
+    }
+  }
+}

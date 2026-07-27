@@ -14,6 +14,11 @@ By default, packs live under:
 packs/<name>/
 ```
 
+Machine-readable evidence that is meaningful only with one provider pack lives
+under `packs/<name>/evidence/`. It travels with that pack in a reduced
+distribution and is not generic runtime metadata unless pack-specific tooling
+explicitly loads it.
+
 Set `INFRAWRIGHT_PACKS=/path/to/packs` to validate or run against a different
 packs root. The effective root is authoritative for manifest discovery,
 registries, schemas, overrides, and shared pack data. For every selected Fetch resource, it resolves
@@ -266,6 +271,17 @@ metadata must not silently tolerate plan drift. Keep pack declarations narrow,
 source-backed, and provider-version-specific in their reason text. Do not use
 pack policy for tenant secrets, synthetic defaults, placeholders, or
 environment-specific choices.
+
+Generated import-configuration rewriting deliberately defers
+`projection_omit` and `projection_omit_if` selectors containing an exact
+numeric index, such as `rules[0].order`. Terraform has not established stable
+collection indexes at that phase, so choosing one generated HCL sibling would
+be unsafe. The rewriter makes no generated-config edit and does not mark the
+entry during that phase; use a wildcard selector such as `rules[*].order` when
+every repeated sibling must be omitted. Provider validation or planning
+remains responsible for any exact-index case that cannot be rewritten safely.
+Generated-config use of an exact-index `drop_if_default` override path is
+deferred by the same safeguard.
 
 This is a generic authoring example, not current ZIA policy. The pinned ZIA
 4.8.0 pack classifies URL-filtering ISOLATE rules as version-scoped

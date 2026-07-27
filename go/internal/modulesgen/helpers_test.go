@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -71,18 +72,65 @@ func writeRawFile(t *testing.T, path, content string) {
 	}
 }
 
-// committedRoot loads the repo's committed packs/ under packs/full.packset.json,
-// ported from module-generator.test.ts's committedRoot helper.
-func committedRoot(t *testing.T) metadata.LoadedPackRoot {
+func requireModulePackSelection(t *testing.T, selection metadata.PackSelection) {
 	t.Helper()
-	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot:   filepath.Join(root, "packs"),
-		ProfilePath: &profilePath,
-	})
+	packsRoot := filepath.Join(repoRoot(t), "packs")
+	missing := make([]string, 0)
+	for _, pack := range selection.Packs {
+		if _, err := os.Stat(filepath.Join(packsRoot, pack)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, pack)
+				continue
+			}
+			t.Fatalf("os.Stat(pack %q) error: %v", pack, err)
+		}
+	}
+	for _, shared := range selection.Shared {
+		if _, err := os.Stat(filepath.Join(packsRoot, "_shared", shared)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, "_shared/"+shared)
+				continue
+			}
+			t.Fatalf("os.Stat(shared %q) error: %v", shared, err)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Skipf("required pack paths are not installed: %v", missing)
+	}
+}
+
+func installedModuleRoot(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	packsRoot := filepath.Join(repoRoot(t), "packs")
+	entries, err := os.ReadDir(packsRoot)
 	if err != nil {
-		t.Fatalf("LoadPackRoot: %v", err)
+		t.Fatalf("os.ReadDir(%q) error: %v", packsRoot, err)
+	}
+	packs := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != "_shared" {
+			packs = append(packs, entry.Name())
+		}
+	}
+	shared := []any{}
+	sharedRoot := filepath.Join(packsRoot, "_shared")
+	sharedEntries, err := os.ReadDir(sharedRoot)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("os.ReadDir(%q) error: %v", sharedRoot, err)
+	}
+	for _, entry := range sharedEntries {
+		if entry.IsDir() {
+			shared = append(shared, entry.Name())
+		}
+	}
+	profile := filepath.Join(t.TempDir(), "installed.packset.json")
+	writeJSONFile(t, profile, metadata.JsonObject{
+		"kind": metadata.PackSetKind, "version": 1, "packs": packs, "shared": shared,
+	})
+	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{PacksRoot: packsRoot, ProfilePath: &profile})
+	if err != nil {
+		t.Fatalf("LoadPackRoot(installed packs) error: %v", err)
 	}
 	return loaded
 }

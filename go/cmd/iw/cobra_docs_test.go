@@ -19,7 +19,7 @@ func TestCLIReferenceCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render CLI reference: %v", err)
 	}
-	destination := filepath.Join(repoRoot(t), "docs", "cli-reference.md")
+	destination := filepath.Join(repoRoot(t), "go", "cmd", "iw", "testdata", "cli-reference.md")
 	if os.Getenv("UPDATE_CLI_DOCS") == "1" {
 		if err := os.WriteFile(destination, generated, 0o644); err != nil {
 			t.Fatalf("write %s: %v", destination, err)

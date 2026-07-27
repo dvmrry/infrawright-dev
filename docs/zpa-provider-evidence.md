@@ -1,9 +1,9 @@
-# ZPA Provider v4.4.6 Evidence
+# ZPA Provider v4.4.9 Evidence
 
 This evidence records the provider-source facts for the 16 fetch-backed ZPA
 resources. The canonical
 machine-readable matrix is
-[`evidence/zpa-provider-v4.4.6.json`](evidence/zpa-provider-v4.4.6.json).
+[`packs/zpa/evidence/zpa-provider-v4.4.9.json`](../packs/zpa/evidence/zpa-provider-v4.4.9.json).
 
 It is deliberately narrower than a compatibility claim. Static provider source
 can establish import dispatch, Read identity assignments, schema shape, and
@@ -16,16 +16,69 @@ configuration.
 
 The matrix is bound to:
 
-- `zscaler/terraform-provider-zpa` tag `v4.4.6`;
-- commit `dcf12469a9a8f648be0691c74e9816fc94ec7ddc`;
+- `zscaler/terraform-provider-zpa` tag `v4.4.9`;
+- commit `1d4f43cc4c59a24d8380f0c655a07b6da7199465`;
 - the complete SHA-256 of every consulted provider source file;
 - inclusive, SHA-256-bound line ranges for every import, Read-identity, and
   exception claim; and
 - the committed ZPA pack manifest, registry, relevant overrides, and provider
   schema dump.
 
-Current tests validate the matrix digest and schema. A reviewer still reads the
-cited source ranges to decide whether each curated claim is correct.
+Current tests validate the matrix digest and schema. The optional external
+source test also replays every whole-file and inclusive-range binding against
+the exact provider tag. A reviewer still reads the cited source ranges to
+decide whether each curated claim is correct.
+
+## v4.4.9 refresh boundary
+
+The provider inventory remains 55 resource schemas and 71 data-source schemas;
+Infrawright's registry still contains 54 ZPA resources. The schema refresh has
+16 effective transitions rather than a resource-count expansion:
+
+- `bypass_on_reauth` on `zpa_application_segment` changes from
+  Optional+Computed to Optional;
+- `clientless_apps` changes from list to set on the two browser-access
+  resources, and `common_apps_dto.apps_config` changes from list to set on
+  `zpa_application_segment_pra`;
+- access policy and access-policy-v2 gain
+  `device_posture_failure_notification_enabled`;
+- the capabilities rule gains `control_session` and `join_session`;
+- the portal rule gains three sandbox capability booleans and relaxes the
+  prior one-item limit on `privileged_portal_capabilities`; and
+- four other schemas inherit
+  `device_posture_failure_notification_enabled` from the provider's shared
+  policy schema.
+
+The final inherited-field group is not promoted to a support claim. Provider
+source reads and expands the field only for access policy and access-policy-v2;
+forwarding, redirection, timeout, and the LSS nested policy resource merely
+inherit its schema declaration. Their generated inputs remain upstream-schema
+surface and require provider-side source or runtime evidence before use.
+
+The portal cardinality change is schema-only, not executable behavior. In
+provider `v4.4.9`, `expandPrivilegedPortalCapabilitiesRule` still reads only
+`privCapsList[0]` and labels the block `MaxItems: 1`; later configured elements
+would be silently ignored. The pack therefore declares
+`module_single_blocks: ["privileged_portal_capabilities"]`. Module generation
+uses an optional one-element tuple while leaving the checked-in provider schema
+byte-exact. A one-element value preserves its capability booleans in the mocked
+plan; two-element lists and keyed-object collection bypasses are rejected before
+the provider runs. This intentionally changes the old singleton-object module
+input to a list-shaped value so Terraform cannot lossily coerce a keyed map into
+an empty capability object. Remove the constraint only after provider source
+consumes every declared element or the published schema restores its one-item
+limit.
+
+The three list-to-set changes alter generated variable/config body types, not
+resource instance addresses: none of the affected resources derives
+`key_field`, `import_id`, or `sort_lists` identity from those blocks. The full
+mock-provider semantics checkpoint verifies the generated module types, while
+a credentialed no-op plan remains the final runtime proof.
+
+Only 7 of the 54 registered ZPA resources currently have raw demo fixtures.
+`DROPS_CHECK=1` is therefore meaningful for that exercised subset, not a
+provider-wide completeness claim. ZTC has no raw fixtures and is deliberately
+outside this refresh.
 
 ## Findings that constrain adoption
 
@@ -77,13 +130,13 @@ rebinding it from a response:
 
 ### State projection is materially broader than ZCC
 
-Across the 16 fetched resources, the committed v4.4.6 schema exposes 238 input
+Across the 16 fetched resources, the committed v4.4.9 schema exposes 239 input
 attributes and 27 nested input blocks:
 
 | Shape | Count |
 |---|---:|
 | `string` | 164 |
-| `bool` | 46 |
+| `bool` | 47 |
 | `set(string)` | 21 |
 | `list(string)` | 4 |
 | `list(object({from:string,to:string}))` | 2 |

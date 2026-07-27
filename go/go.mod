@@ -5,11 +5,11 @@ go 1.26
 toolchain go1.26.5
 
 require (
-	github.com/getkin/kin-openapi v0.140.0
+	github.com/getkin/kin-openapi v0.145.0
 	github.com/hashicorp/hcl/v2 v2.19.1
 	github.com/hashicorp/terraform-json v0.28.0
-	github.com/oasdiff/yaml v0.1.0
-	github.com/oasdiff/yaml3 v0.0.13
+	github.com/oasdiff/yaml v0.1.1
+	github.com/oasdiff/yaml3 v0.0.14
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/mod v0.29.0

@@ -1,0 +1,10 @@
+{
+  "fixture_consumer": {
+    "generate": true,
+    "product": "fixture"
+  },
+  "fixture_source": {
+    "generate": true,
+    "product": "fixture"
+  }
+}

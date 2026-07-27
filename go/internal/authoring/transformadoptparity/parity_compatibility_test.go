@@ -19,7 +19,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
 
-const parityCompatibilitySHA256 = "124737055c8758b617d1653744c5b8911f24b468c114b0e9ed7dca750ab15cf0"
+const parityCompatibilitySHA256 = "baeeca9097824387c1779f2dba3e05be5e3e2c2480c94c1cf29cf6270332d106"
 
 type parityCompatibilityFixture struct {
 	SchemaVersion int                         `json:"schema_version"`
@@ -79,10 +79,10 @@ func TestTransformAdoptParityCompatibility(t *testing.T) {
 		t.Fatalf("%s provenance = %#v, want non-empty baseline_commit and note", fixturePath, compatibility.Provenance)
 	}
 
-	context := testContext(t)
+	context := committedTestContext(t)
 	fixtures := make([]Fixture, 0, len(compatibility.Results))
 	for _, expected := range compatibility.Results {
-		loaded := loadFixture(t, expected.Name)
+		loaded := loadCommittedFixture(t, context, expected.Name)
 		if loaded.ResourceType != expected.ResourceType {
 			t.Fatalf("fixture %q resource_type = %q, want %q", expected.Name, loaded.ResourceType, expected.ResourceType)
 		}

@@ -45,6 +45,7 @@ func TestMappingCompatibilityReports(t *testing.T) {
 		for _, test := range cases {
 			t.Run(group.name+"/"+str(test["name"]), func(t *testing.T) {
 				input := object(test["input"])
+				resourcePrefix := str(input["resource_prefix"])
 				document, err := documentFor(t, recordedValue(input["openapi"]))
 				if err != nil {
 					t.Fatalf("documentFor(%s) error: %v", test["name"], err)
@@ -55,17 +56,15 @@ func TestMappingCompatibilityReports(t *testing.T) {
 				}
 				registry := recordedValue(input["registry_data"])
 				if input["registry_data"] == nil {
+					requireDefaultRegistryPack(t, resourcePrefix)
 					registry = defaultRegistry(t)
-					if len(registry) == 0 {
-						t.Fatal("defaultRegistry() returned an empty registry")
-					}
 				}
 				apiPrefix := str(input["api_prefix"])
 				report, err := Build(context.Background(), Options{
 					SchemaData:     recordedValue(input["schema"]),
 					Document:       document,
 					ProviderSource: providerSource,
-					ResourcePrefix: str(input["resource_prefix"]),
+					ResourcePrefix: resourcePrefix,
 					APIPrefix:      &apiPrefix,
 					RegistryData:   &registry,
 				})
@@ -85,5 +84,21 @@ func TestMappingCompatibilityReports(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func requireDefaultRegistryPack(t *testing.T, resourcePrefix string) {
+	t.Helper()
+	switch resourcePrefix {
+	case "netbox", "zpa", "ztc":
+	default:
+		return
+	}
+	packPath := filepath.Join("..", "..", "..", "..", "packs", resourcePrefix)
+	if _, err := os.Stat(packPath); err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("%s pack is not installed", resourcePrefix)
+		}
+		t.Fatalf("os.Stat(%q) error = %v, want nil", packPath, err)
 	}
 }

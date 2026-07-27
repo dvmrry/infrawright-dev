@@ -4,9 +4,64 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
+  scope:
+    name: Determine runtime CI scope
+    runs-on: ubuntu-latest
+    outputs:
+      profiles: ${{ steps.scope.outputs.profiles }}
+      runtime: ${{ steps.scope.outputs.runtime }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Discover changed surface and installed profiles
+        id: scope
+        env:
+          PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base="$PULL_REQUEST_BASE_SHA"
+          if [[ -z "$base" ]]; then
+            base="$PUSH_BEFORE_SHA"
+          fi
+
+          runtime=true
+          if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            runtime=false
+            if ! changed_paths="$(git diff --name-only --no-renames "$base" HEAD)"; then
+              echo "failed to discover changed paths from $base to HEAD" >&2
+              exit 1
+            fi
+            while IFS= read -r path; do
+              case "$path" in
+                docs/*|reports/*|.github/*.md) ;;
+                */*) runtime=true; break ;;
+                *.md) ;;
+                *) runtime=true; break ;;
+              esac
+            done <<< "$changed_paths"
+          fi
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+
+          shopt -s nullglob
+          profile_paths=(packs/*.packset.json)
+          if (( ${#profile_paths[@]} == 0 )); then
+            echo "no packs/*.packset.json profiles found" >&2
+            exit 1
+          fi
+          profiles="$({
+            for profile in "${profile_paths[@]}"; do
+              basename "$profile" .packset.json
+            done
+          } | sort | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+          echo "profiles=$profiles" >> "$GITHUB_OUTPUT"
+
   check:
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,8 +84,15 @@ jobs:
         run: git diff --check
 
   full-go-check:
+    needs: scope
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.runtime == 'true') }}
     runs-on: ubuntu-latest
     steps:
+      - name: Require successful CI scope discovery
+        if: ${{ needs.scope.result != 'success' }}
+        run: |
+          echo "CI scope discovery concluded ${{ needs.scope.result }}" >&2
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
@@ -45,9 +107,16 @@ jobs:
 
   v2-checkpoint:
     name: Go v2 vertical-slice checkpoint
+    needs: scope
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.runtime == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Require successful CI scope discovery
+        if: ${{ needs.scope.result != 'success' }}
+        run: |
+          echo "CI scope discovery concluded ${{ needs.scope.result }}" >&2
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
@@ -75,11 +144,13 @@ jobs:
         run: go test -count=1 -timeout=18m -v -run '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw
 
   pack-profiles:
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        profile: [empty, aws, cloudflare, google, netbox, zcc, zia, zpa, ztc, zscaler, full]
+        profile: ${{ fromJSON(needs.scope.outputs.profiles) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -106,11 +177,86 @@ jobs:
           done < <(jq -r '.shared[]' "$profile")
           echo "INFRAWRIGHT_PACKS=$root" >> "$GITHUB_ENV"
           echo "PACK_PROFILE=$profile" >> "$GITHUB_ENV"
-      - name: Validate reduced distribution and profile derivability
+      - name: Validate reduced distribution
+        run: make check-distribution
+
+  pruned-pack-go-tests:
+    name: Pruned Go tests (${{ matrix.profile }})
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ${{ fromJSON(needs.scope.outputs.profiles) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go/go.sum
+      - name: Physically prune checkout to selected profile
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
-          make check-distribution
+          set -euo pipefail
+          profile="$GITHUB_WORKSPACE/packs/$PROFILE.packset.json"
+          pruned_root="$(mktemp -d "$RUNNER_TEMP/packs-$PROFILE.XXXXXX")"
+
+          cp "$GITHUB_WORKSPACE"/packs/*.packset.json "$pruned_root/"
+          while IFS= read -r pack; do
+            cp -R "$GITHUB_WORKSPACE/packs/$pack" "$pruned_root/$pack"
+          done < <(jq -r '.packs[]' "$profile")
+          while IFS= read -r shared; do
+            mkdir -p "$pruned_root/_shared"
+            cp -R "$GITHUB_WORKSPACE/packs/_shared/$shared" "$pruned_root/_shared/$shared"
+          done < <(jq -r '.shared[]' "$profile")
+
+          rm -rf "$GITHUB_WORKSPACE/packs"
+          mv "$pruned_root" "$GITHUB_WORKSPACE/packs"
+      - name: Run Go tests against physically pruned checkout
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -o pipefail
+          results="$RUNNER_TEMP/go-test-$PROFILE.json"
           cd go
-          go test -count=1 ./internal/metadata \
-            -run "^TestAllCommittedPackProfilesLoadFromReducedRoots/${PROFILE}$|^TestCommittedPackProfilesAreDerivable/${PROFILE}$"
+          set +e
+          go test -count=1 -json ./... | tee "$results"
+          status="${PIPESTATUS[0]}"
+          set -e
+
+          tests="$(jq -s '[.[] | select(.Action == "run" and .Test != null)] | length' "$results")"
+          skips="$(jq -s '[.[] | select(.Action == "skip" and .Test != null)] | length' "$results")"
+          executed="$((tests - skips))"
+          minimum_executed_tests=2700
+          maximum_full_profile_skips=15
+          coverage_status=0
+          if (( executed < minimum_executed_tests )); then
+            echo "profile $PROFILE executed only $executed tests; minimum coverage floor is $minimum_executed_tests" >&2
+            coverage_status=1
+          fi
+          if [[ "$PROFILE" == "full" ]] && (( skips > maximum_full_profile_skips )); then
+            echo "full profile skipped $skips tests; maximum skip budget is $maximum_full_profile_skips" >&2
+            coverage_status=1
+          fi
+          printf 'profile=%s tests=%s skips=%s executed=%s status=%s coverage_status=%s\n' \
+            "$PROFILE" "$tests" "$skips" "$executed" "$status" "$coverage_status" | tee -a "$GITHUB_STEP_SUMMARY"
+          if (( status != 0 )); then
+            exit "$status"
+          fi
+          exit "$coverage_status"
+
+  pruned-pack-go-tests-gate:
+    name: Pruned pack Go tests
+    needs: [scope, pruned-pack-go-tests]
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.runtime == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every physically pruned profile to pass
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          PROFILE_TEST_RESULT: ${{ needs.pruned-pack-go-tests.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          test "$PROFILE_TEST_RESULT" = success

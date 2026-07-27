@@ -7,10 +7,10 @@ in Git history, not beside the production surface.
 | Path | Purpose | Keep criteria |
 |---|---|---|
 | `go/` | `iw` runtime, command tree, and tests | Current behavior protected by direct tests and reviewed goldens |
-| `packs/` | Provider metadata, schemas, registries, overrides, and exact distribution profiles | Validated and loaded by a current profile or current provider workflow |
+| `packs/` | Provider metadata, schemas, registries, overrides, reviewed pack evidence, and exact distribution profiles | Validated and loaded by a current profile or current provider workflow |
 | `tests/fixtures/` | Current integration corpora | Protects a current external or cross-package contract and cannot be derived from shipped artifacts |
 | `tools/` | Maintained developer/operator tooling | Documented current workflow plus tests or fixtures |
-| `docs/` | Current contracts, runbooks, schemas, and provider evidence | Describes current behavior or an active workflow |
+| `docs/` | Human-facing contracts and runbooks plus documentation-only reference assets | Describes current behavior without serving as runtime or Go-test filesystem authority |
 | `demo/` | Shipped credential-free demo overlay | Required by `make demo`, `make check-demo`, or `make demo-contract` |
 | `Makefile` | Stable product workflow | Public build, validation, adoption, or authoring command |
 | `deployment.json` | Default deployment selector | Points a fresh clone at the shipped demo |
@@ -19,6 +19,8 @@ in Git history, not beside the production surface.
 
 - `packs/` and `packs/*.packset.json` are the only resource-metadata and
   distribution authorities.
+- Go tests and runtime code do not read `docs/`; machine-readable test
+  authority lives beside the code, fixture, or pack that owns it.
 - Root `Makefile` targets are the stable product command surface.
 - `local.mk`, `<overlay>/Makefile`, and `<overlay>/local.mk` are optional local
   extension hooks.

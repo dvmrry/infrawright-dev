@@ -2,6 +2,7 @@ package modulesgen
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,7 +18,8 @@ import (
 // TestRendererPreservesCompleteSevenFileContractAndCoreShapes verifies the
 // module file contract against current packs.
 func TestRendererPreservesCompleteSevenFileContractAndCoreShapes(t *testing.T) {
-	root := committedRoot(t)
+	requireModulePackSelection(t, metadata.PackSelection{Packs: []string{"zia", "zpa"}, Shared: []string{"zscaler"}})
+	root := installedModuleRoot(t)
 	segment, err := RenderModuleFiles(root, "zpa_segment_group")
 	if err != nil {
 		t.Fatalf("RenderModuleFiles(zpa_segment_group): %v", err)
@@ -65,7 +67,8 @@ func TestRendererPreservesCompleteSevenFileContractAndCoreShapes(t *testing.T) {
 // ports "samples, sensitive outputs, deprecated projection, and nested
 // types match authority".
 func TestSamplesSensitiveOutputsDeprecatedProjectionAndNestedTypesMatchAuthority(t *testing.T) {
-	root := committedRoot(t)
+	requireModulePackSelection(t, metadata.PackSelection{Packs: []string{"zcc", "zia", "zpa"}, Shared: []string{"zscaler"}})
+	root := installedModuleRoot(t)
 
 	filtering, err := RenderModuleFiles(root, "zia_url_filtering_rules")
 	if err != nil {
@@ -126,6 +129,419 @@ func TestSamplesSensitiveOutputsDeprecatedProjectionAndNestedTypesMatchAuthority
 	}
 	if got := len(requiredDecoded.Items.Example.Rules); got != 1 {
 		t.Errorf("rules length = %d, want 1", got)
+	}
+}
+
+func TestZPAProvider449ModuleShapesMatchReviewedSchemaTransitions(t *testing.T) {
+	requireModulePackSelection(t, metadata.PackSelection{Packs: []string{"zpa"}, Shared: []string{"zscaler"}})
+	root := installedModuleRoot(t)
+	for _, test := range []struct {
+		resourceType string
+		pattern      string
+	}{
+		{"zpa_application_segment_browser_access", `clientless_apps = optional\(set\(object\(\{`},
+		{"zpa_browser_access", `clientless_apps = optional\(set\(object\(\{`},
+		{"zpa_application_segment_pra", `apps_config = optional\(set\(object\(\{`},
+	} {
+		files, err := RenderModuleFiles(root, test.resourceType)
+		if err != nil {
+			t.Fatalf("RenderModuleFiles(%s): %v", test.resourceType, err)
+		}
+		variables, _ := files.Get(FileVariables)
+		mustMatch(t, variables, test.pattern)
+	}
+
+	for _, resourceType := range []string{"zpa_policy_access_rule", "zpa_policy_access_rule_v2"} {
+		files, err := RenderModuleFiles(root, resourceType)
+		if err != nil {
+			t.Fatalf("RenderModuleFiles(%s): %v", resourceType, err)
+		}
+		variables, _ := files.Get(FileVariables)
+		main, _ := files.Get(FileMain)
+		mustMatch(t, variables, `device_posture_failure_notification_enabled = optional\(bool\)`)
+		mustMatch(t, main, `device_posture_failure_notification_enabled = each\.value\.device_posture_failure_notification_enabled`)
+	}
+
+	capabilities, err := RenderModuleFiles(root, "zpa_policy_capabilities_rule")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(zpa_policy_capabilities_rule): %v", err)
+	}
+	capabilityVariables, _ := capabilities.Get(FileVariables)
+	mustMatch(t, capabilityVariables, `control_session\s+= optional\(bool\)`)
+	mustMatch(t, capabilityVariables, `join_session\s+= optional\(bool\)`)
+
+	portal, err := RenderModuleFiles(root, "zpa_policy_portal_access_rule")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(zpa_policy_portal_access_rule): %v", err)
+	}
+	portalVariables, _ := portal.Get(FileVariables)
+	for _, field := range []string{"access_uninspected_file_sandbox", "upload_inspected_sandbox", "upload_inspected_scan"} {
+		mustMatch(t, portalVariables, field+`\s+= optional\(bool\)`)
+	}
+	mustMatch(t, portalVariables, `privileged_portal_capabilities = optional\(tuple\(\[object\(\{`)
+	mustNotMatch(t, portalVariables, `privileged_portal_capabilities = optional\(list\(`)
+	mustNotMatch(t, portalVariables, `privileged_portal_capabilities = optional\(object\(`)
+	portalMain, _ := portal.Get(FileMain)
+	mustMatch(t, portalMain, `for_each = each\.value\.privileged_portal_capabilities == null \? \[\] : each\.value\.privileged_portal_capabilities`)
+}
+
+func TestCloneModuleSchemaValueDetachesNestedMapsAndSlices(t *testing.T) {
+	original := metadata.JsonObject{
+		"top": "original",
+		"block": metadata.JsonObject{
+			"leaf": "original",
+		},
+		"blocks": []any{
+			metadata.JsonObject{"leaf": "original"},
+		},
+		"values":        []any{"original"},
+		"nested_slices": []any{[]any{"original"}},
+	}
+	var cloned metadata.JsonObject = cloneModuleSchemaValue(original)
+	cloned["top"] = "changed"
+	clonedBlock, ok := cloned["block"].(map[string]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[block] = %T, want map[string]any", cloned["block"])
+	}
+	clonedBlock["leaf"] = "changed"
+	clonedBlocks, ok := cloned["blocks"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[blocks] = %T, want []any", cloned["blocks"])
+	}
+	clonedSliceBlock, ok := clonedBlocks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[blocks][0] = %T, want map[string]any", clonedBlocks[0])
+	}
+	clonedSliceBlock["leaf"] = "changed"
+	clonedBlocks[0] = metadata.JsonObject{"leaf": "replacement"}
+	clonedValues, ok := cloned["values"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[values] = %T, want []any", cloned["values"])
+	}
+	clonedValues[0] = "changed"
+	clonedNestedSlices, ok := cloned["nested_slices"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[nested_slices] = %T, want []any", cloned["nested_slices"])
+	}
+	clonedNestedSlice, ok := clonedNestedSlices[0].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[nested_slices][0] = %T, want []any", clonedNestedSlices[0])
+	}
+	clonedNestedSlice[0] = "changed"
+
+	if got := original["top"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated top-level original value = %v, want original", got)
+	}
+	originalBlock, ok := original["block"].(map[string]any)
+	if !ok {
+		t.Fatalf("original[block] = %T, want map[string]any", original["block"])
+	}
+	if got := originalBlock["leaf"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated nested original value = %v, want original", got)
+	}
+	originalBlocks, ok := original["blocks"].([]any)
+	if !ok {
+		t.Fatalf("original[blocks] = %T, want []any", original["blocks"])
+	}
+	if got := len(originalBlocks); got != 1 {
+		t.Fatalf("cloneModuleSchemaValue(original) mutated original slice length = %d, want 1", got)
+	}
+	originalSliceBlock, ok := originalBlocks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("original[blocks][0] = %T, want map[string]any", originalBlocks[0])
+	}
+	if got := originalSliceBlock["leaf"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated sliced original value = %v, want original", got)
+	}
+	originalValues, ok := original["values"].([]any)
+	if !ok {
+		t.Fatalf("original[values] = %T, want []any", original["values"])
+	}
+	if got := originalValues[0]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated original slice element = %v, want original", got)
+	}
+	originalNestedSlices, ok := original["nested_slices"].([]any)
+	if !ok {
+		t.Fatalf("original[nested_slices] = %T, want []any", original["nested_slices"])
+	}
+	originalNestedSlice, ok := originalNestedSlices[0].([]any)
+	if !ok {
+		t.Fatalf("original[nested_slices][0] = %T, want []any", originalNestedSlices[0])
+	}
+	if got := originalNestedSlice[0]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated nested original slice element = %v, want original", got)
+	}
+}
+
+func TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema(t *testing.T) {
+	schema := metadata.JsonObject{
+		"block": metadata.JsonObject{
+			"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			},
+			"block_types": metadata.JsonObject{
+				"capabilities": metadata.JsonObject{
+					"nesting_mode": "list",
+					"block": metadata.JsonObject{
+						"attributes": metadata.JsonObject{
+							"enabled": metadata.JsonObject{"type": "bool", "optional": true},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, root := syntheticRoot(t, syntheticRootOptions{
+		Schema:       schema,
+		OverrideText: `{"module_single_blocks":["capabilities"]}`,
+	})
+	rendered, err := RenderModuleFiles(root, "sample_resource")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(module_single_blocks): %v", err)
+	}
+	variables, _ := rendered.Get(FileVariables)
+	mustMatch(t, variables, `capabilities = optional\(tuple\(\[object\(\{`)
+	mustNotMatch(t, variables, `capabilities = optional\(list\(`)
+	mustNotMatch(t, variables, `capabilities = optional\(object\(`)
+	main, _ := rendered.Get(FileMain)
+	mustMatch(t, main, `for_each = each\.value\.capabilities == null \? \[\] : each\.value\.capabilities`)
+
+	authority, err := root.LoadResourceSchema("sample_resource")
+	if err != nil {
+		t.Fatalf("LoadResourceSchema(sample_resource): %v", err)
+	}
+	block, err := metadata.TerraformBlockForSchema(authority, "sample_resource")
+	if err != nil {
+		t.Fatalf("TerraformBlockForSchema(sample_resource): %v", err)
+	}
+	blockTypes, err := metadata.TerraformBlockTypesForBlock(block, "sample_resource.block")
+	if err != nil {
+		t.Fatalf("TerraformBlockTypesForBlock(sample_resource): %v", err)
+	}
+	capabilities, err := metadata.TerraformRequireObject(blockTypes["capabilities"], "capabilities")
+	if err != nil {
+		t.Fatalf("TerraformRequireObject(capabilities): %v", err)
+	}
+	if _, mutated := capabilities["max_items"]; mutated {
+		t.Fatal("module_single_blocks mutated the cached provider schema authority")
+	}
+	if _, mutated := capabilities[moduleSingleBlockMarker]; mutated {
+		t.Fatal("module_single_blocks leaked its generator marker into the cached provider schema authority")
+	}
+}
+
+// TestModuleSingleBlocksTerraformCardinality is the cheap, pack-independent
+// Terraform contract for the singleton encoding. The V2 checkpoint separately
+// proves that the real ZPA portal resource selects this generic behavior.
+func TestModuleSingleBlocksTerraformCardinality(t *testing.T) {
+	executable := terraformExecutable(t)
+	schema := metadata.JsonObject{
+		"block": metadata.JsonObject{
+			"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			},
+			"block_types": metadata.JsonObject{
+				"capabilities": metadata.JsonObject{
+					"nesting_mode": "list",
+					"block": metadata.JsonObject{
+						"attributes": metadata.JsonObject{
+							"enabled": metadata.JsonObject{"type": "bool", "optional": true},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, packRoot := syntheticRoot(t, syntheticRootOptions{
+		Schema:       schema,
+		OverrideText: `{"module_single_blocks":["capabilities"]}`,
+	})
+	generatedRoot := t.TempDir()
+	if _, err := GenerateModule(packRoot, "sample_resource", GenerateModuleOptions{
+		OutputRoot: generatedRoot,
+		FormatHCL:  NewHCLFormatter(),
+	}); err != nil {
+		t.Fatalf("GenerateModule(module_single_blocks Terraform contract): %v", err)
+	}
+	variables, err := os.ReadFile(filepath.Join(generatedRoot, "sample_resource", "variables.tf"))
+	if err != nil {
+		t.Fatalf("read generated variables.tf: %v", err)
+	}
+
+	root := t.TempDir()
+	moduleDirectory := filepath.Join(root, "module")
+	writeRawFile(t, filepath.Join(moduleDirectory, "variables.tf"), string(variables))
+	writeRawFile(t, filepath.Join(moduleDirectory, "outputs.tf"), `output "capabilities" {
+  value = var.items["example"].capabilities
+}
+`)
+	writeRawFile(t, filepath.Join(root, "tests", "cardinality.tftest.hcl"), `run "one_capability_plan" {
+  command = plan
+
+  assert {
+    condition     = output.capabilities[0].enabled == true
+    error_message = "the singleton capability value was not preserved"
+  }
+}
+`)
+	writeConfiguration := func(capabilities string) {
+		t.Helper()
+		writeRawFile(t, filepath.Join(root, "main.tf"), fmt.Sprintf(`module "subject" {
+  source = "./module"
+  items = {
+    example = {
+      name         = "example"
+      capabilities = %s
+    }
+  }
+}
+
+output "capabilities" {
+  value = module.subject.capabilities
+}
+`, capabilities))
+	}
+
+	home := t.TempDir()
+	environment := append(os.Environ(),
+		"CHECKPOINT_DISABLE=1",
+		"HOME="+home,
+		"TF_DATA_DIR="+filepath.Join(root, ".terraform-data"),
+		"TF_IN_AUTOMATION=1",
+		"TF_INPUT=0",
+	)
+	run := func(arguments ...string) ([]byte, error) {
+		t.Helper()
+		command := exec.Command(executable, arguments...)
+		command.Dir = root
+		command.Env = environment
+		return command.CombinedOutput()
+	}
+
+	writeConfiguration(`[
+      { enabled = true },
+    ]`)
+	if output, err := run("init", "-backend=false", "-no-color"); err != nil {
+		t.Fatalf("terraform init failed: %v\n%s", err, output)
+	}
+	if output, err := run("test", "-test-directory=tests", "-no-color"); err != nil {
+		t.Fatalf("terraform singleton plan failed: %v\n%s", err, output)
+	}
+
+	for _, testCase := range []struct {
+		name  string
+		value string
+	}{
+		{
+			name: "two elements",
+			value: `[
+      { enabled = true },
+      { enabled = false },
+    ]`,
+		},
+		{
+			name: "keyed object bypass",
+			value: `{
+      first  = { enabled = true }
+      second = { enabled = false }
+    }`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeConfiguration(testCase.value)
+			output, err := run("validate", "-no-color")
+			if err == nil {
+				t.Fatalf("terraform accepted %s; want tuple rejection", testCase.name)
+			}
+			diagnostic := string(output)
+			if !strings.Contains(diagnostic, "Invalid value for input variable") || !strings.Contains(diagnostic, "tuple required") {
+				t.Fatalf("terraform rejection for %s = %q, want input-variable tuple diagnostic", testCase.name, diagnostic)
+			}
+		})
+	}
+}
+
+func TestModuleSingleBlocksApplyStrictTupleToDottedNestedPath(t *testing.T) {
+	_, root := syntheticRoot(t, syntheticRootOptions{
+		Schema: metadata.JsonObject{
+			"block": metadata.JsonObject{
+				"attributes": metadata.JsonObject{
+					"name": metadata.JsonObject{"type": "string", "required": true},
+				},
+				"block_types": metadata.JsonObject{
+					"outer": metadata.JsonObject{
+						"nesting_mode": "list",
+						"block": metadata.JsonObject{
+							"attributes": metadata.JsonObject{},
+							"block_types": metadata.JsonObject{
+								"capabilities": metadata.JsonObject{
+									"nesting_mode": "set",
+									"block": metadata.JsonObject{
+										"attributes": metadata.JsonObject{
+											"enabled": metadata.JsonObject{"type": "bool", "optional": true},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		OverrideText: `{"module_single_blocks":["outer.capabilities"]}`,
+	})
+	rendered, err := RenderModuleFiles(root, "sample_resource")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(nested module_single_blocks): %v", err)
+	}
+	variables, _ := rendered.Get(FileVariables)
+	mustMatch(t, variables, `outer = optional\(list\(object\(\{`)
+	mustMatch(t, variables, `capabilities = optional\(tuple\(\[object\(\{`)
+	main, _ := rendered.Get(FileMain)
+	mustMatch(t, main, `for_each = outer\.value\.capabilities == null \? \[\] : outer\.value\.capabilities`)
+}
+
+func TestModuleSingleBlocksFailOnMissingConflictingOrStaleSchemaPaths(t *testing.T) {
+	baseBlock := func() metadata.JsonObject {
+		return metadata.JsonObject{
+			"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			},
+			"block_types": metadata.JsonObject{
+				"capabilities": metadata.JsonObject{
+					"nesting_mode": "list",
+					"block":        metadata.JsonObject{"attributes": metadata.JsonObject{}},
+				},
+			},
+		}
+	}
+	tests := []struct {
+		name      string
+		path      string
+		mutate    func(metadata.JsonObject)
+		wantError string
+	}{
+		{"missing", "absent", func(metadata.JsonObject) {}, "does not exist"},
+		{"stale", "capabilities", func(block metadata.JsonObject) {
+			block["block_types"].(metadata.JsonObject)["capabilities"].(metadata.JsonObject)["max_items"] = float64(1)
+		}, "already singleton"},
+		{"minimum conflict", "capabilities", func(block metadata.JsonObject) {
+			block["block_types"].(metadata.JsonObject)["capabilities"].(metadata.JsonObject)["min_items"] = float64(2)
+		}, "min_items greater than one"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			block := baseBlock()
+			testCase.mutate(block)
+			_, root := syntheticRoot(t, syntheticRootOptions{
+				Schema:       metadata.JsonObject{"block": block},
+				OverrideText: fmt.Sprintf(`{"module_single_blocks":[%q]}`, testCase.path),
+			})
+			_, err := RenderModuleFiles(root, "sample_resource")
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("RenderModuleFiles(module_single_blocks) error = %v, want error containing %q", err, testCase.wantError)
+			}
+		})
 	}
 }
 
@@ -253,16 +669,115 @@ func TestFractionalSampleOverrideNumbersRetainExactPythonJSONSpelling(t *testing
 	mustMatch(t, sample, `"scientific": 1e-06`)
 }
 
+type generatedModuleTreeInventory struct {
+	Directories []string
+	Files       []string
+}
+
+func expectedGeneratedModuleTreeInventory(resourceTypes []string) generatedModuleTreeInventory {
+	inventory := generatedModuleTreeInventory{}
+	for _, resourceType := range resourceTypes {
+		inventory.Directories = append(inventory.Directories,
+			resourceType,
+			filepath.Join(resourceType, "tests"),
+		)
+		for _, name := range ExpectedModuleFiles {
+			inventory.Files = append(inventory.Files, filepath.Join(resourceType, string(name)))
+		}
+	}
+	sort.Strings(inventory.Directories)
+	sort.Strings(inventory.Files)
+	return inventory
+}
+
+func actualGeneratedModuleTreeInventory(root string) (generatedModuleTreeInventory, error) {
+	inventory := generatedModuleTreeInventory{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == root {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			inventory.Directories = append(inventory.Directories, relative)
+		} else {
+			inventory.Files = append(inventory.Files, relative)
+		}
+		return nil
+	})
+	if err != nil {
+		return generatedModuleTreeInventory{}, err
+	}
+	sort.Strings(inventory.Directories)
+	sort.Strings(inventory.Files)
+	return inventory, nil
+}
+
+func generatedModuleTreeDifference(root string, resourceTypes []string) (string, error) {
+	got, err := actualGeneratedModuleTreeInventory(root)
+	if err != nil {
+		return "", err
+	}
+	want := expectedGeneratedModuleTreeInventory(resourceTypes)
+	if reflect.DeepEqual(got, want) {
+		return "", nil
+	}
+	return fmt.Sprintf("directories: got %v, want %v; files: got %v, want %v",
+		got.Directories, want.Directories, got.Files, want.Files), nil
+}
+
+func requireExactGeneratedModuleTree(t *testing.T, root string, resourceTypes []string) {
+	t.Helper()
+	difference, err := generatedModuleTreeDifference(root, resourceTypes)
+	if err != nil {
+		t.Fatalf("inspect generated module tree: %v", err)
+	}
+	if difference != "" {
+		t.Fatalf("generated module tree differs from selected metadata: %s", difference)
+	}
+}
+
+func TestGeneratedModuleTreeExactnessRejectsExtraEmptyAndSelectedProfileSurface(t *testing.T) {
+	emptyRoot := t.TempDir()
+	if difference, err := generatedModuleTreeDifference(emptyRoot, nil); err != nil || difference != "" {
+		t.Fatalf("empty generated tree difference/error = %q/%v, want none", difference, err)
+	}
+	writeRawFile(t, filepath.Join(emptyRoot, "unexpected", "extra.tf"), "")
+	if difference, err := generatedModuleTreeDifference(emptyRoot, nil); err != nil {
+		t.Fatalf("inspect mutated empty tree: %v", err)
+	} else if !strings.Contains(difference, "unexpected") || !strings.Contains(difference, "extra.tf") {
+		t.Fatalf("mutated empty tree difference = %q, want unexpected directory and file", difference)
+	}
+
+	_, packRoot := syntheticRoot(t, syntheticRootOptions{})
+	selectedRoot := t.TempDir()
+	if _, err := GenerateModule(packRoot, "sample_resource", GenerateModuleOptions{
+		OutputRoot: selectedRoot,
+		FormatHCL:  IdentityFormatter,
+	}); err != nil {
+		t.Fatalf("GenerateModule(sample_resource): %v", err)
+	}
+	requireExactGeneratedModuleTree(t, selectedRoot, []string{"sample_resource"})
+	writeRawFile(t, filepath.Join(selectedRoot, "sample_resource", "extra.tf"), "")
+	if difference, err := generatedModuleTreeDifference(selectedRoot, []string{"sample_resource"}); err != nil {
+		t.Fatalf("inspect mutated selected tree: %v", err)
+	} else if !strings.Contains(difference, "extra.tf") {
+		t.Fatalf("mutated selected tree difference = %q, want extra.tf", difference)
+	}
+}
+
 // TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree ports
 // "all active resources generate and validate a complete temporary tree".
 func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.T) {
-	root := committedRoot(t)
+	root := installedModuleRoot(t)
 	output := t.TempDir()
 
 	types := ActiveGeneratedResourceTypes(root)
-	if len(types) != 151 {
-		t.Fatalf("ActiveGeneratedResourceTypes length = %d, want 151", len(types))
-	}
 	generated, err := GenerateActiveModules(root, GenerateModuleOptions{
 		OutputRoot: output,
 		FormatHCL:  IdentityFormatter,
@@ -270,22 +785,28 @@ func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.
 	if err != nil {
 		t.Fatalf("GenerateActiveModules: %v", err)
 	}
-	if len(generated) != 151 {
-		t.Fatalf("generated length = %d, want 151", len(generated))
+	generatedTypes := make([]string, len(generated))
+	for index, module := range generated {
+		generatedTypes[index] = module.ResourceType
 	}
+	if !reflect.DeepEqual(generatedTypes, types) {
+		t.Fatalf("generated resource types = %v, want active metadata types %v", generatedTypes, types)
+	}
+	requireExactGeneratedModuleTree(t, output, types)
 	total := 0
 	for _, module := range generated {
 		total += len(module.Files)
 	}
-	if total != 1057 {
-		t.Errorf("total generated files = %d, want 1057", total)
+	wantFiles := len(types) * len(ExpectedModuleFiles)
+	if total != wantFiles {
+		t.Errorf("total generated files = %d, want %d", total, wantFiles)
 	}
-	validated, err := ValidateGeneratedModuleTree(output, ActiveGeneratedResourceTypes(root))
+	validated, err := ValidateGeneratedModuleTree(output, types)
 	if err != nil {
 		t.Fatalf("ValidateGeneratedModuleTree: %v", err)
 	}
-	if len(validated) != 151 {
-		t.Errorf("validated length = %d, want 151", len(validated))
+	if !reflect.DeepEqual(validated, types) {
+		t.Errorf("validated resource types = %v, want %v", validated, types)
 	}
 }
 
@@ -344,23 +865,21 @@ func copyDir(t *testing.T, src, dst string) {
 // reduced pack root".
 func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t *testing.T) {
 	root := repoRoot(t)
-	expected := map[string]int{
-		"full": 151, "zscaler": 151, "zcc": 7, "zia": 74, "zpa": 54, "ztc": 16,
-		"empty": 0, "aws": 0, "cloudflare": 0, "google": 0, "netbox": 0,
+	profilePaths, err := filepath.Glob(filepath.Join(root, "packs", "*.packset.json"))
+	if err != nil {
+		t.Fatalf("discover committed pack profiles: %v", err)
 	}
-	profileNames := make([]string, 0, len(expected))
-	for name := range expected {
-		profileNames = append(profileNames, name)
+	if len(profilePaths) == 0 {
+		t.Fatal("discover committed pack profiles: found no packs/*.packset.json files")
 	}
-	sort.Strings(profileNames)
 
-	for _, profileName := range profileNames {
-		count := expected[profileName]
+	for _, profilePath := range profilePaths {
+		profileName := strings.TrimSuffix(filepath.Base(profilePath), ".packset.json")
 		t.Run(profileName, func(t *testing.T) {
 			directory := t.TempDir()
 			output := t.TempDir()
-			profilePath := filepath.Join(root, "packs", profileName+".packset.json")
 			doc := readPackSetFile(t, profilePath)
+			requireModulePackSelection(t, metadata.PackSelection{Packs: doc.Packs, Shared: doc.Shared})
 			for _, name := range doc.Packs {
 				copyDir(t, filepath.Join(root, "packs", name), filepath.Join(directory, name))
 			}
@@ -374,6 +893,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			if err != nil {
 				t.Fatalf("LoadPackRoot: %v", err)
 			}
+			resourceTypes := ActiveGeneratedResourceTypes(loaded)
 			generated, err := GenerateActiveModules(loaded, GenerateModuleOptions{
 				OutputRoot: output,
 				FormatHCL:  IdentityFormatter,
@@ -381,18 +901,27 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			if err != nil {
 				t.Fatalf("GenerateActiveModules: %v", err)
 			}
-			if len(generated) != count {
-				t.Fatalf("generated length = %d, want %d", len(generated), count)
+			generatedTypes := make([]string, len(generated))
+			for index, module := range generated {
+				generatedTypes[index] = module.ResourceType
 			}
+			if !reflect.DeepEqual(generatedTypes, resourceTypes) {
+				t.Fatalf("generated resource types = %v, want active metadata types %v", generatedTypes, resourceTypes)
+			}
+			requireExactGeneratedModuleTree(t, output, resourceTypes)
 			total := 0
 			for _, module := range generated {
 				total += len(module.Files)
 			}
-			if total != count*7 {
-				t.Errorf("total generated files = %d, want %d", total, count*7)
+			wantFiles := len(resourceTypes) * len(ExpectedModuleFiles)
+			if total != wantFiles {
+				t.Errorf("total generated files = %d, want %d", total, wantFiles)
 			}
-			if _, err := ValidateGeneratedModuleTree(output, ActiveGeneratedResourceTypes(loaded)); err != nil {
+			validated, err := ValidateGeneratedModuleTree(output, resourceTypes)
+			if err != nil {
 				t.Errorf("ValidateGeneratedModuleTree: %v", err)
+			} else if !reflect.DeepEqual(validated, resourceTypes) {
+				t.Errorf("validated resource types = %v, want %v", validated, resourceTypes)
 			}
 		})
 	}
@@ -400,7 +929,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 
 // TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus proves that the
 // in-process token formatter is byte-identical to terraform fmt for every HCL
-// artifact produced by the full 151-resource profile. Terraform formats one
+// artifact produced by the selected full profile. Terraform formats one
 // temporary tree recursively so this differential gate does not recreate the
 // per-file subprocess cost that production has removed.
 func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
@@ -408,7 +937,7 @@ func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
 		t.Skip("full generated-corpus Terraform differential skipped under -short")
 	}
 	executable := terraformExecutable(t)
-	root := committedRoot(t)
+	root := installedModuleRoot(t)
 	formatter := NewHCLFormatter()
 	oracleRoot := t.TempDir()
 
@@ -462,8 +991,15 @@ func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
 			t.Errorf("%s differs after hclwrite.Format and terraform fmt", relative)
 		}
 	}
-	if len(formatted) != 151*5 {
-		t.Errorf("compared = %d, want %d", len(formatted), 151*5)
+	formattedFilesPerModule := 0
+	for _, name := range ExpectedModuleFiles {
+		if needsTerraformFormat(name) {
+			formattedFilesPerModule++
+		}
+	}
+	wantCompared := len(ActiveGeneratedResourceTypes(root)) * formattedFilesPerModule
+	if len(formatted) != wantCompared {
+		t.Errorf("compared = %d, want %d", len(formatted), wantCompared)
 	}
 }
 

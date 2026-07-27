@@ -16,33 +16,24 @@ import (
 	"testing"
 )
 
-// cachedRoot loads the repo's committed packs/ under packs/full.packset.json,
-// the same fixture modulesgen's committedRoot test helper uses, giving a
-// LoadedPackRoot built through the real loadPackRoot path (so schemaCache
-// is populated, unlike a hand-built struct literal).
+// cachedRoot builds two synthetic providers through the real LoadPackRoot
+// path, so the cache is populated without coupling this engine test to any
+// installed product pack.
 func cachedRoot(t *testing.T) LoadedPackRoot {
 	t.Helper()
-	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	loaded, err := LoadPackRoot(LoadPackRootOptions{
-		PacksRoot:   filepath.Join(root, "packs"),
-		ProfilePath: &profilePath,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot: %v", err)
-	}
+	_, loaded := syntheticLoadedPackRoot(t, "alpha", "beta")
 	return loaded
 }
 
 // TestSchemaCacheConcurrentAccessMatchesUncachedResults exercises
 // LoadedPackRoot.LoadProviderSchema/LoadResourceSchema from many goroutines
-// at once, across all four committed providers, and checks every result
+// at once, across two fabricated providers, and checks every result
 // against a fresh uncached load of the same provider -- proving the cache
 // changes nothing observable even under concurrent access. Run with -race.
 func TestSchemaCacheConcurrentAccessMatchesUncachedResults(t *testing.T) {
 	root := cachedRoot(t)
 
-	providers := []string{"zcc", "zia", "zpa", "ztc"}
+	providers := []string{"alpha", "beta"}
 	resourceTypesByProvider := make(map[string][]string, len(providers))
 	// Pick one resource type per provider by scanning loaded.Resources, so
 	// this test tracks the committed registry instead of hardcoding
@@ -188,8 +179,8 @@ func TestSchemaCacheCachesProviderLoadFailureIdentically(t *testing.T) {
 // construct LoadedPackRoot struct literals directly, and this port's own
 // correctness must never depend on which construction path was used.
 func TestSchemaCacheNilFallsBackToUncachedBehavior(t *testing.T) {
-	root := repoRoot(t)
-	metadata, err := LoadPackMetadata(filepath.Join(root, "packs"))
+	directory, _ := syntheticLoadedPackRoot(t, "sample")
+	metadata, err := LoadPackMetadata(directory)
 	if err != nil {
 		t.Fatalf("LoadPackMetadata: %v", err)
 	}
@@ -206,12 +197,12 @@ func TestSchemaCacheNilFallsBackToUncachedBehavior(t *testing.T) {
 	if bare.schemaCache != nil {
 		t.Fatal("hand-built LoadedPackRoot literal must have a nil schemaCache")
 	}
-	schema, err := bare.LoadResourceSchema("zia_url_categories")
+	schema, err := bare.LoadResourceSchema("sample_resource")
 	if err != nil {
 		t.Fatalf("LoadResourceSchema on nil-cache root: %v", err)
 	}
 	if _, ok := schema["block"].(JsonObject); !ok {
-		t.Fatalf("zia_url_categories schema block is not an object: %T", schema["block"])
+		t.Fatalf("sample_resource schema block is not an object: %T", schema["block"])
 	}
 }
 

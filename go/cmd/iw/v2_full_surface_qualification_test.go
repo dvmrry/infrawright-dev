@@ -21,6 +21,7 @@ import (
 // credentials, backend, Terraform executable, or provider transport is used.
 func TestV2FullSurfaceSevenEdgeCommandQualification(t *testing.T) {
 	root := repoRoot(t)
+	requireCommittedProfileAvailable(t, root, "full")
 	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-full-surface")
 
 	omitted := runV2FullSurfaceGenEnv(t, root, binary, "omitted", nil)
@@ -178,9 +179,6 @@ func v2FullSurfaceResourceTypes(t *testing.T, repositoryRoot string) []string {
 		resourceTypes = append(resourceTypes, resourceType)
 	}
 	sort.Strings(resourceTypes)
-	if len(resourceTypes) != 151 {
-		t.Fatalf("full-profile generated resource count = %d, want 151", len(resourceTypes))
-	}
 	return resourceTypes
 }
 
@@ -331,8 +329,8 @@ func requireV2FullSurfaceSingletonRoots(t *testing.T, name string, tree map[stri
 		}
 		roots[label] = content
 	}
-	if got := len(roots); got != 151 {
-		t.Fatalf("gen-env (%s) singleton main.tf root count = %d, want 151", name, got)
+	if got := len(roots); got != len(wantLabels) {
+		t.Fatalf("gen-env (%s) singleton main.tf root count = %d, want selected profile count %d", name, got, len(wantLabels))
 	}
 	gotLabels := make([]string, 0, len(roots))
 	for label := range roots {

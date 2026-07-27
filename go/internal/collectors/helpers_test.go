@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
 // repoRoot walks up from this test file's path until it finds the committed
@@ -36,6 +38,75 @@ func repoRoot(t *testing.T) string {
 		}
 		dir = parent
 	}
+}
+
+func requireCollectorPackSelection(t *testing.T, selection metadata.PackSelection) {
+	t.Helper()
+	packsRoot := filepath.Join(repoRoot(t), "packs")
+	missing := make([]string, 0)
+	for _, pack := range selection.Packs {
+		if _, err := os.Stat(filepath.Join(packsRoot, pack)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, pack)
+				continue
+			}
+			t.Fatalf("os.Stat(pack %q) error: %v", pack, err)
+		}
+	}
+	for _, shared := range selection.Shared {
+		if _, err := os.Stat(filepath.Join(packsRoot, "_shared", shared)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, "_shared/"+shared)
+				continue
+			}
+			t.Fatalf("os.Stat(shared %q) error: %v", shared, err)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Skipf("required pack paths are not installed: %v", missing)
+	}
+}
+
+func installedCollectorRoot(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	packsRoot := filepath.Join(repoRoot(t), "packs")
+	entries, err := os.ReadDir(packsRoot)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error: %v", packsRoot, err)
+	}
+	packs := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != "_shared" {
+			packs = append(packs, entry.Name())
+		}
+	}
+	shared := []any{}
+	sharedRoot := filepath.Join(packsRoot, "_shared")
+	sharedEntries, err := os.ReadDir(sharedRoot)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("os.ReadDir(%q) error: %v", sharedRoot, err)
+	}
+	for _, entry := range sharedEntries {
+		if entry.IsDir() {
+			shared = append(shared, entry.Name())
+		}
+	}
+	profile := filepath.Join(t.TempDir(), "installed.packset.json")
+	data, err := json.Marshal(metadata.JsonObject{
+		"kind": metadata.PackSetKind, "version": 1, "packs": packs, "shared": shared,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(installed pack set) error: %v", err)
+	}
+	if err := os.WriteFile(profile, append(data, '\n'), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error: %v", profile, err)
+	}
+	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{PacksRoot: packsRoot, ProfilePath: &profile})
+	if err != nil {
+		t.Fatalf("LoadPackRoot(installed packs) error: %v", err)
+	}
+	return loaded
 }
 
 // copyDir recursively copies src to dst, excluding Python cache artifacts.
