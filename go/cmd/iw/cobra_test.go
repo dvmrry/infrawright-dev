@@ -50,7 +50,7 @@ func TestCobraTreeExposesSafetyAndAuthoringFlags(t *testing.T) {
 	root := newCobraRoot()
 	checks := map[string][]string{
 		"apply":                {"allow-destroy", "allow-non-main", "allow-plan-changes", "policy", "terraform"},
-		"gen-env":              {"terraform"},
+		"gen-env":              {"state-aware", "terraform"},
 		"modules generate":     {"terraform"},
 		"modules validate":     {"terraform"},
 		"source-operation-map": {"allow-unverified-source", "artifact-dir", "source-manifest", "provider-file", "sdk-root"},

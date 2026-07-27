@@ -366,6 +366,7 @@ func newGenEnvCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "gen-env", short: "Generate tenant environment roots",
 		valueFlags: []string{"--tenant", "--backend", "--resource", "--terraform", "--deployment", "--root", "--profile"},
+		boolFlags:  []string{"--state-aware"},
 		run: func(parsed commandInput) (int, error) {
 			return legacyPlanLifecycleCommand(func() (int, error) {
 				if len(parsed.Positionals) != 0 {
@@ -404,9 +405,10 @@ func genEnvInput(parsed commandInput) (int, error) {
 		OnDiagnostic: func(message string) {
 			fmt.Fprintf(os.Stderr, "%s\n", message)
 		},
-		Root:      loadedRoot,
-		Selectors: parsed.Options["--resource"],
-		Tenant:    tenant,
+		Root:       loadedRoot,
+		Selectors:  parsed.Options["--resource"],
+		StateAware: parsed.Flags.Has("--state-aware"),
+		Tenant:     tenant,
 	}
 	if backend, ok := lastCommandOption(parsed, "--backend"); ok {
 		generateOptions.Backend = &backend

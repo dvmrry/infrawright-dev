@@ -12,6 +12,7 @@ require (
 	github.com/oasdiff/yaml3 v0.0.14
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
+	github.com/zclconf/go-cty v1.18.1
 	golang.org/x/mod v0.29.0
 )
 
@@ -25,6 +26,5 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
-	github.com/zclconf/go-cty v1.18.1 // indirect
 	golang.org/x/text v0.31.0 // indirect
 )

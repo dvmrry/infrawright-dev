@@ -797,18 +797,41 @@ func loadBindingLayers(
 	onDiagnostic func(string),
 	resource metadata.LoadedResourceMetadata,
 	tenant string,
-) ([]ExpressionBinding, error) {
+) ([]ExpressionBinding, map[string]bool, error) {
+	// Operator bindings are resolved first so the caller can tell which merged
+	// identities an operator owns. Probing a generated binding an operator
+	// overrides would be wrong twice over: a probe error on its referent would
+	// abort generation over a binding that is never emitted, and an absent
+	// referent would report a fallback that never happened. The returned
+	// identity set is what lets the state filter, which runs after every
+	// validation gate, leave operator-owned bindings alone.
+	operator, err := operatorBindingsFile(dep, tenant, resource.Type)
+	if err != nil {
+		return nil, nil, err
+	}
+	var operatorBindings []ExpressionBinding
+	if fileExists(operator) {
+		operatorBindings, err = LoadExpressionBindings(operator, resource.Type)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	overridden := make(map[string]bool, len(operatorBindings))
+	for _, binding := range operatorBindings {
+		overridden[bindingIdentity(binding)] = true
+	}
+
 	var layers [][]ExpressionBinding
 	generated, err := generatedBindingsFile(dep, tenant, resource.Type)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if fileExists(generated) {
 		mode := deployment.DeploymentReferenceBindingMode(dep, resource.Provider)
 		if mode != deployment.ReferenceBindingDisabled {
 			loaded, err := LoadExpressionBindings(generated, resource.Type)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			memberSet := map[string]bool{}
 			for _, m := range members {
@@ -822,18 +845,69 @@ func loadBindingLayers(
 			onDiagnostic("NOTE bindings: " + fmt.Sprintf(staleDisabled, generated))
 		}
 	}
-	operator, err := operatorBindingsFile(dep, tenant, resource.Type)
-	if err != nil {
-		return nil, err
+	if len(operatorBindings) > 0 {
+		layers = append(layers, operatorBindings)
 	}
-	if fileExists(operator) {
-		loaded, err := LoadExpressionBindings(operator, resource.Type)
-		if err != nil {
-			return nil, err
+	return MergeExpressionBindingLayers(layers), overridden, nil
+}
+
+// filterStatelessBindings drops generated bindings whose referenced root has no
+// usable state, in place, across every resource type in one root.
+//
+// It runs after the schema, config, cycle, and topology gates, never before.
+// Dropping a binding is a fallback only because the tfvars literal underneath
+// survives; evidence that is independently invalid -- a target leaf that does
+// not exist, a path outside the provider schema, a referenced root that is not
+// in the topology -- has no literal to fall back to, and filtering it first
+// converts those refusals into a silent "fell back to the literal value".
+// Validating the full merged set first is what stops state-awareness from
+// laundering malformed generated evidence.
+//
+// A resource type whose bindings are all dropped is removed outright, so no
+// empty overlay is written and no data block is emitted for it.
+func filterStatelessBindings(
+	bindingsByType map[string][]ExpressionBinding,
+	operatorIdentitiesByType map[string]map[string]bool,
+	probe StateProbe,
+	onDiagnostic func(string),
+) error {
+	resourceTypes := make([]string, 0, len(bindingsByType))
+	for resourceType := range bindingsByType {
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+	for _, resourceType := range canonjson.SortedStrings(resourceTypes) {
+		bindings := bindingsByType[resourceType]
+		operators := operatorIdentitiesByType[resourceType]
+		candidates := make([]ExpressionBinding, 0, len(bindings))
+		for _, binding := range bindings {
+			if !operators[bindingIdentity(binding)] {
+				candidates = append(candidates, binding)
+			}
 		}
-		layers = append(layers, loaded)
+		kept, err := filterStatelessGeneratedBindings(candidates, resourceType, probe, onDiagnostic)
+		if err != nil {
+			return err
+		}
+		keptIdentities := make(map[string]bool, len(kept))
+		for _, binding := range kept {
+			keptIdentities[bindingIdentity(binding)] = true
+		}
+		// Rebuild by walking the merged order rather than concatenating, so
+		// filtering cannot reorder what MergeExpressionBindingLayers produced.
+		surviving := make([]ExpressionBinding, 0, len(bindings))
+		for _, binding := range bindings {
+			identity := bindingIdentity(binding)
+			if operators[identity] || keptIdentities[identity] {
+				surviving = append(surviving, binding)
+			}
+		}
+		if len(surviving) == 0 {
+			delete(bindingsByType, resourceType)
+			continue
+		}
+		bindingsByType[resourceType] = surviving
 	}
-	return MergeExpressionBindingLayers(layers), nil
+	return nil
 }
 
 // cyclePathWithinRoot ports the local cyclePath helper from
@@ -1115,7 +1189,16 @@ type GenerateEnvironmentRootsOptions struct {
 	OutputRoot   *string
 	Root         metadata.LoadedPackRoot
 	Selectors    []string
-	Tenant       string
+	// StateAware enables probing each referenced root's Terraform state
+	// before a generated cross-state binding is kept. When false (the
+	// default) generation never reads state, so its output cannot depend on
+	// any tfstate contents.
+	StateAware bool
+	// StateProbe overrides how StateAware resolves a referenced root's
+	// state. Nil selects the local prober. It is the injection seam for
+	// tests and for a prober that reads state from a configured backend.
+	StateProbe StateProbe
+	Tenant     string
 }
 
 // GenerateEnvironmentRoots ports the exported generateEnvironmentRoots from
@@ -1202,6 +1285,27 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			backend = &trimmed
 		}
 	}
+	// A nil probe means generation never reads state, so its output cannot
+	// depend on any tfstate contents. Resolved after the backend marker
+	// because the backend determines where state lives.
+	var probe StateProbe
+	if options.StateAware {
+		probe = options.StateProbe
+		if probe == nil {
+			// The local prober reads tenantDirectory/<label>/terraform.tfstate.
+			// A remote backend keeps no state there, so probing it would
+			// report every root absent and silently rewrite every reference
+			// to a literal. Refuse until a backend-specific prober exists.
+			if backend != nil && *backend != "" {
+				return EnvironmentGenerationResult{}, fmt.Errorf(
+					"state-aware generation probes local state only; backend %q needs a backend-specific prober",
+					*backend,
+				)
+			}
+			probe = localStateProbe(tenantDirectory)
+		}
+		probe = memoizedStateProbe(probe)
+	}
 	if err := os.MkdirAll(tenantDirectory, 0o777); err != nil {
 		return EnvironmentGenerationResult{}, err
 	}
@@ -1223,15 +1327,17 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		}
 
 		bindingsByType := map[string][]ExpressionBinding{}
+		operatorIdentitiesByType := map[string]map[string]bool{}
 		for _, resourceType := range members {
 			res, err := resourceMetadata(options.Root, resourceType)
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
-			bindings, err := loadBindingLayers(options.Deployment, members, onDiagnostic, res, options.Tenant)
+			bindings, operatorIdentities, err := loadBindingLayers(options.Deployment, members, onDiagnostic, res, options.Tenant)
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
+			operatorIdentitiesByType[resourceType] = operatorIdentities
 			if len(bindings) == 0 {
 				continue
 			}
@@ -1267,8 +1373,27 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 				return EnvironmentGenerationResult{}, err
 			}
 		}
+		// Topology is validated against the unfiltered set: a binding naming a
+		// root outside this topology is malformed evidence, not a root awaiting
+		// apply, and must be refused whether or not state-awareness would drop
+		// it for want of state.
 		if err := validateRemoteStateReferences(remoteStateValidation, selectedRoot.Label, remoteStateReferences); err != nil {
 			return EnvironmentGenerationResult{}, err
+		}
+		// Every gate has now run against the full merged set. Only here, with
+		// the evidence proven well formed, may bindings be dropped for want of
+		// state -- and the reference list is rebuilt from the survivors so no
+		// data block outlives its binding.
+		if probe != nil {
+			if err := filterStatelessBindings(bindingsByType, operatorIdentitiesByType, probe, onDiagnostic); err != nil {
+				return EnvironmentGenerationResult{}, err
+			}
+			if bindingMode == deployment.ReferenceBindingCrossState {
+				remoteStateReferences, err = remoteStateReferencesForBindings(bindingsByType)
+				if err != nil {
+					return EnvironmentGenerationResult{}, err
+				}
+			}
 		}
 
 		remoteRootSet := map[string]bool{}
