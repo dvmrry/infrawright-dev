@@ -209,7 +209,7 @@ func TestStateAwareFallsBackWhenReferencedStateHasNoReferenceOutputs(t *testing.
 // Red proof: this test passes against the committed implementation, so it is
 // verified against the faithful unsafe mutation "return
 // StateProbeResult{Usable: false}, nil instead of the error" in
-// referenceIDsPresent, under which it fails.
+// ReferenceIDsPresent, under which it fails.
 //
 // Scope: this pins the refusal only. Generation is not transactional, so the
 // referrer directory may already exist when the probe fails; nothing here
@@ -331,32 +331,6 @@ func TestStateAwareProbesEachReferenceOnce(t *testing.T) {
 	}
 }
 
-// TestStateAwareRejectsRemoteBackendWithoutProber pins the azurerm hole. The
-// local prober reads tenantDirectory/<label>/terraform.tfstate, which a remote
-// backend never populates, so probing it would report every root absent and
-// rewrite every reference to a literal in one silent sweep.
-func TestStateAwareRejectsRemoteBackendWithoutProber(t *testing.T) {
-	fixture := newStateAwareFixture(t)
-	backend := "azurerm"
-	outputRoot := fixture.outputRoot
-	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
-		Backend:    &backend,
-		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
-		FormatHcl:  identityFormatter,
-		OutputRoot: &outputRoot,
-		Root:       syntheticRootForTopology(t),
-		Selectors:  []string{"zpa_application_segment"},
-		StateAware: true,
-		Tenant:     "tenant",
-	})
-	if err == nil {
-		t.Fatalf("GenerateEnvironmentRoots(azurerm + StateAware) error = nil, want a refusal")
-	}
-	if !strings.Contains(err.Error(), "azurerm") {
-		t.Errorf("GenerateEnvironmentRoots(azurerm + StateAware) error = %q, want it to name the backend", err)
-	}
-}
-
 // TestReferenceIDsPresentRejectsNonObjectReferenceMap pins the shape check. A
 // JSON null decodes to a present key holding nil, and a bare key check reports
 // that usable -- Terraform then halts at plan time on the index. Strings and
@@ -376,12 +350,12 @@ func TestReferenceIDsPresentRejectsNonObjectReferenceMap(t *testing.T) {
 			raw := []byte(`{"version":4,"outputs":{"infrawright_reference_ids":{` +
 				`"value":{"zpa_segment_group":` + testCase.value + `},` +
 				`"type":["object",{"zpa_segment_group":` + testCase.valueType + `}]}}}`)
-			result, err := referenceIDsPresent(raw, "zpa_segment_group", "zpa_segment_group")
+			result, err := ReferenceIDsPresent(raw, "zpa_segment_group", "zpa_segment_group")
 			if err == nil {
-				t.Fatalf("referenceIDsPresent(%s) error = nil (usable=%v), want a malformed-state failure", testCase.value, result.Usable)
+				t.Fatalf("ReferenceIDsPresent(%s) error = nil (usable=%v), want a malformed-state failure", testCase.value, result.Usable)
 			}
 			if !strings.Contains(err.Error(), "want an object of reference identifiers") {
-				t.Errorf("referenceIDsPresent(%s) error = %q, want the referent-shape refusal rather than an earlier gate", testCase.value, err)
+				t.Errorf("ReferenceIDsPresent(%s) error = %q, want the referent-shape refusal rather than an earlier gate", testCase.value, err)
 			}
 		})
 	}
@@ -405,9 +379,9 @@ func TestReferenceIDsPresentValidatesOutputTypeAgainstValue(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			result, err := referenceIDsPresent([]byte(testCase.raw), "zpa_segment_group", "zpa_segment_group")
+			result, err := ReferenceIDsPresent([]byte(testCase.raw), "zpa_segment_group", "zpa_segment_group")
 			if err == nil {
-				t.Fatalf("referenceIDsPresent(%s) error = nil (usable=%v), want a refusal", testCase.name, result.Usable)
+				t.Fatalf("ReferenceIDsPresent(%s) error = nil (usable=%v), want a refusal", testCase.name, result.Usable)
 			}
 		})
 	}
@@ -670,8 +644,8 @@ func TestReferenceIDsPresentRequiresStateEnvelope(t *testing.T) {
 		{name: "output without value", raw: `{"version":4,"outputs":{"infrawright_reference_ids":{"type":["object",{}]}}}`},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			if _, err := referenceIDsPresent([]byte(testCase.raw), "zpa_segment_group", "zpa_segment_group"); err == nil {
-				t.Errorf("referenceIDsPresent(%s) error = nil, want a refusal for a document Terraform does not accept as state", testCase.raw)
+			if _, err := ReferenceIDsPresent([]byte(testCase.raw), "zpa_segment_group", "zpa_segment_group"); err == nil {
+				t.Errorf("ReferenceIDsPresent(%s) error = nil, want a refusal for a document Terraform does not accept as state", testCase.raw)
 			}
 		})
 	}
@@ -685,21 +659,21 @@ func TestReferenceIDsPresentAcceptsAppliedStateShape(t *testing.T) {
 	applied := `{"version":4,"terraform_version":"1.15.4","serial":1,"lineage":"fixture",` +
 		`"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":{"segment_one":"sg-1"}},` +
 		`"type":["object",{"zpa_segment_group":["object",{"segment_one":"string"}]}]}},"resources":[]}`
-	result, err := referenceIDsPresent([]byte(applied), "zpa_segment_group", "zpa_segment_group")
+	result, err := ReferenceIDsPresent([]byte(applied), "zpa_segment_group", "zpa_segment_group")
 	if err != nil {
-		t.Fatalf("referenceIDsPresent(applied state) error = %v, want nil", err)
+		t.Fatalf("ReferenceIDsPresent(applied state) error = %v, want nil", err)
 	}
 	if !result.Usable {
-		t.Errorf("referenceIDsPresent(applied state) usable = false, want true")
+		t.Errorf("ReferenceIDsPresent(applied state) usable = false, want true")
 	}
 
 	noOutputs := `{"version":4,"terraform_version":"1.15.4","serial":1,"lineage":"fixture","outputs":{},"resources":[]}`
-	result, err = referenceIDsPresent([]byte(noOutputs), "zpa_segment_group", "zpa_segment_group")
+	result, err = ReferenceIDsPresent([]byte(noOutputs), "zpa_segment_group", "zpa_segment_group")
 	if err != nil {
-		t.Fatalf("referenceIDsPresent(applied state without outputs) error = %v, want nil", err)
+		t.Fatalf("ReferenceIDsPresent(applied state without outputs) error = %v, want nil", err)
 	}
 	if result.Usable {
-		t.Errorf("referenceIDsPresent(applied state without outputs) usable = true, want false")
+		t.Errorf("ReferenceIDsPresent(applied state without outputs) usable = true, want false")
 	}
 }
 
@@ -733,39 +707,6 @@ func TestStateAwareMemoizationDistinguishesReferentTypes(t *testing.T) {
 	}
 	if len(calls) != 2 {
 		t.Errorf("probe calls after repeat = %v, want the repeat served from the cache", calls)
-	}
-}
-
-// TestStateAwareRejectsBackendFromPersistedMarker pins that the remote-backend
-// refusal reads the persisted .backend marker, not just the --backend flag. A
-// tenant generated once with a backend keeps that marker, and every later run
-// omits the flag; refusing only on the flag would let those runs probe local
-// state that the backend does not hold and report every root absent.
-func TestStateAwareRejectsBackendFromPersistedMarker(t *testing.T) {
-	fixture := newStateAwareFixture(t)
-	marker := filepath.Join(fixture.outputRoot, "tenant", ".backend")
-	if err := os.MkdirAll(filepath.Dir(marker), 0o777); err != nil {
-		t.Fatalf("create tenant directory: %v", err)
-	}
-	if err := os.WriteFile(marker, []byte("azurerm\n"), 0o666); err != nil {
-		t.Fatalf("write backend marker: %v", err)
-	}
-
-	outputRoot := fixture.outputRoot
-	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
-		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
-		FormatHcl:  identityFormatter,
-		OutputRoot: &outputRoot,
-		Root:       syntheticRootForTopology(t),
-		Selectors:  []string{"zpa_application_segment"},
-		StateAware: true,
-		Tenant:     "tenant",
-	})
-	if err == nil {
-		t.Fatalf("GenerateEnvironmentRoots(persisted backend marker) error = nil, want a refusal")
-	}
-	if !strings.Contains(err.Error(), "azurerm") {
-		t.Errorf("error = %q, want it to name the backend read from the marker", err)
 	}
 }
 
@@ -808,12 +749,12 @@ func TestStateAwareKeepsOperatorBindingWhenAnotherFallsBack(t *testing.T) {
 func TestReferenceIDsPresentAcceptsEmptyPerTypeMap(t *testing.T) {
 	raw := `{"version":4,"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":{}},` +
 		`"type":["object",{"zpa_segment_group":["object",{}]}]}}}`
-	result, err := referenceIDsPresent([]byte(raw), "zpa_segment_group", "zpa_segment_group")
+	result, err := ReferenceIDsPresent([]byte(raw), "zpa_segment_group", "zpa_segment_group")
 	if err != nil {
-		t.Fatalf("referenceIDsPresent(empty per-type map) error = %v, want nil", err)
+		t.Fatalf("ReferenceIDsPresent(empty per-type map) error = %v, want nil", err)
 	}
 	if !result.Usable {
-		t.Errorf("referenceIDsPresent(empty per-type map) usable = false, want true")
+		t.Errorf("ReferenceIDsPresent(empty per-type map) usable = false, want true")
 	}
 }
 

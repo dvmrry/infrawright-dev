@@ -52,7 +52,7 @@ func localStateProbe(tenantDirectory string) StateProbe {
 			}
 			return StateProbeResult{}, fmt.Errorf("probe state for root %s: %w", rootLabel, err)
 		}
-		return referenceIDsPresent(raw, rootLabel, referentType)
+		return ReferenceIDsPresent(raw, rootLabel, referentType)
 	}
 }
 
@@ -61,7 +61,7 @@ func localStateProbe(tenantDirectory string) StateProbe {
 // and reporting "absent" would silently rewrite references to literals.
 const supportedStateVersion = 4
 
-// referenceIDsPresent reports whether a decoded Terraform state publishes
+// ReferenceIDsPresent reports whether a decoded Terraform state publishes
 // reference identifiers for referentType.
 //
 // The envelope is checked before the outputs are read. Terraform accepts a file
@@ -79,7 +79,7 @@ const supportedStateVersion = 4
 //
 // A state that cannot be decoded is an error rather than "absent", so a
 // corrupt or truncated file never silently rewrites references to literals.
-func referenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbeResult, error) {
+func ReferenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbeResult, error) {
 	var state struct {
 		Version *int                        `json:"version"`
 		Outputs *map[string]json.RawMessage `json:"outputs"`
