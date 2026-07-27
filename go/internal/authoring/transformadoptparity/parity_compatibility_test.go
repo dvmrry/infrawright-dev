@@ -79,10 +79,10 @@ func TestTransformAdoptParityCompatibility(t *testing.T) {
 		t.Fatalf("%s provenance = %#v, want non-empty baseline_commit and note", fixturePath, compatibility.Provenance)
 	}
 
-	context := testContext(t)
+	context := committedTestContext(t)
 	fixtures := make([]Fixture, 0, len(compatibility.Results))
 	for _, expected := range compatibility.Results {
-		loaded := loadFixture(t, expected.Name)
+		loaded := loadCommittedFixture(t, context, expected.Name)
 		if loaded.ResourceType != expected.ResourceType {
 			t.Fatalf("fixture %q resource_type = %q, want %q", expected.Name, loaded.ResourceType, expected.ResourceType)
 		}

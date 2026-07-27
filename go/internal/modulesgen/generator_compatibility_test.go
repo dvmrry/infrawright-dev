@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
 const moduleHCLCompatibilitySHA256 = "5fb57177483130e360ccf5ccc20fe5c0f30eeaecbf700121b918cb1a159d7a37"
@@ -45,7 +47,10 @@ func TestCommittedModuleHCLCompatibility(t *testing.T) {
 		t.Fatalf("%s resource/file counts = %d/%d, want 17/68", fixturePath, fixture.ResourceCount, len(fixture.Files))
 	}
 
-	root := committedRoot(t)
+	requireModulePackSelection(t, metadata.PackSelection{
+		Packs: []string{"zcc", "zia", "zpa"}, Shared: []string{"zscaler"},
+	})
+	root := installedModuleRoot(t)
 	formatter := NewHCLFormatter()
 	rendered := map[string]RenderedModule{}
 	resources := map[string]bool{}

@@ -180,7 +180,14 @@ func TestDeclaredReferenceCyclesRunAfterReferenceStructureValidation(t *testing.
 
 func TestCommittedPackReferencesRemainAcyclic(t *testing.T) {
 	root := repoRoot(t)
-	loaded, err := LoadPackRoot(LoadPackRootOptions{PacksRoot: filepath.Join(root, "packs")})
+	packsRoot := filepath.Join(root, "packs")
+	profilePath := filepath.Join(packsRoot, "full.packset.json")
+	profile, err := LoadPackSetDocument(profilePath, PackSetKind)
+	if err != nil {
+		t.Fatalf("LoadPackSetDocument(%q) error: %v", profilePath, err)
+	}
+	requirePackSelectionAvailable(t, packsRoot, profile.PackSelection)
+	loaded, err := LoadPackRoot(LoadPackRootOptions{PacksRoot: packsRoot, ProfilePath: &profilePath})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
 	}

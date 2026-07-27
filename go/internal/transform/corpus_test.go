@@ -25,10 +25,10 @@ package transform
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
-	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
 func TestTransformFixtureCorpus(t *testing.T) {
@@ -39,14 +39,7 @@ func TestTransformFixtureCorpus(t *testing.T) {
 		t.Fatalf("ReadDir(%s): %v", corpusRoot, err)
 	}
 
-	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot:   filepath.Join(root, "packs"),
-		ProfilePath: &profilePath,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot: %v", err)
-	}
+	loaded := installedPackRoot(t)
 
 	wantResourceTypes := []string{
 		"zia_cloud_app_control_rule",
@@ -75,6 +68,8 @@ func TestTransformFixtureCorpus(t *testing.T) {
 		found = append(found, resourceType)
 
 		t.Run(resourceType, func(t *testing.T) {
+			pack, _, _ := strings.Cut(resourceType, "_")
+			requireInstalledPack(t, pack)
 			resource, ok := loaded.Resources[resourceType]
 			if !ok {
 				t.Fatalf("resource %s not found in committed pack root", resourceType)

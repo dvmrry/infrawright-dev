@@ -3,7 +3,6 @@ package assessment
 import (
 	"encoding/json"
 	"math"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -635,17 +634,7 @@ func TestMalformedGuidanceIsDroppedWithoutValueLeakage(t *testing.T) {
 }
 
 func TestRealPackRootSuppliesAllGuidanceLanes(t *testing.T) {
-	repository, err := filepath.Abs("../../..")
-	if err != nil {
-		t.Fatalf("filepath.Abs(../../..) error = %v, want nil", err)
-	}
-	profile := filepath.Join(repository, "packs", "full.packset.json")
-	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: filepath.Join(repository, "packs"), ProfilePath: &profile,
-	})
-	if err != nil {
-		t.Fatalf("metadata.LoadPackRoot(full) error = %v, want nil", err)
-	}
+	root := installedAssessmentPack(t)
 	tests := []struct {
 		pack         string
 		resourceType string

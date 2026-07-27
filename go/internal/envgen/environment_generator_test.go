@@ -2,10 +2,10 @@ package envgen
 
 // environment_generator_test.go ports the original test corpus.
 //
-// Every test that does NOT depend on a live Python oracle is ported
-// verbatim (same fixtures, same assertions), driven against the real
-// committed pack root (packs/ + packs/full.packset.json, exactly as the Node
-// test's committedRoot() helper does) and, where the Node test used a real
+// Every test that does NOT depend on a live Python oracle is ported with the
+// same fixtures and assertions. Engine behavior runs against the synthetic
+// pack universe in pack_scope_test.go; explicit compatibility contracts load
+// only the committed packs they name. Where the Node test used a real
 // `terraform fmt` subprocess (terraformHclFormatter), an equivalent local
 // Go helper (terraformFmtFormatter below) that shells out to the same
 // `terraform fmt -` command -- this environment has a working `terraform`
@@ -257,7 +257,7 @@ func committedRootFor(t *testing.T, packsRoot, profilePath string) metadata.Load
 }
 
 func TestUngroupedMainRenderingByteIdenticalToLegacyGolden(t *testing.T) {
-	root := committedRootForTopology(t)
+	root := committedTopologyRoot(t, "zpa", metadata.PackSelection{Packs: []string{"zpa"}, Shared: []string{"zscaler"}})
 	dep := deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}}
 	tenant := "zs2"
 	result, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
@@ -340,7 +340,7 @@ func TestCrossStateModeEmitsSingletonOutputsAndRemoteStateConsumers(t *testing.T
 			},
 		},
 	})
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	dep := loadDeploymentFile(t, deploymentPath)
 	formatHcl := terraformFmtFormatter(t)
 	wantLabels := []string{
@@ -475,7 +475,7 @@ func TestAbsentAndExplicitCrossStateProduceIdenticalDeclaredBindingArtifacts(t *
 		})
 		if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 			Deployment: loadDeploymentFile(t, deploymentPath), FormatHcl: identityFormatter,
-			OutputRoot: &outputRoot, Root: committedRootForTopology(t),
+			OutputRoot: &outputRoot, Root: syntheticRootForTopology(t),
 			Selectors: []string{"zcc_forwarding_profile", "zia_url_filtering_rules", "zpa_application_segment", "zpa_server_group"},
 			Tenant:    "tenant",
 		}); err != nil {
@@ -587,7 +587,7 @@ func TestExplicitCrossStateDisableDoesNotActivateOperatorDataSelectors(t *testin
 			},
 		},
 	})
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	dep := loadDeploymentFile(t, deploymentPath)
 	generated, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: dep, FormatHcl: terraformFmtFormatter(t), OutputRoot: &outputRoot, Root: root,
@@ -627,7 +627,7 @@ func TestCrossStateOperatorSelectorsMustTargetDeclaredEdge(t *testing.T) {
 			},
 		},
 	})
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	dep := loadDeploymentFile(t, deploymentPath)
 	outputRoot := filepath.Join(workspace, "generated")
 	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
@@ -671,7 +671,7 @@ func TestNativeHclBindingsRequireExactIndexesForListBlocks(t *testing.T) {
 			},
 		})
 	}
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	generate := func() (EnvironmentGenerationResult, error) {
 		dep := loadDeploymentFile(t, deploymentPath)
 		return GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
@@ -739,7 +739,7 @@ func TestPackDeclaredNestedZpaReferencesValidateIndexedPathsAndDependencyRoots(t
 			},
 		},
 	})
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	dep := loadDeploymentFile(t, deploymentPath)
 	generated, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: dep, FormatHcl: terraformFmtFormatter(t), OutputRoot: &outputRoot, Root: root,
@@ -775,7 +775,7 @@ func TestPackDeclaredNestedZpaReferencesValidateIndexedPathsAndDependencyRoots(t
 // Python-oracle byte comparison itself; see this file's package doc
 // comment.
 func TestPythonParityScenariosMatchStructurally(t *testing.T) {
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	formatHcl := terraformFmtFormatter(t)
 
 	t.Run("ungrouped", func(t *testing.T) {
@@ -905,15 +905,15 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 	})
 }
 
-// TestFullProfileTreeGeneratesAllRoots ports the Go-reachable half of "the
-// complete full-profile generated root tree is byte-identical to Python". It
-// also proves the production in-process formatter byte-identical to a single
-// recursive Terraform oracle pass. The selected profile defines the corpus.
-func TestFullProfileTreeGeneratesAllRoots(t *testing.T) {
+// TestInstalledPackTreeGeneratesAllRoots ports the Go-reachable half of "the
+// complete generated root tree is byte-identical to Python". It also proves
+// the production in-process formatter byte-identical to a single recursive
+// Terraform oracle pass. The physically installed pack set defines the corpus.
+func TestInstalledPackTreeGeneratesAllRoots(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full-profile Terraform differential skipped under -short")
 	}
-	root := committedRootForTopology(t)
+	root := installedTopologyRoot(t)
 	workspace := temporaryDirectory(t, "infrawright-gen-env-full-profile-")
 	deploymentPath := filepath.Join(workspace, "deployment.json")
 	writeJSONFile(t, deploymentPath, map[string]any{"overlay": workspace, "module_dir": filepath.Join(workspace, "modules"), "roots": map[string]any{}})
@@ -996,7 +996,7 @@ func TestSingletonSelectionDoesNotGenerateUnselectedRoot(t *testing.T) {
 	generated, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: loadDeploymentFile(t, deploymentPath), FormatHcl: identityFormatter,
 		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
-		OutputRoot:   &output, Root: committedRootForTopology(t),
+		OutputRoot:   &output, Root: syntheticRootForTopology(t),
 		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
 	})
 	if err != nil {
@@ -1047,7 +1047,7 @@ func TestSingletonCrossStateDisableRemovesStaleGeneratedBindings(t *testing.T) {
 
 	output := filepath.Join(workspace, "generated")
 	expressionPath := filepath.Join(output, "tenant", "zpa_application_segment", "expression_bindings.tf")
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: loadDeploymentFile(t, deploymentPath), FormatHcl: identityFormatter,
 		OutputRoot: &output, Root: root, Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
@@ -1137,7 +1137,7 @@ func TestDanglingArtifactPathsPreserveSymlinks(t *testing.T) {
 	}
 	seedDanglingOutputs()
 
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	dep := loadDeploymentFile(t, deploymentPath)
 	if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: dep, FormatHcl: terraformFmtFormatter(t), OutputRoot: &outputRoot, Root: root,
@@ -1204,7 +1204,7 @@ func TestInvalidPythonIncompatibleWhitespaceCannotPartiallyRewriteRoot(t *testin
 		t.Fatalf("WriteFile: %v", err)
 	}
 	invalidDeployment := loadDeploymentFile(t, deploymentPath)
-	invalidRoot := committedRootForTopology(t)
+	invalidRoot := syntheticRootForTopology(t)
 	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: invalidDeployment, FormatHcl: identityFormatter, Root: invalidRoot,
 		Selectors: []string{"zia_url_categories"}, Tenant: "tenant",
@@ -1222,7 +1222,7 @@ func TestBackendMarkerSurvivesRegenerationAndProfileVariantsGenerateWithoutPytho
 	workspace := temporaryDirectory(t, "infrawright-gen-env-profiles-")
 	dep := deployment.Deployment{Overlay: workspace, Roots: map[string]deployment.RootProviderConfig{}}
 	output := filepath.Join(workspace, "generated")
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 
 	if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Backend: strPtr("azurerm"), Deployment: dep, FormatHcl: identityFormatter, OutputRoot: &output, Root: root,
@@ -1260,46 +1260,53 @@ func TestBackendMarkerSurvivesRegenerationAndProfileVariantsGenerateWithoutPytho
 		t.Fatal("discover committed pack profiles: found no packs/*.packset.json files")
 	}
 	for _, profilePath := range profilePaths {
+		profilePath := profilePath
 		profile := filepath.Base(profilePath)
-		packsRoot := reducedPackRootForProfile(t, repo, workspace, profile)
-		selectedRoot := committedRootFor(t, packsRoot, profilePath)
-		target := filepath.Join(workspace, profile)
-		resourceTypes := modulesgen.ActiveGeneratedResourceTypes(selectedRoot)
-		selectors := []string{}
-		if len(resourceTypes) > 0 {
-			selectors = []string{resourceTypes[0]}
-		}
-		result, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
-			Deployment: deployment.Deployment{Overlay: workspace, Roots: map[string]deployment.RootProviderConfig{}},
-			FormatHcl:  identityFormatter, OutputRoot: &target, Root: selectedRoot,
-			Selectors: selectors, Tenant: "profile",
+		t.Run(strings.TrimSuffix(profile, ".packset.json"), func(t *testing.T) {
+			requireTopologyPackSelection(t, topologyPackSelectionFromProfile(t, profilePath))
+			packsRoot := reducedPackRootForProfile(t, repo, workspace, profile)
+			selectedRoot := committedRootFor(t, packsRoot, profilePath)
+			target := filepath.Join(workspace, profile)
+			resourceTypes := modulesgen.ActiveGeneratedResourceTypes(selectedRoot)
+			selectors := []string{}
+			if len(resourceTypes) > 0 {
+				selectors = []string{resourceTypes[0]}
+			}
+			result, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+				Deployment: deployment.Deployment{Overlay: workspace, Roots: map[string]deployment.RootProviderConfig{}},
+				FormatHcl:  identityFormatter, OutputRoot: &target, Root: selectedRoot,
+				Selectors: selectors, Tenant: "profile",
+			})
+			if err != nil {
+				t.Fatalf("%s: GenerateEnvironmentRoots: %v", profile, err)
+			}
+			wantCount := len(selectors)
+			if len(result.Roots) != wantCount {
+				t.Fatalf("%s: len(result.Roots) = %d, want %d", profile, len(result.Roots), wantCount)
+			}
 		})
-		if err != nil {
-			t.Fatalf("%s: GenerateEnvironmentRoots: %v", profile, err)
-		}
-		wantCount := len(selectors)
-		if len(result.Roots) != wantCount {
-			t.Fatalf("%s: len(result.Roots) = %d, want %d", profile, len(result.Roots), wantCount)
-		}
 	}
 
-	reduced := filepath.Join(workspace, "reduced-packs")
-	if err := os.MkdirAll(filepath.Join(reduced, "_shared"), 0o777); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	copyDirRecursive(t, filepath.Join(repo, "packs", "zcc"), filepath.Join(reduced, "zcc"))
-	copyDirRecursive(t, filepath.Join(repo, "packs", "_shared", "zscaler"), filepath.Join(reduced, "_shared", "zscaler"))
-	reducedRoot := committedRootFor(t, reduced, filepath.Join(repo, "packs", "zcc.packset.json"))
-	reducedOutput := filepath.Join(workspace, "reduced-output")
-	reducedResult, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
-		Deployment: deployment.Deployment{Overlay: workspace, Roots: map[string]deployment.RootProviderConfig{}},
-		FormatHcl:  identityFormatter, OutputRoot: &reducedOutput, Root: reducedRoot,
-		Selectors: []string{"zcc_failopen_policy"}, Tenant: "reduced",
+	t.Run("reduced-zcc", func(t *testing.T) {
+		requireTopologyPackSelection(t, metadata.PackSelection{Packs: []string{"zcc"}, Shared: []string{"zscaler"}})
+		reduced := filepath.Join(workspace, "reduced-packs")
+		if err := os.MkdirAll(filepath.Join(reduced, "_shared"), 0o777); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		copyDirRecursive(t, filepath.Join(repo, "packs", "zcc"), filepath.Join(reduced, "zcc"))
+		copyDirRecursive(t, filepath.Join(repo, "packs", "_shared", "zscaler"), filepath.Join(reduced, "_shared", "zscaler"))
+		reducedRoot := committedRootFor(t, reduced, filepath.Join(repo, "packs", "zcc.packset.json"))
+		reducedOutput := filepath.Join(workspace, "reduced-output")
+		reducedResult, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+			Deployment: deployment.Deployment{Overlay: workspace, Roots: map[string]deployment.RootProviderConfig{}},
+			FormatHcl:  identityFormatter, OutputRoot: &reducedOutput, Root: reducedRoot,
+			Selectors: []string{"zcc_failopen_policy"}, Tenant: "reduced",
+		})
+		if err != nil {
+			t.Fatalf("GenerateEnvironmentRoots (reduced): %v", err)
+		}
+		if len(reducedResult.Roots) != 1 {
+			t.Fatalf("len(reducedResult.Roots) = %d, want 1", len(reducedResult.Roots))
+		}
 	})
-	if err != nil {
-		t.Fatalf("GenerateEnvironmentRoots (reduced): %v", err)
-	}
-	if len(reducedResult.Roots) != 1 {
-		t.Fatalf("len(reducedResult.Roots) = %d, want 1", len(reducedResult.Roots))
-	}
 }

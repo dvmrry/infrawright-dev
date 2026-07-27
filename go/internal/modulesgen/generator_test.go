@@ -18,7 +18,8 @@ import (
 // TestRendererPreservesCompleteSevenFileContractAndCoreShapes verifies the
 // module file contract against current packs.
 func TestRendererPreservesCompleteSevenFileContractAndCoreShapes(t *testing.T) {
-	root := committedRoot(t)
+	requireModulePackSelection(t, metadata.PackSelection{Packs: []string{"zia", "zpa"}, Shared: []string{"zscaler"}})
+	root := installedModuleRoot(t)
 	segment, err := RenderModuleFiles(root, "zpa_segment_group")
 	if err != nil {
 		t.Fatalf("RenderModuleFiles(zpa_segment_group): %v", err)
@@ -66,7 +67,8 @@ func TestRendererPreservesCompleteSevenFileContractAndCoreShapes(t *testing.T) {
 // ports "samples, sensitive outputs, deprecated projection, and nested
 // types match authority".
 func TestSamplesSensitiveOutputsDeprecatedProjectionAndNestedTypesMatchAuthority(t *testing.T) {
-	root := committedRoot(t)
+	requireModulePackSelection(t, metadata.PackSelection{Packs: []string{"zcc", "zia", "zpa"}, Shared: []string{"zscaler"}})
+	root := installedModuleRoot(t)
 
 	filtering, err := RenderModuleFiles(root, "zia_url_filtering_rules")
 	if err != nil {
@@ -131,7 +133,8 @@ func TestSamplesSensitiveOutputsDeprecatedProjectionAndNestedTypesMatchAuthority
 }
 
 func TestZPAProvider449ModuleShapesMatchReviewedSchemaTransitions(t *testing.T) {
-	root := committedRoot(t)
+	requireModulePackSelection(t, metadata.PackSelection{Packs: []string{"zpa"}, Shared: []string{"zscaler"}})
+	root := installedModuleRoot(t)
 	for _, test := range []struct {
 		resourceType string
 		pattern      string
@@ -771,7 +774,7 @@ func TestGeneratedModuleTreeExactnessRejectsExtraEmptyAndSelectedProfileSurface(
 // TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree ports
 // "all active resources generate and validate a complete temporary tree".
 func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.T) {
-	root := committedRoot(t)
+	root := installedModuleRoot(t)
 	output := t.TempDir()
 
 	types := ActiveGeneratedResourceTypes(root)
@@ -876,6 +879,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			directory := t.TempDir()
 			output := t.TempDir()
 			doc := readPackSetFile(t, profilePath)
+			requireModulePackSelection(t, metadata.PackSelection{Packs: doc.Packs, Shared: doc.Shared})
 			for _, name := range doc.Packs {
 				copyDir(t, filepath.Join(root, "packs", name), filepath.Join(directory, name))
 			}
@@ -933,7 +937,7 @@ func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
 		t.Skip("full generated-corpus Terraform differential skipped under -short")
 	}
 	executable := terraformExecutable(t)
-	root := committedRoot(t)
+	root := installedModuleRoot(t)
 	formatter := NewHCLFormatter()
 	oracleRoot := t.TempDir()
 

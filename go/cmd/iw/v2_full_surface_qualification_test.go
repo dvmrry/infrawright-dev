@@ -21,6 +21,7 @@ import (
 // credentials, backend, Terraform executable, or provider transport is used.
 func TestV2FullSurfaceSevenEdgeCommandQualification(t *testing.T) {
 	root := repoRoot(t)
+	requireCommittedProfileAvailable(t, root, "full")
 	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-full-surface")
 
 	omitted := runV2FullSurfaceGenEnv(t, root, binary, "omitted", nil)

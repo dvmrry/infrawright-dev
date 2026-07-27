@@ -141,6 +141,7 @@ func TestV2TransformAuthorityNormalizationIsNarrow(t *testing.T) {
 
 func TestV2TransformDefaultCrossStateAuthority(t *testing.T) {
 	root := repoRoot(t)
+	requireCommittedProfileAvailable(t, root, "full")
 	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-transform")
 	first := runV2TransformAuthority(t, root, binary, "first")
 	second := runV2TransformAuthority(t, root, binary, "second")

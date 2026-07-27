@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 )
 
@@ -78,7 +79,8 @@ func TestUngroupedEnvironmentRootCompatibility(t *testing.T) {
 	formatter := modulesgen.NewHCLFormatter()
 	if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: deployment, FormatHcl: formatter.FormatHCL, OutputRoot: &outputRoot,
-		Root: committedRootForTopology(t), Selectors: []string{"zia_url_categories"}, Tenant: "tenant",
+		Root:      committedTopologyRoot(t, "zia", metadata.PackSelection{Packs: []string{"zia"}, Shared: []string{"zscaler"}}),
+		Selectors: []string{"zia_url_categories"}, Tenant: "tenant",
 	}); err != nil {
 		t.Fatalf("GenerateEnvironmentRoots() error: %v", err)
 	}
@@ -110,7 +112,10 @@ func TestFullProfileEnvironmentRootCompatibility(t *testing.T) {
 	formatter := modulesgen.NewHCLFormatter()
 	result, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: deployment, FormatHcl: formatter.FormatHCL, OutputRoot: &outputRoot,
-		Root: committedRootForTopology(t), Selectors: []string{}, Tenant: "full-profile-parity",
+		Root: committedTopologyRoot(t, "full", metadata.PackSelection{
+			Packs:  []string{"aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"},
+			Shared: []string{"zscaler"},
+		}), Selectors: []string{}, Tenant: "full-profile-parity",
 	})
 	if err != nil {
 		t.Fatalf("GenerateEnvironmentRoots() error: %v", err)

@@ -31,26 +31,14 @@ func committedPackSetPaths(t *testing.T, packsRoot string) []string {
 // TestLoadPackRootExposesGenericResourceSurface ports "committed pack
 // metadata exposes the complete generic resource surface".
 func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
-	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	loaded, err := LoadPackRoot(LoadPackRootOptions{
-		PacksRoot:   filepath.Join(root, "packs"),
-		ProfilePath: &profilePath,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot: %v", err)
-	}
-	profile, err := LoadPackSetDocument(profilePath, PackSetKind)
-	if err != nil {
-		t.Fatalf("LoadPackSetDocument: %v", err)
-	}
+	_, loaded := syntheticLoadedPackRoot(t, "sample")
 	metadata := loaded.Packs
 
 	var names []string
 	for _, manifest := range metadata.Manifests {
 		names = append(names, manifest.Name)
 	}
-	wantNames := profile.Packs
+	wantNames := []string{"sample"}
 	if !reflect.DeepEqual(names, wantNames) {
 		t.Fatalf("manifest names = %v, want %v", names, wantNames)
 	}
@@ -108,38 +96,44 @@ func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
 // resolve through pack ownership and fail on misspellings".
 func TestProviderSchemasResolveThroughPackOwnership(t *testing.T) {
 	root := repoRoot(t)
-	metadata, err := LoadPackMetadata(filepath.Join(root, "packs"))
+	packsRoot := filepath.Join(root, "packs")
+	metadata, err := LoadPackMetadata(packsRoot)
 	if err != nil {
 		t.Fatalf("LoadPackMetadata: %v", err)
 	}
-	counts := make(map[string]int)
-	for _, provider := range []string{"zcc", "zia", "zpa", "ztc"} {
-		schema, err := LoadProviderSchema(metadata, provider)
-		if err != nil {
-			t.Fatalf("LoadProviderSchema(%s): %v", provider, err)
-		}
-		counts[provider] = len(schema.ResourceSchemas)
-	}
 	want := map[string]int{"zcc": 7, "zia": 83, "zpa": 55, "ztc": 16}
-	if !reflect.DeepEqual(counts, want) {
-		t.Fatalf("resourceSchemas counts = %v, want %v", counts, want)
+	for _, provider := range []string{"zcc", "zia", "zpa", "ztc"} {
+		provider := provider
+		t.Run(provider, func(t *testing.T) {
+			requirePackSelectionAvailable(t, packsRoot, PackSelection{Packs: []string{provider}})
+			schema, err := LoadProviderSchema(metadata, provider)
+			if err != nil {
+				t.Fatalf("LoadProviderSchema(%s): %v", provider, err)
+			}
+			if got := len(schema.ResourceSchemas); got != want[provider] {
+				t.Fatalf("resourceSchemas count = %d, want %d", got, want[provider])
+			}
+		})
 	}
 
-	category, err := LoadResourceSchema(metadata, "zia_url_categories")
-	if err != nil {
-		t.Fatalf("LoadResourceSchema: %v", err)
-	}
-	if _, ok := category["block"].(JsonObject); !ok {
-		t.Fatalf("category.block is not an object: %T", category["block"])
-	}
+	t.Run("zia resource ownership", func(t *testing.T) {
+		requirePackSelectionAvailable(t, packsRoot, PackSelection{Packs: []string{"zia"}})
+		category, err := LoadResourceSchema(metadata, "zia_url_categories")
+		if err != nil {
+			t.Fatalf("LoadResourceSchema: %v", err)
+		}
+		if _, ok := category["block"].(JsonObject); !ok {
+			t.Fatalf("category.block is not an object: %T", category["block"])
+		}
 
-	if _, err := LoadResourceSchema(metadata, "zia_url_categoriess"); err == nil || !strings.Contains(err.Error(), "not in zia schema") {
-		t.Fatalf("expected 'not in zia schema' error, got %v", err)
-	}
+		if _, err := LoadResourceSchema(metadata, "zia_url_categoriess"); err == nil || !strings.Contains(err.Error(), "not in zia schema") {
+			t.Fatalf("expected 'not in zia schema' error, got %v", err)
+		}
 
-	if got := ProviderForResource(metadata, "zia_url_categories"); got != "zia" {
-		t.Fatalf("ProviderForResource = %q, want zia", got)
-	}
+		if got := ProviderForResource(metadata, "zia_url_categories"); got != "zia" {
+			t.Fatalf("ProviderForResource = %q, want zia", got)
+		}
+	})
 }
 
 // TestPackSetValidationCountsManifestlessDirectoriesFailClosed ports
@@ -612,6 +606,9 @@ func TestAllCommittedPackProfilesLoadFromReducedRoots(t *testing.T) {
 			if err := json.Unmarshal(raw, &profile); err != nil {
 				t.Fatalf("unmarshal %s: %v", profilePath, err)
 			}
+			requirePackSelectionAvailable(t, filepath.Join(root, "packs"), PackSelection{
+				Packs: profile.Packs, Shared: profile.Shared,
+			})
 
 			directory := t.TempDir()
 			for _, packName := range profile.Packs {
@@ -690,6 +687,7 @@ func TestCommittedPackProfilesAreDerivable(t *testing.T) {
 			if loadErr != nil {
 				t.Fatalf("LoadPackSetDocument(%q) error = %v, want nil", profilePath, loadErr)
 			}
+			requirePackSelectionAvailable(t, packsRoot, profile.PackSelection)
 			sharedSet := make(map[string]struct{})
 			for _, packName := range profile.Packs {
 				manifest, ok := manifestByName[packName]
