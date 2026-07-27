@@ -2,6 +2,7 @@ package envgen
 
 import (
 	"errors"
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"os"
 	"path/filepath"
 	"strings"
@@ -361,4 +362,106 @@ func TestReferenceIDsPresentRejectsNonObjectReferenceMap(t *testing.T) {
 			}
 		})
 	}
+}
+
+// referrerTree snapshots the generated root so two runs can be compared
+// byte-for-byte. The referent's own state file lives outside this subtree, so
+// writing state never perturbs the comparison.
+func (f stateAwareFixture) referrerTree(t *testing.T) map[string]string {
+	t.Helper()
+	return snapshotTree(t, filepath.Join(f.outputRoot, "tenant", "zpa_application_segment"))
+}
+
+// TestStateAwareWithUsableStateMatchesUnprobedOutput is the guard that keeps
+// the filter honest. Every other state-aware test asserts something is
+// dropped, so all of them still pass if the filter drops everything; this one
+// fails in that case.
+//
+// With the referent publishing reference identifiers, a state-aware run must
+// produce exactly the bytes an unprobed run produces, and a second
+// state-aware run over unchanged state must reproduce the first.
+func TestStateAwareWithUsableStateMatchesUnprobedOutput(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+
+	fixture.generate(t, false)
+	unprobed := fixture.referrerTree(t)
+	if _, present := unprobed["expression_bindings.tf"]; !present {
+		t.Fatalf("unprobed tree = %v, want a bindings file to compare against", mapKeysForTest(unprobed))
+	}
+
+	fixture.writeReferentState(t, referenceIDOutputs("zpa_segment_group", map[string]any{"segment_one": "sg-1"}))
+	fixture.generate(t, true)
+	probed := fixture.referrerTree(t)
+	if !equalTrees(probed, unprobed) {
+		t.Errorf("state-aware tree over usable state differs from unprobed tree:\ngot  %v\nwant %v", mapKeysForTest(probed), mapKeysForTest(unprobed))
+	}
+
+	fixture.generate(t, true)
+	if repeat := fixture.referrerTree(t); !equalTrees(repeat, probed) {
+		t.Errorf("repeat state-aware run over unchanged state is not byte-identical")
+	}
+}
+
+// TestStateAwareKeepsOperatorRemoteStateBinding pins the operator escape
+// hatch. An operator who writes a remote-state reference by hand is asserting
+// intent, so it keeps its data block and keeps failing loudly at plan time
+// even when the generated binding onto the same stateless root falls back.
+func TestStateAwareKeepsOperatorRemoteStateBinding(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_application_segment.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+				},
+			},
+		},
+	})
+
+	fixture.generate(t, true)
+
+	main, err := os.ReadFile(fixture.referrerFile("main.tf"))
+	if err != nil {
+		t.Fatalf("os.ReadFile(main.tf) error = %v, want nil", err)
+	}
+	if !strings.Contains(string(main), `data "terraform_remote_state"`) {
+		t.Errorf("main.tf has no terraform_remote_state block, want the operator reference preserved:\n%s", main)
+	}
+}
+
+// TestStateBlindGenerationIgnoresPresentState is the determinism invariant the
+// byte goldens depend on: with StateAware false, output cannot vary with any
+// tfstate under the generated tree, so no existing gate's committed bytes can
+// drift because a root happened to be applied.
+func TestStateBlindGenerationIgnoresPresentState(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+
+	fixture.generate(t, false)
+	withoutState := fixture.referrerTree(t)
+
+	fixture.writeReferentState(t, referenceIDOutputs("zpa_segment_group", map[string]any{"segment_one": "sg-1"}))
+	fixture.generate(t, false)
+	if withState := fixture.referrerTree(t); !equalTrees(withState, withoutState) {
+		t.Errorf("state-blind generation varied with tfstate present, want identical output")
+	}
+}
+
+func equalTrees(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for name, content := range left {
+		if right[name] != content {
+			return false
+		}
+	}
+	return true
+}
+
+func mapKeysForTest(tree map[string]string) []string {
+	names := make([]string, 0, len(tree))
+	for name := range tree {
+		names = append(names, name)
+	}
+	return canonjson.SortedStrings(names)
 }

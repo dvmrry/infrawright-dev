@@ -213,9 +213,14 @@ Step 4.
    same assertions as test 1. Guards the mutation "probe checks file
    existence only" (mutation makes this test fail; §0 shows why it matters).
 4. *Probe error fails closed* — corrupt (non-JSON) state file →
-   `GenerateEnvironmentRoots` returns an error naming the root; no output
-   tree mutation for that root. Guards the mutation "treat probe error as
-   absent".
+   `GenerateEnvironmentRoots` returns an error naming the root. Guards the
+   mutation "treat probe error as absent".
+
+   Corrected during implementation: this originally also promised "no output
+   tree mutation for that root". Generation is not transactional — the
+   referrer's directory can already exist when the probe fails — so that
+   guarantee was never true and is not claimed. Making generation atomic is a
+   separate change, out of this step's scope.
 5. *Operator bindings never filtered* — operator `.expressions.json` with a
    declared-edge remote reference to a stateless root, `StateAware: true` →
    `data` block still emitted. Guards the mutation "filter the merged layers
