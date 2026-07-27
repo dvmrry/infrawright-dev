@@ -188,14 +188,4 @@ func TestGenEnvStateAwareCLIControlsFallback(t *testing.T) {
 		})
 	}
 
-	t.Run("azurerm refuses without remote prober", func(t *testing.T) {
-		fixture := prepareStateAwareCLIFixture(t)
-		result := runStateAwareGenEnvCLI(t, binary, fixture, "--state-aware", "--backend", "azurerm")
-		if result.exit == 0 {
-			t.Fatalf("gen-env --state-aware --backend azurerm exit = 0, want nonzero; stdout=%q stderr=%q", result.stdout, result.stderr)
-		}
-		if !bytes.Contains(result.stderr, []byte("azurerm")) {
-			t.Errorf("gen-env --state-aware --backend azurerm stderr = %q, want backend refusal", result.stderr)
-		}
-	})
 }

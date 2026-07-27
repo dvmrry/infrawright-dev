@@ -283,6 +283,13 @@ func tenantEnvironmentDirectory(dep deployment.Deployment, tenant string, output
 
 // environmentRootDirectory ports environmentRootDirectory from
 // the original implementation.
+// EnvironmentRootDirectory resolves the directory a generated root occupies.
+// It is exported for probers that must reach a referenced root's working
+// directory without reimplementing the layout envgen owns.
+func EnvironmentRootDirectory(dep deployment.Deployment, tenant, label string, outputRoot *string) (string, error) {
+	return environmentRootDirectory(dep, tenant, label, outputRoot)
+}
+
 func environmentRootDirectory(dep deployment.Deployment, tenant, label string, outputRoot *string) (string, error) {
 	tenantDirectory, err := tenantEnvironmentDirectory(dep, tenant, outputRoot)
 	if err != nil {
@@ -1292,16 +1299,10 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 	if options.StateAware {
 		probe = options.StateProbe
 		if probe == nil {
-			// The local prober reads tenantDirectory/<label>/terraform.tfstate.
-			// A remote backend keeps no state there, so probing it would
-			// report every root absent and silently rewrite every reference
-			// to a literal. Refuse until a backend-specific prober exists.
-			if backend != nil && *backend != "" {
-				return EnvironmentGenerationResult{}, fmt.Errorf(
-					"state-aware generation probes local state only; backend %q needs a backend-specific prober",
-					*backend,
-				)
-			}
+			// The local prober reads tenantDirectory/<label>/terraform.tfstate
+			// directly and therefore only serves roots on local state. It
+			// remains the default for library callers and tests; the CLI
+			// injects a Terraform-backed prober that serves any backend.
 			probe = localStateProbe(tenantDirectory)
 		}
 		probe = memoizedStateProbe(probe)
