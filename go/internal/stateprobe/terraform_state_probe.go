@@ -70,18 +70,14 @@ func New(options Options) envgen.StateProbe {
 		// cannot start in one that does not exist. That is the ordinary case
 		// when adoption reaches a root before its referents: absent, not a
 		// probe failure. Anything else about the path is left to Terraform.
-		present, err := directoryExists(directory)
-		if err != nil {
-			return envgen.StateProbeResult{}, fmt.Errorf("probe state for root %s: %w", rootLabel, err)
-		}
-		if !present {
-			return envgen.StateProbeResult{Usable: false}, nil
-		}
 		// An uninitialized root is absent, not a probe failure. Terraform
 		// refuses `state pull` in a generated root whose modules are not
 		// installed ("Module not installed. Run terraform init"), and that is
 		// precisely the incremental-adoption case this feature exists for: the
-		// referent has been generated but never applied.
+		// referent has been generated but never applied. A root that was never
+		// generated at all has no directory, so it has no .terraform either and
+		// is answered here too -- no separate existence check is needed, and one
+		// was removed after a mutation proved it carried no behaviour.
 		//
 		// Reading it as absent is sound rather than merely convenient. Without
 		// init Terraform cannot read that root's state under any backend, so a
