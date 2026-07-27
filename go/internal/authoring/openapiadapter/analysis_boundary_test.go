@@ -107,6 +107,101 @@ func TestAnalyzeClosedRequiredRefsAndUnrelatedFailureIsolation(t *testing.T) {
 	}
 }
 
+func TestAnalyzeKinOpenAPILoaderSelfReferenceFailsClosed(t *testing.T) {
+	t.Parallel()
+	input := []byte(`{"openapi":"3.0.3","info":{"title":"widgets","version":"1"},"paths":{},"components":{"schemas":{"A":{"$ref":"#/components/schemas/A/additionalProperties"}}}}`)
+	source := emptySourceReport()
+	result, err := Analyze(context.Background(), available(input), source)
+	if err != nil {
+		t.Fatalf("Analyze(self-referential additionalProperties) error = %v, want nil", err)
+	}
+	diagnostics, err := result.Diagnostics(context.Background(), source)
+	if err != nil {
+		t.Fatalf("Result.Diagnostics(self-referential additionalProperties) error = %v, want nil", err)
+	}
+	if got, want := diagnostics.DocumentState, contracts.OpenAPIDegraded; got != want {
+		t.Errorf("Analyze(self-referential additionalProperties).DocumentState = %q, want %q", got, want)
+	}
+	if got, want := diagnostics.ReasonCode, openAPIReason(contracts.OpenAPIReasonDegradedOperation); !reflect.DeepEqual(got, want) {
+		t.Errorf("Analyze(self-referential additionalProperties).ReasonCode = %v, want %v", got, want)
+	}
+	if _, ok := result.Document(); ok {
+		t.Error("Result.Document(self-referential additionalProperties) present = true, want false")
+	}
+}
+
+func TestAnalyzeKinOpenAPIValidationClassifications(t *testing.T) {
+	t.Parallel()
+	source := observedReport(t, map[string]contracts.HTTPEndpointEvidence{
+		"widget": observedEndpoint("GET", "/widgets/{id}"),
+	})
+	tests := []struct {
+		name       string
+		input      string
+		wantState  contracts.OpenAPIDocumentState
+		wantReason *contracts.OpenAPIReasonCode
+	}{
+		{
+			name:       "OpenAPI 3.0 operation without responses",
+			input:      `{"openapi":"3.0.3","info":{"title":"widgets","version":"1"},"paths":{"/widgets/{id}":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"get":{}}}}`,
+			wantState:  contracts.OpenAPIDegraded,
+			wantReason: openAPIReason(contracts.OpenAPIReasonDegradedOperation),
+		},
+		{
+			name:      "OpenAPI 3.1 operation without responses",
+			input:     `{"openapi":"3.1.0","info":{"title":"widgets","version":"1"},"paths":{"/widgets/{id}":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"get":{}}}}`,
+			wantState: contracts.OpenAPIUsable,
+		},
+		{
+			name:       "duplicate schema required entries",
+			input:      `{"openapi":"3.0.3","info":{"title":"widgets","version":"1"},"paths":{"/widgets/{id}":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"get":{"responses":{"200":{"description":"ok"}}}}},"components":{"schemas":{"Widget":{"type":"object","properties":{"id":{"type":"string"}},"required":["id","id"]}}}}`,
+			wantState:  contracts.OpenAPIDegraded,
+			wantReason: openAPIReason(contracts.OpenAPIReasonDegradedOperation),
+		},
+		{
+			name:       "duplicate root tag names",
+			input:      `{"openapi":"3.0.3","info":{"title":"widgets","version":"1"},"tags":[{"name":"widgets"},{"name":"widgets"}],"paths":{"/widgets/{id}":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"get":{"responses":{"200":{"description":"ok"}}}}}}`,
+			wantState:  contracts.OpenAPIDegraded,
+			wantReason: openAPIReason(contracts.OpenAPIReasonDegradedOperation),
+		},
+		{
+			name:      "resolved additionalProperties reference",
+			input:     `{"openapi":"3.0.3","info":{"title":"widgets","version":"1"},"paths":{"/widgets/{id}":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"get":{"responses":{"200":{"description":"ok"}}}}},"components":{"schemas":{"Values":{"type":"object","additionalProperties":{"type":"string"}},"Value":{"$ref":"#/components/schemas/Values/additionalProperties"}}}}`,
+			wantState: contracts.OpenAPIUsable,
+		},
+		{
+			name:      "ordinary recursive schema",
+			input:     `{"openapi":"3.0.3","info":{"title":"widgets","version":"1"},"paths":{"/widgets/{id}":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"get":{"responses":{"200":{"description":"ok"}}}}},"components":{"schemas":{"Node":{"type":"object","properties":{"next":{"$ref":"#/components/schemas/Node"}}}}}}`,
+			wantState: contracts.OpenAPIUsable,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Analyze(context.Background(), available([]byte(test.input)), source)
+			if err != nil {
+				t.Fatalf("Analyze(%s) error = %v, want nil", test.name, err)
+			}
+			diagnostics, err := result.Diagnostics(context.Background(), source)
+			if err != nil {
+				t.Fatalf("Result.Diagnostics(%s) error = %v, want nil", test.name, err)
+			}
+			if got := diagnostics.DocumentState; got != test.wantState {
+				t.Errorf("Analyze(%s).DocumentState = %q, want %q", test.name, got, test.wantState)
+			}
+			if got := diagnostics.ReasonCode; !reflect.DeepEqual(got, test.wantReason) {
+				t.Errorf("Analyze(%s).ReasonCode = %v, want %v", test.name, got, test.wantReason)
+			}
+			if got, want := diagnostics.Comparisons["widget"].State, contracts.ComparisonCorroborated; got != want {
+				t.Errorf("Analyze(%s).Comparisons[widget].State = %q, want %q", test.name, got, want)
+			}
+			_, documentPresent := result.Document()
+			if wantPresent := test.wantState == contracts.OpenAPIUsable; documentPresent != wantPresent {
+				t.Errorf("Result.Document(%s) present = %t, want %t", test.name, documentPresent, wantPresent)
+			}
+		})
+	}
+}
+
 func TestAnalyzeRequiredReferenceBoundaryRejectsUnsafeClasses(t *testing.T) {
 	t.Parallel()
 	source := observedReport(t, map[string]contracts.HTTPEndpointEvidence{"widget": observedEndpoint("GET", "/widgets/{id}")})
