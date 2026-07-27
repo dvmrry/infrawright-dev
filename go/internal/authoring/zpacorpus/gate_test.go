@@ -111,7 +111,14 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatal("runtime.Caller(0) failed")
 	}
 	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", "..", "..", ".."))
-	if _, err := os.Stat(filepath.Join(root, "docs", "evidence", "zpa-provider-v4.4.9.json")); err != nil {
+	zpaPack := filepath.Join(root, "packs", "zpa")
+	if _, err := os.Stat(zpaPack); err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("ZPA pack is not installed under %s", filepath.Join(root, "packs"))
+		}
+		t.Fatalf("os.Stat(%q) error = %v, want nil", zpaPack, err)
+	}
+	if _, err := os.Stat(filepath.Join(zpaPack, "evidence", "zpa-provider-v4.4.9.json")); err != nil {
 		t.Fatalf("repositoryRoot() = %q does not contain the ZPA matrix: %v", root, err)
 	}
 	return root
@@ -119,7 +126,7 @@ func repositoryRoot(t *testing.T) string {
 
 func readMatrix(t *testing.T) ([]byte, corpusReport) {
 	t.Helper()
-	filename := filepath.Join(repositoryRoot(t), "docs", "evidence", "zpa-provider-v4.4.9.json")
+	filename := filepath.Join(repositoryRoot(t), "packs", "zpa", "evidence", "zpa-provider-v4.4.9.json")
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error = %v", filename, err)

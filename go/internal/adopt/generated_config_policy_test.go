@@ -154,14 +154,8 @@ func TestGeneratedConfigProjectionOmitRejectsRequiredBlock(t *testing.T) {
 }
 
 func TestCommittedZIA480GeneratedConfigOmitsEndpointBlocks(t *testing.T) {
-	repositoryRoot := filepath.Clean(filepath.Join("..", "..", ".."))
-	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
-	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot(ZIA 4.8.0): %v", err)
-	}
+	requireAdoptionPackSelection(t, metadata.PackSelection{Packs: []string{"zia"}, Shared: []string{"zscaler"}})
+	root := installedAdoptionRoot(t)
 	for _, resourceType := range []string{
 		"zia_firewall_dns_rule",
 		"zia_firewall_filtering_rule",

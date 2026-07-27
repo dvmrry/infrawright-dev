@@ -42,6 +42,58 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
+func requireInstalledPack(t *testing.T, pack string) {
+	t.Helper()
+	path := filepath.Join(repoRoot(t), "packs", pack)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("%s pack is not installed", pack)
+		}
+		t.Fatalf("os.Stat(%q) error: %v", path, err)
+	}
+}
+
+func installedPackRoot(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	packsRoot := filepath.Join(repoRoot(t), "packs")
+	entries, err := os.ReadDir(packsRoot)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error: %v", packsRoot, err)
+	}
+	packs := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != "_shared" {
+			packs = append(packs, entry.Name())
+		}
+	}
+	shared := []any{}
+	sharedRoot := filepath.Join(packsRoot, "_shared")
+	sharedEntries, err := os.ReadDir(sharedRoot)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("os.ReadDir(%q) error: %v", sharedRoot, err)
+	}
+	for _, entry := range sharedEntries {
+		if entry.IsDir() {
+			shared = append(shared, entry.Name())
+		}
+	}
+	profile := filepath.Join(t.TempDir(), "installed.packset.json")
+	data, err := json.Marshal(metadata.JsonObject{
+		"kind": "infrawright.pack-set", "version": 1, "packs": packs, "shared": shared,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(installed pack set) error: %v", err)
+	}
+	if err := os.WriteFile(profile, append(data, '\n'), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error: %v", profile, err)
+	}
+	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{PacksRoot: packsRoot, ProfilePath: &profile})
+	if err != nil {
+		t.Fatalf("LoadPackRoot(installed packs) error: %v", err)
+	}
+	return loaded
+}
+
 func sampleRuleResource(override metadata.JsonObject) metadata.LoadedResourceMetadata {
 	return metadata.LoadedResourceMetadata{
 		Type:     "sample_rule",
@@ -204,15 +256,8 @@ func TestLoadedMetadataDrivesOverrideOrderAndProjection(t *testing.T) {
 }
 
 func TestCommittedZIAOverridesDropRawEmptyStringSentinels(t *testing.T) {
-	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot:   filepath.Join(root, "packs"),
-		ProfilePath: &profilePath,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot: %v", err)
-	}
+	requireInstalledPack(t, "zia")
+	loaded := installedPackRoot(t)
 
 	fixtures := []struct {
 		resourceType  string
@@ -277,15 +322,8 @@ func firstItem(t *testing.T, result PullTransformResult) TransformRecord {
 }
 
 func TestCommittedZIA480EndpointFieldsRemainHeldWhileScalarsActivate(t *testing.T) {
-	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot:   filepath.Join(root, "packs"),
-		ProfilePath: &profilePath,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot() error = %v, want nil", err)
-	}
+	requireInstalledPack(t, "zia")
+	loaded := installedPackRoot(t)
 
 	endpointFields := metadata.JsonObject{
 		"endPointApplicationGroups": []any{metadata.JsonObject{"groupId": json.Number("42")}},
@@ -378,15 +416,8 @@ func TestCommittedZIA480EndpointFieldsRemainHeldWhileScalarsActivate(t *testing.
 }
 
 func TestCommittedZIAOverridesOmitLiveProvenEmptyEnumsAndRetainRealValues(t *testing.T) {
-	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot:   filepath.Join(root, "packs"),
-		ProfilePath: &profilePath,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot: %v", err)
-	}
+	requireInstalledPack(t, "zia")
+	loaded := installedPackRoot(t)
 
 	cases := []struct {
 		resourceType     string

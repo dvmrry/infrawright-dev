@@ -63,11 +63,20 @@ func TestRelocatedBinaryUsesExplicitPackageRoot(t *testing.T) {
 		t.Fatalf("go build relocated iw error = %v, want nil\n%s", err, output)
 	}
 
-	run := exec.Command(binary, "resources", "--resource", "zcc")
+	pack := writeRecordedFetchPack(t)
+	profile, err := os.ReadFile(pack.profile)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v, want nil", pack.profile, err)
+	}
+	if err := os.WriteFile(filepath.Join(pack.root, "full.packset.json"), profile, 0o600); err != nil {
+		t.Fatalf("os.WriteFile(synthetic full.packset.json) error = %v, want nil", err)
+	}
+	packageRoot := filepath.Dir(pack.root)
+	run := exec.Command(binary, "resources", "--resource", recordedFetchResourceType)
 	run.Dir = t.TempDir()
 	run.Env = []string{
 		"HOME=" + os.Getenv("HOME"),
-		"INFRAWRIGHT_PACKAGE_ROOT=" + repository,
+		"INFRAWRIGHT_PACKAGE_ROOT=" + packageRoot,
 		"PATH=" + os.Getenv("PATH"),
 		"TMPDIR=" + os.Getenv("TMPDIR"),
 	}

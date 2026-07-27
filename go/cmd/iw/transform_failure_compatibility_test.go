@@ -82,6 +82,8 @@ func transformInjectField(name string) func([]byte) []byte {
 }
 
 func TestTransformFailureCompatibility(t *testing.T) {
+	repository := repoRoot(t)
+	requireCommittedProfileAvailable(t, repository, "full")
 	fixturePath := filepath.Join("testdata", "transform_failure_compatibility.json")
 	fixtureBytes, err := os.ReadFile(fixturePath)
 	if err != nil {
@@ -119,7 +121,6 @@ func TestTransformFailureCompatibility(t *testing.T) {
 		t.Fatalf("Transform compatibility inputs = %d, want %d", len(inputs), len(fixture.Cases))
 	}
 
-	repository := repoRoot(t)
 	binary := buildGoV2AuthorityCLI(t, repository, "iw-go-transform-failure")
 	demoInput := filepath.Join(repository, "packs", "_shared", "zscaler", "demo")
 	for _, expected := range fixture.Cases {

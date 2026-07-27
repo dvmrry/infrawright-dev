@@ -3,6 +3,7 @@ package adopt
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -33,6 +34,78 @@ func mustLosslessAdoptionItems(t *testing.T, text string) []any {
 		t.Fatalf("fixture type = %T, want []any", value)
 	}
 	return items
+}
+
+func adoptionRepositoryRoot() string {
+	return filepath.Clean(filepath.Join("..", "..", ".."))
+}
+
+func requireAdoptionPackSelection(t *testing.T, selection metadata.PackSelection) {
+	t.Helper()
+	packsRoot := filepath.Join(adoptionRepositoryRoot(), "packs")
+	missing := make([]string, 0)
+	for _, pack := range selection.Packs {
+		if _, err := os.Stat(filepath.Join(packsRoot, pack)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, pack)
+				continue
+			}
+			t.Fatalf("os.Stat(pack %q) error: %v", pack, err)
+		}
+	}
+	for _, shared := range selection.Shared {
+		if _, err := os.Stat(filepath.Join(packsRoot, "_shared", shared)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, "_shared/"+shared)
+				continue
+			}
+			t.Fatalf("os.Stat(shared %q) error: %v", shared, err)
+		}
+	}
+	if len(missing) > 0 {
+		t.Skipf("required pack paths are not installed: %v", missing)
+	}
+}
+
+func installedAdoptionRoot(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	packsRoot := filepath.Join(adoptionRepositoryRoot(), "packs")
+	entries, err := os.ReadDir(packsRoot)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error: %v", packsRoot, err)
+	}
+	packs := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != "_shared" {
+			packs = append(packs, entry.Name())
+		}
+	}
+	shared := []any{}
+	sharedRoot := filepath.Join(packsRoot, "_shared")
+	sharedEntries, err := os.ReadDir(sharedRoot)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("os.ReadDir(%q) error: %v", sharedRoot, err)
+	}
+	for _, entry := range sharedEntries {
+		if entry.IsDir() {
+			shared = append(shared, entry.Name())
+		}
+	}
+	profile := filepath.Join(t.TempDir(), "installed.packset.json")
+	data, err := json.Marshal(metadata.JsonObject{
+		"kind": "infrawright.pack-set", "version": 1, "packs": packs, "shared": shared,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(installed pack set) error: %v", err)
+	}
+	if err := os.WriteFile(profile, append(data, '\n'), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error: %v", profile, err)
+	}
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{PacksRoot: packsRoot, ProfilePath: &profile})
+	if err != nil {
+		t.Fatalf("LoadPackRoot(installed packs) error: %v", err)
+	}
+	return root
 }
 
 func TestAdoptionIdentitySourceVectors(t *testing.T) {
@@ -321,8 +394,13 @@ func TestAdoptionUnsupportedDiagnosticUsesIDWhenNameIsNull(t *testing.T) {
 }
 
 func TestCommittedRegistryAdoptionMetadataAndClassificationFixture(t *testing.T) {
-	repositoryRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	repositoryRoot := adoptionRepositoryRoot()
 	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
+	profileDocument, err := metadata.LoadPackSetDocument(profile, metadata.PackSetKind)
+	if err != nil {
+		t.Fatalf("LoadPackSetDocument(%q): %v", profile, err)
+	}
+	requireAdoptionPackSelection(t, profileDocument.PackSelection)
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
 	})
@@ -377,14 +455,8 @@ func TestCommittedRegistryAdoptionMetadataAndClassificationFixture(t *testing.T)
 }
 
 func TestCommittedZIA480EndpointAssignmentsFailBeforeOracleWhileScalarsReachIt(t *testing.T) {
-	repositoryRoot := filepath.Clean(filepath.Join("..", "..", ".."))
-	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
-	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot(ZIA 4.8.0): %v", err)
-	}
+	requireAdoptionPackSelection(t, metadata.PackSelection{Packs: []string{"zia"}, Shared: []string{"zscaler"}})
+	root := installedAdoptionRoot(t)
 	policy, err := LoadAdoptionPolicy(root, nil)
 	if err != nil {
 		t.Fatalf("LoadAdoptionPolicy(ZIA 4.8.0): %v", err)

@@ -18,7 +18,8 @@ import (
 // TestRendererPreservesCompleteSevenFileContractAndCoreShapes verifies the
 // module file contract against current packs.
 func TestRendererPreservesCompleteSevenFileContractAndCoreShapes(t *testing.T) {
-	root := committedRoot(t)
+	requireModulePackSelection(t, metadata.PackSelection{Packs: []string{"zia", "zpa"}, Shared: []string{"zscaler"}})
+	root := installedModuleRoot(t)
 	segment, err := RenderModuleFiles(root, "zpa_segment_group")
 	if err != nil {
 		t.Fatalf("RenderModuleFiles(zpa_segment_group): %v", err)
@@ -66,7 +67,8 @@ func TestRendererPreservesCompleteSevenFileContractAndCoreShapes(t *testing.T) {
 // ports "samples, sensitive outputs, deprecated projection, and nested
 // types match authority".
 func TestSamplesSensitiveOutputsDeprecatedProjectionAndNestedTypesMatchAuthority(t *testing.T) {
-	root := committedRoot(t)
+	requireModulePackSelection(t, metadata.PackSelection{Packs: []string{"zcc", "zia", "zpa"}, Shared: []string{"zscaler"}})
+	root := installedModuleRoot(t)
 
 	filtering, err := RenderModuleFiles(root, "zia_url_filtering_rules")
 	if err != nil {
@@ -131,7 +133,8 @@ func TestSamplesSensitiveOutputsDeprecatedProjectionAndNestedTypesMatchAuthority
 }
 
 func TestZPAProvider449ModuleShapesMatchReviewedSchemaTransitions(t *testing.T) {
-	root := committedRoot(t)
+	requireModulePackSelection(t, metadata.PackSelection{Packs: []string{"zpa"}, Shared: []string{"zscaler"}})
+	root := installedModuleRoot(t)
 	for _, test := range []struct {
 		resourceType string
 		pattern      string
@@ -666,16 +669,115 @@ func TestFractionalSampleOverrideNumbersRetainExactPythonJSONSpelling(t *testing
 	mustMatch(t, sample, `"scientific": 1e-06`)
 }
 
+type generatedModuleTreeInventory struct {
+	Directories []string
+	Files       []string
+}
+
+func expectedGeneratedModuleTreeInventory(resourceTypes []string) generatedModuleTreeInventory {
+	inventory := generatedModuleTreeInventory{}
+	for _, resourceType := range resourceTypes {
+		inventory.Directories = append(inventory.Directories,
+			resourceType,
+			filepath.Join(resourceType, "tests"),
+		)
+		for _, name := range ExpectedModuleFiles {
+			inventory.Files = append(inventory.Files, filepath.Join(resourceType, string(name)))
+		}
+	}
+	sort.Strings(inventory.Directories)
+	sort.Strings(inventory.Files)
+	return inventory
+}
+
+func actualGeneratedModuleTreeInventory(root string) (generatedModuleTreeInventory, error) {
+	inventory := generatedModuleTreeInventory{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == root {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			inventory.Directories = append(inventory.Directories, relative)
+		} else {
+			inventory.Files = append(inventory.Files, relative)
+		}
+		return nil
+	})
+	if err != nil {
+		return generatedModuleTreeInventory{}, err
+	}
+	sort.Strings(inventory.Directories)
+	sort.Strings(inventory.Files)
+	return inventory, nil
+}
+
+func generatedModuleTreeDifference(root string, resourceTypes []string) (string, error) {
+	got, err := actualGeneratedModuleTreeInventory(root)
+	if err != nil {
+		return "", err
+	}
+	want := expectedGeneratedModuleTreeInventory(resourceTypes)
+	if reflect.DeepEqual(got, want) {
+		return "", nil
+	}
+	return fmt.Sprintf("directories: got %v, want %v; files: got %v, want %v",
+		got.Directories, want.Directories, got.Files, want.Files), nil
+}
+
+func requireExactGeneratedModuleTree(t *testing.T, root string, resourceTypes []string) {
+	t.Helper()
+	difference, err := generatedModuleTreeDifference(root, resourceTypes)
+	if err != nil {
+		t.Fatalf("inspect generated module tree: %v", err)
+	}
+	if difference != "" {
+		t.Fatalf("generated module tree differs from selected metadata: %s", difference)
+	}
+}
+
+func TestGeneratedModuleTreeExactnessRejectsExtraEmptyAndSelectedProfileSurface(t *testing.T) {
+	emptyRoot := t.TempDir()
+	if difference, err := generatedModuleTreeDifference(emptyRoot, nil); err != nil || difference != "" {
+		t.Fatalf("empty generated tree difference/error = %q/%v, want none", difference, err)
+	}
+	writeRawFile(t, filepath.Join(emptyRoot, "unexpected", "extra.tf"), "")
+	if difference, err := generatedModuleTreeDifference(emptyRoot, nil); err != nil {
+		t.Fatalf("inspect mutated empty tree: %v", err)
+	} else if !strings.Contains(difference, "unexpected") || !strings.Contains(difference, "extra.tf") {
+		t.Fatalf("mutated empty tree difference = %q, want unexpected directory and file", difference)
+	}
+
+	_, packRoot := syntheticRoot(t, syntheticRootOptions{})
+	selectedRoot := t.TempDir()
+	if _, err := GenerateModule(packRoot, "sample_resource", GenerateModuleOptions{
+		OutputRoot: selectedRoot,
+		FormatHCL:  IdentityFormatter,
+	}); err != nil {
+		t.Fatalf("GenerateModule(sample_resource): %v", err)
+	}
+	requireExactGeneratedModuleTree(t, selectedRoot, []string{"sample_resource"})
+	writeRawFile(t, filepath.Join(selectedRoot, "sample_resource", "extra.tf"), "")
+	if difference, err := generatedModuleTreeDifference(selectedRoot, []string{"sample_resource"}); err != nil {
+		t.Fatalf("inspect mutated selected tree: %v", err)
+	} else if !strings.Contains(difference, "extra.tf") {
+		t.Fatalf("mutated selected tree difference = %q, want extra.tf", difference)
+	}
+}
+
 // TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree ports
 // "all active resources generate and validate a complete temporary tree".
 func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.T) {
-	root := committedRoot(t)
+	root := installedModuleRoot(t)
 	output := t.TempDir()
 
 	types := ActiveGeneratedResourceTypes(root)
-	if len(types) != 151 {
-		t.Fatalf("ActiveGeneratedResourceTypes length = %d, want 151", len(types))
-	}
 	generated, err := GenerateActiveModules(root, GenerateModuleOptions{
 		OutputRoot: output,
 		FormatHCL:  IdentityFormatter,
@@ -683,22 +785,28 @@ func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.
 	if err != nil {
 		t.Fatalf("GenerateActiveModules: %v", err)
 	}
-	if len(generated) != 151 {
-		t.Fatalf("generated length = %d, want 151", len(generated))
+	generatedTypes := make([]string, len(generated))
+	for index, module := range generated {
+		generatedTypes[index] = module.ResourceType
 	}
+	if !reflect.DeepEqual(generatedTypes, types) {
+		t.Fatalf("generated resource types = %v, want active metadata types %v", generatedTypes, types)
+	}
+	requireExactGeneratedModuleTree(t, output, types)
 	total := 0
 	for _, module := range generated {
 		total += len(module.Files)
 	}
-	if total != 1057 {
-		t.Errorf("total generated files = %d, want 1057", total)
+	wantFiles := len(types) * len(ExpectedModuleFiles)
+	if total != wantFiles {
+		t.Errorf("total generated files = %d, want %d", total, wantFiles)
 	}
-	validated, err := ValidateGeneratedModuleTree(output, ActiveGeneratedResourceTypes(root))
+	validated, err := ValidateGeneratedModuleTree(output, types)
 	if err != nil {
 		t.Fatalf("ValidateGeneratedModuleTree: %v", err)
 	}
-	if len(validated) != 151 {
-		t.Errorf("validated length = %d, want 151", len(validated))
+	if !reflect.DeepEqual(validated, types) {
+		t.Errorf("validated resource types = %v, want %v", validated, types)
 	}
 }
 
@@ -757,23 +865,21 @@ func copyDir(t *testing.T, src, dst string) {
 // reduced pack root".
 func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t *testing.T) {
 	root := repoRoot(t)
-	expected := map[string]int{
-		"full": 151, "zscaler": 151, "zcc": 7, "zia": 74, "zpa": 54, "ztc": 16,
-		"empty": 0, "aws": 0, "cloudflare": 0, "google": 0, "netbox": 0,
+	profilePaths, err := filepath.Glob(filepath.Join(root, "packs", "*.packset.json"))
+	if err != nil {
+		t.Fatalf("discover committed pack profiles: %v", err)
 	}
-	profileNames := make([]string, 0, len(expected))
-	for name := range expected {
-		profileNames = append(profileNames, name)
+	if len(profilePaths) == 0 {
+		t.Fatal("discover committed pack profiles: found no packs/*.packset.json files")
 	}
-	sort.Strings(profileNames)
 
-	for _, profileName := range profileNames {
-		count := expected[profileName]
+	for _, profilePath := range profilePaths {
+		profileName := strings.TrimSuffix(filepath.Base(profilePath), ".packset.json")
 		t.Run(profileName, func(t *testing.T) {
 			directory := t.TempDir()
 			output := t.TempDir()
-			profilePath := filepath.Join(root, "packs", profileName+".packset.json")
 			doc := readPackSetFile(t, profilePath)
+			requireModulePackSelection(t, metadata.PackSelection{Packs: doc.Packs, Shared: doc.Shared})
 			for _, name := range doc.Packs {
 				copyDir(t, filepath.Join(root, "packs", name), filepath.Join(directory, name))
 			}
@@ -787,6 +893,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			if err != nil {
 				t.Fatalf("LoadPackRoot: %v", err)
 			}
+			resourceTypes := ActiveGeneratedResourceTypes(loaded)
 			generated, err := GenerateActiveModules(loaded, GenerateModuleOptions{
 				OutputRoot: output,
 				FormatHCL:  IdentityFormatter,
@@ -794,18 +901,27 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			if err != nil {
 				t.Fatalf("GenerateActiveModules: %v", err)
 			}
-			if len(generated) != count {
-				t.Fatalf("generated length = %d, want %d", len(generated), count)
+			generatedTypes := make([]string, len(generated))
+			for index, module := range generated {
+				generatedTypes[index] = module.ResourceType
 			}
+			if !reflect.DeepEqual(generatedTypes, resourceTypes) {
+				t.Fatalf("generated resource types = %v, want active metadata types %v", generatedTypes, resourceTypes)
+			}
+			requireExactGeneratedModuleTree(t, output, resourceTypes)
 			total := 0
 			for _, module := range generated {
 				total += len(module.Files)
 			}
-			if total != count*7 {
-				t.Errorf("total generated files = %d, want %d", total, count*7)
+			wantFiles := len(resourceTypes) * len(ExpectedModuleFiles)
+			if total != wantFiles {
+				t.Errorf("total generated files = %d, want %d", total, wantFiles)
 			}
-			if _, err := ValidateGeneratedModuleTree(output, ActiveGeneratedResourceTypes(loaded)); err != nil {
+			validated, err := ValidateGeneratedModuleTree(output, resourceTypes)
+			if err != nil {
 				t.Errorf("ValidateGeneratedModuleTree: %v", err)
+			} else if !reflect.DeepEqual(validated, resourceTypes) {
+				t.Errorf("validated resource types = %v, want %v", validated, resourceTypes)
 			}
 		})
 	}
@@ -813,7 +929,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 
 // TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus proves that the
 // in-process token formatter is byte-identical to terraform fmt for every HCL
-// artifact produced by the full 151-resource profile. Terraform formats one
+// artifact produced by the selected full profile. Terraform formats one
 // temporary tree recursively so this differential gate does not recreate the
 // per-file subprocess cost that production has removed.
 func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
@@ -821,7 +937,7 @@ func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
 		t.Skip("full generated-corpus Terraform differential skipped under -short")
 	}
 	executable := terraformExecutable(t)
-	root := committedRoot(t)
+	root := installedModuleRoot(t)
 	formatter := NewHCLFormatter()
 	oracleRoot := t.TempDir()
 
@@ -875,8 +991,15 @@ func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
 			t.Errorf("%s differs after hclwrite.Format and terraform fmt", relative)
 		}
 	}
-	if len(formatted) != 151*5 {
-		t.Errorf("compared = %d, want %d", len(formatted), 151*5)
+	formattedFilesPerModule := 0
+	for _, name := range ExpectedModuleFiles {
+		if needsTerraformFormat(name) {
+			formattedFilesPerModule++
+		}
+	}
+	wantCompared := len(ActiveGeneratedResourceTypes(root)) * formattedFilesPerModule
+	if len(formatted) != wantCompared {
+		t.Errorf("compared = %d, want %d", len(formatted), wantCompared)
 	}
 }
 

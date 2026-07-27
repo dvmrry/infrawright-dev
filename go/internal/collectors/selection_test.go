@@ -17,6 +17,11 @@ func loadFullRoot(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
 	root := repoRoot(t)
 	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	profile, err := metadata.LoadPackSetDocument(profilePath, metadata.PackSetKind)
+	if err != nil {
+		t.Fatalf("LoadPackSetDocument(%q): %v", profilePath, err)
+	}
+	requireCollectorPackSelection(t, profile.PackSelection)
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,

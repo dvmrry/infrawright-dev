@@ -2,7 +2,7 @@
 
 This fixture is the independent, source-first qualification corpus for the 16
 selected ZPA resources. It is intentionally separate from
-`docs/evidence/zpa-provider-v4.4.9.json`: that matrix contains reviewed
+`packs/zpa/evidence/zpa-provider-v4.4.9.json`: that matrix contains reviewed
 import grammar, identity, state-shape, sensitivity, and exception claims that
 this AST corpus neither derives nor promotes.
 
