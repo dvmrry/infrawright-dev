@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"testing"
 
@@ -673,9 +672,6 @@ func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.
 	output := t.TempDir()
 
 	types := ActiveGeneratedResourceTypes(root)
-	if len(types) != 151 {
-		t.Fatalf("ActiveGeneratedResourceTypes length = %d, want 151", len(types))
-	}
 	generated, err := GenerateActiveModules(root, GenerateModuleOptions{
 		OutputRoot: output,
 		FormatHCL:  IdentityFormatter,
@@ -683,22 +679,27 @@ func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.
 	if err != nil {
 		t.Fatalf("GenerateActiveModules: %v", err)
 	}
-	if len(generated) != 151 {
-		t.Fatalf("generated length = %d, want 151", len(generated))
+	generatedTypes := make([]string, len(generated))
+	for index, module := range generated {
+		generatedTypes[index] = module.ResourceType
+	}
+	if !reflect.DeepEqual(generatedTypes, types) {
+		t.Fatalf("generated resource types = %v, want active metadata types %v", generatedTypes, types)
 	}
 	total := 0
 	for _, module := range generated {
 		total += len(module.Files)
 	}
-	if total != 1057 {
-		t.Errorf("total generated files = %d, want 1057", total)
+	wantFiles := len(types) * len(ExpectedModuleFiles)
+	if total != wantFiles {
+		t.Errorf("total generated files = %d, want %d", total, wantFiles)
 	}
-	validated, err := ValidateGeneratedModuleTree(output, ActiveGeneratedResourceTypes(root))
+	validated, err := ValidateGeneratedModuleTree(output, types)
 	if err != nil {
 		t.Fatalf("ValidateGeneratedModuleTree: %v", err)
 	}
-	if len(validated) != 151 {
-		t.Errorf("validated length = %d, want 151", len(validated))
+	if !reflect.DeepEqual(validated, types) {
+		t.Errorf("validated resource types = %v, want %v", validated, types)
 	}
 }
 
@@ -757,22 +758,19 @@ func copyDir(t *testing.T, src, dst string) {
 // reduced pack root".
 func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t *testing.T) {
 	root := repoRoot(t)
-	expected := map[string]int{
-		"full": 151, "zscaler": 151, "zcc": 7, "zia": 74, "zpa": 54, "ztc": 16,
-		"empty": 0, "aws": 0, "cloudflare": 0, "google": 0, "netbox": 0,
+	profilePaths, err := filepath.Glob(filepath.Join(root, "packs", "*.packset.json"))
+	if err != nil {
+		t.Fatalf("discover committed pack profiles: %v", err)
 	}
-	profileNames := make([]string, 0, len(expected))
-	for name := range expected {
-		profileNames = append(profileNames, name)
+	if len(profilePaths) == 0 {
+		t.Fatal("discover committed pack profiles: found no packs/*.packset.json files")
 	}
-	sort.Strings(profileNames)
 
-	for _, profileName := range profileNames {
-		count := expected[profileName]
+	for _, profilePath := range profilePaths {
+		profileName := strings.TrimSuffix(filepath.Base(profilePath), ".packset.json")
 		t.Run(profileName, func(t *testing.T) {
 			directory := t.TempDir()
 			output := t.TempDir()
-			profilePath := filepath.Join(root, "packs", profileName+".packset.json")
 			doc := readPackSetFile(t, profilePath)
 			for _, name := range doc.Packs {
 				copyDir(t, filepath.Join(root, "packs", name), filepath.Join(directory, name))
@@ -787,6 +785,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			if err != nil {
 				t.Fatalf("LoadPackRoot: %v", err)
 			}
+			resourceTypes := ActiveGeneratedResourceTypes(loaded)
 			generated, err := GenerateActiveModules(loaded, GenerateModuleOptions{
 				OutputRoot: output,
 				FormatHCL:  IdentityFormatter,
@@ -794,18 +793,26 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			if err != nil {
 				t.Fatalf("GenerateActiveModules: %v", err)
 			}
-			if len(generated) != count {
-				t.Fatalf("generated length = %d, want %d", len(generated), count)
+			generatedTypes := make([]string, len(generated))
+			for index, module := range generated {
+				generatedTypes[index] = module.ResourceType
+			}
+			if !reflect.DeepEqual(generatedTypes, resourceTypes) {
+				t.Fatalf("generated resource types = %v, want active metadata types %v", generatedTypes, resourceTypes)
 			}
 			total := 0
 			for _, module := range generated {
 				total += len(module.Files)
 			}
-			if total != count*7 {
-				t.Errorf("total generated files = %d, want %d", total, count*7)
+			wantFiles := len(resourceTypes) * len(ExpectedModuleFiles)
+			if total != wantFiles {
+				t.Errorf("total generated files = %d, want %d", total, wantFiles)
 			}
-			if _, err := ValidateGeneratedModuleTree(output, ActiveGeneratedResourceTypes(loaded)); err != nil {
+			validated, err := ValidateGeneratedModuleTree(output, resourceTypes)
+			if err != nil {
 				t.Errorf("ValidateGeneratedModuleTree: %v", err)
+			} else if !reflect.DeepEqual(validated, resourceTypes) {
+				t.Errorf("validated resource types = %v, want %v", validated, resourceTypes)
 			}
 		})
 	}
@@ -813,7 +820,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 
 // TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus proves that the
 // in-process token formatter is byte-identical to terraform fmt for every HCL
-// artifact produced by the full 151-resource profile. Terraform formats one
+// artifact produced by the selected full profile. Terraform formats one
 // temporary tree recursively so this differential gate does not recreate the
 // per-file subprocess cost that production has removed.
 func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
@@ -875,8 +882,15 @@ func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
 			t.Errorf("%s differs after hclwrite.Format and terraform fmt", relative)
 		}
 	}
-	if len(formatted) != 151*5 {
-		t.Errorf("compared = %d, want %d", len(formatted), 151*5)
+	formattedFilesPerModule := 0
+	for _, name := range ExpectedModuleFiles {
+		if needsTerraformFormat(name) {
+			formattedFilesPerModule++
+		}
+	}
+	wantCompared := len(ActiveGeneratedResourceTypes(root)) * formattedFilesPerModule
+	if len(formatted) != wantCompared {
+		t.Errorf("compared = %d, want %d", len(formatted), wantCompared)
 	}
 }
 

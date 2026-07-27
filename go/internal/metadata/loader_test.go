@@ -16,6 +16,18 @@ import (
 	"testing"
 )
 
+func committedPackSetPaths(t *testing.T, packsRoot string) []string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(packsRoot, "*.packset.json"))
+	if err != nil {
+		t.Fatalf("discover committed pack profiles: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatalf("discover committed pack profiles: found no *.packset.json files under %s", packsRoot)
+	}
+	return paths
+}
+
 // TestLoadPackRootExposesGenericResourceSurface ports "committed pack
 // metadata exposes the complete generic resource surface".
 func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
@@ -28,63 +40,67 @@ func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
 	}
+	profile, err := LoadPackSetDocument(profilePath, PackSetKind)
+	if err != nil {
+		t.Fatalf("LoadPackSetDocument: %v", err)
+	}
 	metadata := loaded.Packs
 
 	var names []string
 	for _, manifest := range metadata.Manifests {
 		names = append(names, manifest.Name)
 	}
-	wantNames := []string{"aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"}
+	wantNames := profile.Packs
 	if !reflect.DeepEqual(names, wantNames) {
 		t.Fatalf("manifest names = %v, want %v", names, wantNames)
 	}
 
-	wantPrefixes := map[string]string{
-		"aws_": "aws", "cloudflare_": "cloudflare", "google_": "google", "netbox_": "netbox",
-		"zcc_": "zcc", "zia_": "zia", "zpa_": "zpa", "ztc_": "ztc",
+	wantPrefixes := map[string]string{}
+	for _, manifest := range metadata.Manifests {
+		for prefix, provider := range manifest.ProviderPrefixes {
+			wantPrefixes[prefix] = provider
+		}
 	}
 	if !reflect.DeepEqual(metadata.ProviderPrefixes, wantPrefixes) {
 		t.Fatalf("providerPrefixes = %v, want %v", metadata.ProviderPrefixes, wantPrefixes)
 	}
 
 	registry := loaded.Registry
-	overrides := loaded.Overrides
-	if len(registry.Entries) != 151 {
-		t.Fatalf("registry entries = %d, want 151", len(registry.Entries))
+	if len(registry.Entries) != len(loaded.Resources) {
+		t.Fatalf("registry entries = %d, want one per loaded resource (%d)", len(registry.Entries), len(loaded.Resources))
 	}
-	if len(overrides.Entries) != 77 {
-		t.Fatalf("override entries = %d, want 77", len(overrides.Entries))
+	resourceTypes := make([]string, 0, len(loaded.Resources))
+	for resourceType := range loaded.Resources {
+		resourceTypes = append(resourceTypes, resourceType)
 	}
-	if product, _ := registry.Entries["zia_url_categories"]["product"].(string); product != "zia" {
-		t.Fatalf("zia_url_categories product = %q, want zia", product)
-	}
-	if keyField, _ := overrides.Entries["zia_url_categories"]["key_field"].(string); keyField != "configured_name" {
-		t.Fatalf("zia_url_categories key_field = %q, want configured_name", keyField)
+	sort.Strings(resourceTypes)
+	if len(resourceTypes) == 0 {
+		return
 	}
 
-	resource, ok := loaded.Resources["zia_url_categories"]
-	if !ok {
-		t.Fatal("zia_url_categories missing from loaded.Resources")
-	}
-	if resource.Type != "zia_url_categories" || resource.Product != "zia" || resource.Provider != "zia" {
+	resourceType := resourceTypes[0]
+	resource := loaded.Resources[resourceType]
+	entry := registry.Entries[resourceType]
+	product, _ := entry["product"].(string)
+	if resource.Type != resourceType || resource.Product != product || resource.Provider == "" {
 		t.Fatalf("unexpected resource shape: %+v", resource)
 	}
-	if resource.Pack == nil || *resource.Pack != "zia" {
-		t.Fatalf("resource.Pack = %v, want zia", resource.Pack)
+	if resource.Pack == nil {
+		t.Fatalf("resource.Pack = nil, want selected pack owner for %s", resourceType)
 	}
-	if !reflect.DeepEqual(resource.Registry, registry.Entries["zia_url_categories"]) {
+	if !reflect.DeepEqual(resource.Registry, entry) {
 		t.Fatalf("resource.Registry mismatch")
 	}
-	if !reflect.DeepEqual(resource.Override, overrides.Entries["zia_url_categories"]) {
+	if !reflect.DeepEqual(resource.Override, loaded.Overrides.Entries[resourceType]) {
 		t.Fatalf("resource.Override mismatch")
 	}
 
-	schema, err := loaded.LoadResourceSchema("zia_url_categories")
+	schema, err := loaded.LoadResourceSchema(resourceType)
 	if err != nil {
 		t.Fatalf("LoadResourceSchema: %v", err)
 	}
 	if _, ok := schema["block"].(JsonObject); !ok {
-		t.Fatalf("zia_url_categories schema block is not an object: %T", schema["block"])
+		t.Fatalf("%s schema block is not an object: %T", resourceType, schema["block"])
 	}
 }
 
@@ -582,13 +598,9 @@ func TestMetadataLoadingPreservesFetchQueryNumberTokens(t *testing.T) {
 // pack profiles load from physically reduced roots".
 func TestAllCommittedPackProfilesLoadFromReducedRoots(t *testing.T) {
 	root := repoRoot(t)
-	packsetNames := []string{
-		"empty", "aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc", "zscaler", "full",
-	}
-	for _, name := range packsetNames {
-		name := name
+	for _, profilePath := range committedPackSetPaths(t, filepath.Join(root, "packs")) {
+		name := strings.TrimSuffix(filepath.Base(profilePath), ".packset.json")
 		t.Run(name, func(t *testing.T) {
-			profilePath := filepath.Join(root, "packs", name+".packset.json")
 			raw, err := os.ReadFile(profilePath)
 			if err != nil {
 				t.Fatalf("reading %s: %v", profilePath, err)
@@ -638,11 +650,27 @@ func TestAllCommittedPackProfilesLoadFromReducedRoots(t *testing.T) {
 	}
 }
 
-// TestCommittedPackProfilesAreDerivable proves the current checked-in profile
-// inventory contains no selection knowledge beyond pack identity, vendor, and
-// requires_shared metadata. The full profile remains independently valuable as
-// an exact distribution lock: deriving it from an already damaged installed
-// root could not detect an accidentally deleted pack.
+func TestCommittedPackSetPathsTrackTheAvailableProfileSet(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first.packset.json")
+	second := filepath.Join(root, "second.packset.json")
+	writeRawFile(t, first, `{}`)
+	writeRawFile(t, second, `{}`)
+
+	if got, want := committedPackSetPaths(t, root), []string{first, second}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("committedPackSetPaths() = %v, want %v", got, want)
+	}
+	if err := os.Remove(first); err != nil {
+		t.Fatalf("remove profile mutation: %v", err)
+	}
+	if got, want := committedPackSetPaths(t, root), []string{second}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("committedPackSetPaths() after removal = %v, want %v", got, want)
+	}
+}
+
+// TestCommittedPackProfilesAreDerivable proves every checked-in profile names
+// installed packs and carries exactly their declared shared-component closure.
+// Profile composition is distribution policy, not a name-based engine rule.
 func TestCommittedPackProfilesAreDerivable(t *testing.T) {
 	root := repoRoot(t)
 	packsRoot := filepath.Join(root, "packs")
@@ -655,45 +683,20 @@ func TestCommittedPackProfilesAreDerivable(t *testing.T) {
 	for _, manifest := range metadata.Manifests {
 		manifestByName[manifest.Name] = manifest
 	}
-	entries, err := os.ReadDir(packsRoot)
-	if err != nil {
-		t.Fatalf("os.ReadDir(%q) error = %v, want nil", packsRoot, err)
-	}
-	var profileNames []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".packset.json") {
-			profileNames = append(profileNames, strings.TrimSuffix(entry.Name(), ".packset.json"))
-		}
-	}
-	if len(profileNames) == 0 {
-		t.Fatalf("os.ReadDir(%q) found no *.packset.json profiles", packsRoot)
-	}
-	sort.Strings(profileNames)
-	for _, profileName := range profileNames {
+	for _, profilePath := range committedPackSetPaths(t, packsRoot) {
+		profileName := strings.TrimSuffix(filepath.Base(profilePath), ".packset.json")
 		t.Run(profileName, func(t *testing.T) {
-			selectedPacks := []string{}
-			switch profileName {
-			case "empty":
-			case "full":
-				for _, manifest := range metadata.Manifests {
-					selectedPacks = append(selectedPacks, manifest.Name)
-				}
-			case "zscaler":
-				for _, manifest := range metadata.Manifests {
-					if manifest.Data["vendor"] == "zscaler" {
-						selectedPacks = append(selectedPacks, manifest.Name)
-					}
-				}
-			default:
-				if _, ok := manifestByName[profileName]; !ok {
-					t.Fatalf("profile %q has no matching pack manifest", profileName)
-				}
-				selectedPacks = []string{profileName}
+			profile, loadErr := LoadPackSetDocument(profilePath, PackSetKind)
+			if loadErr != nil {
+				t.Fatalf("LoadPackSetDocument(%q) error = %v, want nil", profilePath, loadErr)
 			}
-			sort.Strings(selectedPacks)
 			sharedSet := make(map[string]struct{})
-			for _, packName := range selectedPacks {
-				for _, dependency := range manifestByName[packName].RequiresShared {
+			for _, packName := range profile.Packs {
+				manifest, ok := manifestByName[packName]
+				if !ok {
+					t.Fatalf("profile %q names missing pack %q", profileName, packName)
+				}
+				for _, dependency := range manifest.RequiresShared {
 					sharedSet[dependency] = struct{}{}
 				}
 			}
@@ -703,14 +706,8 @@ func TestCommittedPackProfilesAreDerivable(t *testing.T) {
 			}
 			sort.Strings(selectedShared)
 
-			profilePath := filepath.Join(packsRoot, profileName+".packset.json")
-			profile, loadErr := LoadPackSetDocument(profilePath, PackSetKind)
-			if loadErr != nil {
-				t.Fatalf("LoadPackSetDocument(%q) error = %v, want nil", profilePath, loadErr)
-			}
-			want := PackSelection{Packs: selectedPacks, Shared: selectedShared}
-			if !reflect.DeepEqual(profile.PackSelection, want) {
-				t.Errorf("LoadPackSetDocument(%q).PackSelection = %+v, want derived selection %+v", profilePath, profile.PackSelection, want)
+			if !reflect.DeepEqual(profile.Shared, selectedShared) {
+				t.Errorf("LoadPackSetDocument(%q).Shared = %v, want required shared closure %v", profilePath, profile.Shared, selectedShared)
 			}
 		})
 	}

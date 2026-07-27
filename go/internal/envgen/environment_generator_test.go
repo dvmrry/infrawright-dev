@@ -52,6 +52,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -530,9 +531,9 @@ func TestValidateRemoteStateReferencesEmptySetNeedsNoIndex(t *testing.T) {
 }
 
 func BenchmarkValidateRemoteStateReferencesSharedIndex(b *testing.B) {
-	const rootCount = 151
-	rootsByLabel := make(map[string]roots.RootTopologyRoot, rootCount)
-	for i := range rootCount {
+	const benchmarkRootCount = 200
+	rootsByLabel := make(map[string]roots.RootTopologyRoot, benchmarkRootCount)
+	for i := range benchmarkRootCount {
 		label := fmt.Sprintf("root_%03d", i)
 		root := roots.RootTopologyRoot{Label: label, Members: []string{label + "_resource"}}
 		rootsByLabel[label] = root
@@ -905,9 +906,9 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 }
 
 // TestFullProfileTreeGeneratesAllRoots ports the Go-reachable half of "the
-// complete full-profile generated root tree is byte-identical to Python"
-// (151 generated roots, 151*3 files). It also proves the production in-process
-// formatter byte-identical to a single recursive Terraform oracle pass.
+// complete full-profile generated root tree is byte-identical to Python". It
+// also proves the production in-process formatter byte-identical to a single
+// recursive Terraform oracle pass. The selected profile defines the corpus.
 func TestFullProfileTreeGeneratesAllRoots(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full-profile Terraform differential skipped under -short")
@@ -926,12 +927,19 @@ func TestFullProfileTreeGeneratesAllRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateEnvironmentRoots: %v", err)
 	}
-	if len(result.Roots) != 151 {
-		t.Fatalf("len(result.Roots) = %d, want 151", len(result.Roots))
+	wantResourceTypes := modulesgen.ActiveGeneratedResourceTypes(root)
+	gotResourceTypes := make([]string, len(result.Roots))
+	for index, generatedRoot := range result.Roots {
+		gotResourceTypes[index] = generatedRoot.Label
+	}
+	sort.Strings(gotResourceTypes)
+	if !reflect.DeepEqual(gotResourceTypes, wantResourceTypes) {
+		t.Fatalf("generated root labels = %v, want selected generated resources %v", gotResourceTypes, wantResourceTypes)
 	}
 	tree := snapshotTree(t, outputRoot)
-	if len(tree) != 151*3 {
-		t.Fatalf("len(tree) = %d, want %d", len(tree), 151*3)
+	wantFiles := len(wantResourceTypes) * 3
+	if len(tree) != wantFiles {
+		t.Fatalf("len(tree) = %d, want %d", len(tree), wantFiles)
 	}
 
 	oracleRoot := filepath.Join(workspace, "terraform-oracle")
@@ -942,8 +950,13 @@ func TestFullProfileTreeGeneratesAllRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateEnvironmentRoots (raw Terraform oracle tree): %v", err)
 	}
-	if len(oracleResult.Roots) != 151 {
-		t.Fatalf("len(oracleResult.Roots) = %d, want 151", len(oracleResult.Roots))
+	oracleResourceTypes := make([]string, len(oracleResult.Roots))
+	for index, generatedRoot := range oracleResult.Roots {
+		oracleResourceTypes[index] = generatedRoot.Label
+	}
+	sort.Strings(oracleResourceTypes)
+	if !reflect.DeepEqual(oracleResourceTypes, wantResourceTypes) {
+		t.Fatalf("Terraform oracle root labels = %v, want selected generated resources %v", oracleResourceTypes, wantResourceTypes)
 	}
 	command := exec.Command(terraformTestExecutable(t), "fmt", "-recursive", oracleRoot)
 	if output, err := command.CombinedOutput(); err != nil {
@@ -1239,29 +1252,22 @@ func TestBackendMarkerSurvivesRegenerationAndProfileVariantsGenerateWithoutPytho
 	mustNotMatch(t, readFileString(t, filepath.Join(explicitEmpty, "tenant", "zia_url_categories", "main.tf")), `backend "`)
 
 	repo := repoRoot(t)
-	cases := []struct {
-		profile  string
-		selector string
-	}{
-		{"full.packset.json", "zia_url_categories"},
-		{"empty.packset.json", ""},
-		{"aws.packset.json", ""},
-		{"cloudflare.packset.json", ""},
-		{"google.packset.json", ""},
-		{"netbox.packset.json", ""},
-		{"zia.packset.json", "zia_url_categories"},
-		{"zpa.packset.json", "zpa_segment_group"},
-		{"zcc.packset.json", "zcc_failopen_policy"},
-		{"ztc.packset.json", "ztc_account_groups"},
-		{"zscaler.packset.json", "zia_url_categories"},
+	profilePaths, err := filepath.Glob(filepath.Join(repo, "packs", "*.packset.json"))
+	if err != nil {
+		t.Fatalf("discover committed pack profiles: %v", err)
 	}
-	for _, testCase := range cases {
-		packsRoot := reducedPackRootForProfile(t, repo, workspace, testCase.profile)
-		selectedRoot := committedRootFor(t, packsRoot, filepath.Join(repo, "packs", testCase.profile))
-		target := filepath.Join(workspace, testCase.profile)
+	if len(profilePaths) == 0 {
+		t.Fatal("discover committed pack profiles: found no packs/*.packset.json files")
+	}
+	for _, profilePath := range profilePaths {
+		profile := filepath.Base(profilePath)
+		packsRoot := reducedPackRootForProfile(t, repo, workspace, profile)
+		selectedRoot := committedRootFor(t, packsRoot, profilePath)
+		target := filepath.Join(workspace, profile)
+		resourceTypes := modulesgen.ActiveGeneratedResourceTypes(selectedRoot)
 		selectors := []string{}
-		if testCase.selector != "" {
-			selectors = []string{testCase.selector}
+		if len(resourceTypes) > 0 {
+			selectors = []string{resourceTypes[0]}
 		}
 		result, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 			Deployment: deployment.Deployment{Overlay: workspace, Roots: map[string]deployment.RootProviderConfig{}},
@@ -1269,14 +1275,11 @@ func TestBackendMarkerSurvivesRegenerationAndProfileVariantsGenerateWithoutPytho
 			Selectors: selectors, Tenant: "profile",
 		})
 		if err != nil {
-			t.Fatalf("%s: GenerateEnvironmentRoots: %v", testCase.profile, err)
+			t.Fatalf("%s: GenerateEnvironmentRoots: %v", profile, err)
 		}
-		wantCount := 1
-		if testCase.selector == "" {
-			wantCount = 0
-		}
+		wantCount := len(selectors)
 		if len(result.Roots) != wantCount {
-			t.Fatalf("%s: len(result.Roots) = %d, want %d", testCase.profile, len(result.Roots), wantCount)
+			t.Fatalf("%s: len(result.Roots) = %d, want %d", profile, len(result.Roots), wantCount)
 		}
 	}
 

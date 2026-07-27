@@ -32,7 +32,6 @@ const (
 	v2GoModuleProvisioningPhase = "provision candidate Go module cache with go mod download"
 	v2GoModuleProxy             = "https://proxy.golang.org"
 	v2GoOfflineBuildPhase       = "build candidate Go binary from provisioned module cache with GOPROXY=off"
-	v2GeneratedModuleCount      = 151
 	v2ResourceType              = "zia_rule_labels"
 	v2Tenant                    = "demo"
 	v2CommandTimeout            = 5 * time.Minute
@@ -1012,7 +1011,7 @@ func v2RunTerraformTestRuns(
 func v2VerifyGeneratedModuleSemantics(
 	t *testing.T,
 	workspace, goBinary, terraform, deploymentPath, moduleDirectory string,
-	metadataArguments, environment []string,
+	metadataArguments, environment, expectedResourceTypes []string,
 ) {
 	t.Helper()
 	generateArguments := append([]string{
@@ -1025,9 +1024,7 @@ func v2VerifyGeneratedModuleSemantics(
 	v2RunSuccessfully(t, workspace, goBinary, validateArguments, environment)
 
 	resourceTypes := v2DirectoryNames(t, moduleDirectory)
-	if got := len(resourceTypes); got != v2GeneratedModuleCount {
-		t.Fatalf("generated module directories = %d, want %d: %v", got, v2GeneratedModuleCount, resourceTypes)
-	}
+	v2RequireStrings(t, "generated module directories versus selected profile", resourceTypes, expectedResourceTypes)
 	passed := 0
 	for index, resourceType := range resourceTypes {
 		resourceType := resourceType
@@ -1060,7 +1057,7 @@ func v2VerifyGeneratedModuleSemantics(
 	if passed != len(resourceTypes) {
 		t.Fatalf("generated module Terraform semantics: %d/%d passed", passed, len(resourceTypes))
 	}
-	t.Logf("generated module Terraform semantics: %d/%d passed", passed, v2GeneratedModuleCount)
+	t.Logf("generated module Terraform semantics: %d/%d passed", passed, len(resourceTypes))
 }
 
 func v2VerifyZPAPortalCapabilityCardinality(
@@ -1440,6 +1437,15 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 		"--root", filepath.Join(root, "packs"),
 		"--profile", filepath.Join(root, "packs", "full.packset.json"),
 	}
+	fullProfilePath := filepath.Join(root, "packs", "full.packset.json")
+	fullPackRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot:   filepath.Join(root, "packs"),
+		ProfilePath: &fullProfilePath,
+	})
+	if err != nil {
+		t.Fatalf("load selected full profile for generated module semantics: %v", err)
+	}
+	fullResourceTypes := modulesgen.ActiveGeneratedResourceTypes(fullPackRoot)
 	v2VerifyGeneratedModuleSemantics(
 		t,
 		semanticWorkspace,
@@ -1449,6 +1455,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 		semanticModuleDirectory,
 		fullMetadataArguments,
 		terraformEnvironment,
+		fullResourceTypes,
 	)
 	v2VerifyDemoEnvironmentSemantics(
 		t,

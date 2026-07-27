@@ -6,7 +6,55 @@ on:
   pull_request:
 
 jobs:
+  scope:
+    name: Determine runtime CI scope
+    runs-on: ubuntu-latest
+    outputs:
+      profiles: ${{ steps.scope.outputs.profiles }}
+      runtime: ${{ steps.scope.outputs.runtime }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Discover changed surface and installed profiles
+        id: scope
+        env:
+          PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base="$PULL_REQUEST_BASE_SHA"
+          if [[ -z "$base" ]]; then
+            base="$PUSH_BEFORE_SHA"
+          fi
+
+          runtime=true
+          if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            runtime=false
+            while IFS= read -r path; do
+              case "$path" in
+                *.md|docs/*|reports/*) ;;
+                *) runtime=true; break ;;
+              esac
+            done < <(git diff --name-only "$base" HEAD)
+          fi
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+
+          shopt -s nullglob
+          profile_paths=(packs/*.packset.json)
+          if (( ${#profile_paths[@]} == 0 )); then
+            echo "no packs/*.packset.json profiles found" >&2
+            exit 1
+          fi
+          profiles="$({
+            for profile in "${profile_paths[@]}"; do
+              basename "$profile" .packset.json
+            done
+          } | sort | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+          echo "profiles=$profiles" >> "$GITHUB_OUTPUT"
+
   check:
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,6 +77,8 @@ jobs:
         run: git diff --check
 
   full-go-check:
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,6 +95,8 @@ jobs:
 
   v2-checkpoint:
     name: Go v2 vertical-slice checkpoint
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -75,11 +127,13 @@ jobs:
         run: go test -count=1 -timeout=18m -v -run '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw
 
   pack-profiles:
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        profile: [empty, aws, cloudflare, google, netbox, zcc, zia, zpa, ztc, zscaler, full]
+        profile: ${{ fromJSON(needs.scope.outputs.profiles) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
