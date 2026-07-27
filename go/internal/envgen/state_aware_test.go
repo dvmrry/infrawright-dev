@@ -75,7 +75,7 @@ func (f stateAwareFixture) generate(t *testing.T, stateAware bool) []string {
 		FormatHcl:    identityFormatter,
 		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
 		OutputRoot:   &outputRoot,
-		Root:         committedRootForTopology(t),
+		Root:         syntheticRootForTopology(t),
 		Selectors:    []string{"zpa_application_segment"},
 		StateAware:   stateAware,
 		Tenant:       "tenant",
@@ -196,6 +196,10 @@ func TestStateAwareFallsBackWhenReferencedStateHasNoReferenceOutputs(t *testing.
 // verified against the faithful unsafe mutation "return
 // StateProbeResult{Usable: false}, nil instead of the error" in
 // referenceIDsPresent, under which it fails.
+//
+// Scope: this pins the refusal only. Generation is not transactional, so the
+// referrer directory may already exist when the probe fails; nothing here
+// claims the output tree is left untouched.
 func TestStateAwareProbeErrorFailsClosed(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	statePath := filepath.Join(fixture.outputRoot, "tenant", "zpa_segment_group", "terraform.tfstate")
@@ -211,7 +215,7 @@ func TestStateAwareProbeErrorFailsClosed(t *testing.T) {
 		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
 		FormatHcl:  identityFormatter,
 		OutputRoot: &outputRoot,
-		Root:       committedRootForTopology(t),
+		Root:       syntheticRootForTopology(t),
 		Selectors:  []string{"zpa_application_segment"},
 		StateAware: true,
 		Tenant:     "tenant",
@@ -221,5 +225,140 @@ func TestStateAwareProbeErrorFailsClosed(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "zpa_segment_group") {
 		t.Errorf("GenerateEnvironmentRoots(corrupt referent state) error = %q, want it to name the unreadable root", err)
+	}
+}
+
+// countingProbe records every (root, referentType) pair it is asked about and
+// answers usable, so tests can assert both which references were probed and
+// how often.
+func countingProbe(calls *[]string, usable bool) StateProbe {
+	return func(rootLabel, referentType string) (StateProbeResult, error) {
+		*calls = append(*calls, rootLabel+"."+referentType)
+		return StateProbeResult{Usable: usable}, nil
+	}
+}
+
+func (f stateAwareFixture) generateWithProbe(t *testing.T, probe StateProbe) error {
+	t.Helper()
+	outputRoot := f.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, f.deploymentPath),
+		FormatHcl:  identityFormatter,
+		OutputRoot: &outputRoot,
+		Root:       syntheticRootForTopology(t),
+		Selectors:  []string{"zpa_application_segment"},
+		StateAware: true,
+		StateProbe: probe,
+		Tenant:     "tenant",
+	})
+	return err
+}
+
+// TestStateAwareSkipsProbeForOperatorOverriddenBinding pins binding
+// precedence. An operator binding at the same identity replaces the generated
+// one during the merge, so the generated binding is never emitted and must
+// never be probed: probing it would abort generation on a referent error, or
+// report a fallback that did not happen.
+//
+// Red proof: with the probe applied before operator resolution, the generated
+// binding is probed and this test's call list is non-empty.
+func TestStateAwareSkipsProbeForOperatorOverriddenBinding(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_application_segment.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{"expression": `local.operator_literal`},
+			},
+		},
+	})
+
+	var calls []string
+	if err := fixture.generateWithProbe(t, countingProbe(&calls, false)); err != nil {
+		t.Fatalf("GenerateEnvironmentRoots(operator override) error = %v, want nil", err)
+	}
+	if len(calls) != 0 {
+		t.Errorf("probe calls = %v, want none for a generated binding an operator overrides", calls)
+	}
+}
+
+// TestStateAwareProbesEachReferenceOnce pins memoization. Without it a root
+// referenced by several bindings is read repeatedly, and state changing
+// mid-run can classify identical references differently within one
+// invocation.
+func TestStateAwareProbesEachReferenceOnce(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{
+			"app_one": map[string]any{"segment_group_id": "sg-1"},
+			"app_two": map[string]any{"segment_group_id": "sg-1"},
+		},
+	})
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_application_segment.generated.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+				},
+			},
+			"zpa_application_segment.app_two": map[string]any{
+				"segment_group_id": map[string]any{
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+				},
+			},
+		},
+	})
+
+	var calls []string
+	if err := fixture.generateWithProbe(t, countingProbe(&calls, true)); err != nil {
+		t.Fatalf("GenerateEnvironmentRoots(repeated reference) error = %v, want nil", err)
+	}
+	if len(calls) != 1 {
+		t.Errorf("probe calls = %v, want exactly one per (root, referent type)", calls)
+	}
+}
+
+// TestStateAwareRejectsRemoteBackendWithoutProber pins the azurerm hole. The
+// local prober reads tenantDirectory/<label>/terraform.tfstate, which a remote
+// backend never populates, so probing it would report every root absent and
+// rewrite every reference to a literal in one silent sweep.
+func TestStateAwareRejectsRemoteBackendWithoutProber(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	backend := "azurerm"
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Backend:    &backend,
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter,
+		OutputRoot: &outputRoot,
+		Root:       syntheticRootForTopology(t),
+		Selectors:  []string{"zpa_application_segment"},
+		StateAware: true,
+		Tenant:     "tenant",
+	})
+	if err == nil {
+		t.Fatalf("GenerateEnvironmentRoots(azurerm + StateAware) error = nil, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "azurerm") {
+		t.Errorf("GenerateEnvironmentRoots(azurerm + StateAware) error = %q, want it to name the backend", err)
+	}
+}
+
+// TestReferenceIDsPresentRejectsNonObjectReferenceMap pins the shape check. A
+// JSON null decodes to a present key holding nil, and a bare key check reports
+// that usable -- Terraform then halts at plan time on the index. Strings and
+// lists behave the same way.
+func TestReferenceIDsPresentRejectsNonObjectReferenceMap(t *testing.T) {
+	for _, testCase := range []struct{ name, value string }{
+		{name: "null", value: "null"},
+		{name: "string", value: `"sg-1"`},
+		{name: "list", value: `["sg-1"]`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			raw := []byte(`{"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":` + testCase.value + `}}}}`)
+			result, err := referenceIDsPresent(raw, "zpa_segment_group", "zpa_segment_group")
+			if err == nil {
+				t.Fatalf("referenceIDsPresent(%s) error = nil (usable=%v), want a malformed-state failure", testCase.value, result.Usable)
+			}
+		})
 	}
 }

@@ -799,6 +799,28 @@ func loadBindingLayers(
 	tenant string,
 	probe StateProbe,
 ) ([]ExpressionBinding, error) {
+	// Operator bindings are resolved first so the generated layer can be
+	// narrowed to what actually survives the merge. Probing a generated
+	// binding an operator overrides would be wrong twice over: a probe error
+	// on its referent would abort generation over a binding that is never
+	// emitted, and an absent referent would report a fallback that never
+	// happened.
+	operator, err := operatorBindingsFile(dep, tenant, resource.Type)
+	if err != nil {
+		return nil, err
+	}
+	var operatorBindings []ExpressionBinding
+	if fileExists(operator) {
+		operatorBindings, err = LoadExpressionBindings(operator, resource.Type)
+		if err != nil {
+			return nil, err
+		}
+	}
+	overridden := make(map[string]bool, len(operatorBindings))
+	for _, binding := range operatorBindings {
+		overridden[bindingIdentity(binding)] = true
+	}
+
 	var layers [][]ExpressionBinding
 	generated, err := generatedBindingsFile(dep, tenant, resource.Type)
 	if err != nil {
@@ -817,10 +839,25 @@ func loadBindingLayers(
 			}
 			filtered := filterGeneratedBindings(loaded, memberSet, onDiagnostic, generated)
 			if probe != nil {
-				filtered, err = filterStatelessGeneratedBindings(filtered, resource.Type, probe, onDiagnostic)
+				surviving := make([]ExpressionBinding, 0, len(filtered))
+				for _, binding := range filtered {
+					if !overridden[bindingIdentity(binding)] {
+						surviving = append(surviving, binding)
+					}
+				}
+				probed, err := filterStatelessGeneratedBindings(surviving, resource.Type, probe, onDiagnostic)
 				if err != nil {
 					return nil, err
 				}
+				// Overridden bindings rejoin unprobed; the operator layer
+				// replaces them during the merge either way.
+				kept := make([]ExpressionBinding, 0, len(filtered))
+				for _, binding := range filtered {
+					if overridden[bindingIdentity(binding)] {
+						kept = append(kept, binding)
+					}
+				}
+				filtered = append(kept, probed...)
 			}
 			if len(filtered) > 0 {
 				layers = append(layers, filtered)
@@ -829,16 +866,8 @@ func loadBindingLayers(
 			onDiagnostic("NOTE bindings: " + fmt.Sprintf(staleDisabled, generated))
 		}
 	}
-	operator, err := operatorBindingsFile(dep, tenant, resource.Type)
-	if err != nil {
-		return nil, err
-	}
-	if fileExists(operator) {
-		loaded, err := LoadExpressionBindings(operator, resource.Type)
-		if err != nil {
-			return nil, err
-		}
-		layers = append(layers, loaded)
+	if len(operatorBindings) > 0 {
+		layers = append(layers, operatorBindings)
 	}
 	return MergeExpressionBindingLayers(layers), nil
 }
@@ -1127,6 +1156,10 @@ type GenerateEnvironmentRootsOptions struct {
 	// default) generation never reads state, so its output cannot depend on
 	// any tfstate contents.
 	StateAware bool
+	// StateProbe overrides how StateAware resolves a referenced root's
+	// state. Nil selects the local prober. It is the injection seam for
+	// tests and for the backend-specific prober that will serve azurerm.
+	StateProbe StateProbe
 	Tenant     string
 }
 
@@ -1215,11 +1248,25 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		}
 	}
 	// A nil probe means generation never reads state, so its output cannot
-	// depend on any tfstate contents. Resolved after the backend marker so a
-	// future backend-specific prober can key off it.
+	// depend on any tfstate contents. Resolved after the backend marker
+	// because the backend determines where state lives.
 	var probe StateProbe
 	if options.StateAware {
-		probe = localStateProbe(tenantDirectory)
+		probe = options.StateProbe
+		if probe == nil {
+			// The local prober reads tenantDirectory/<label>/terraform.tfstate.
+			// A remote backend keeps no state there, so probing it would
+			// report every root absent and silently rewrite every reference
+			// to a literal. Refuse until a backend-specific prober exists.
+			if backend != nil && *backend != "" {
+				return EnvironmentGenerationResult{}, fmt.Errorf(
+					"state-aware generation probes local state only; backend %q needs a backend-specific prober",
+					*backend,
+				)
+			}
+			probe = localStateProbe(tenantDirectory)
+		}
+		probe = memoizedStateProbe(probe)
 	}
 	if err := os.MkdirAll(tenantDirectory, 0o777); err != nil {
 		return EnvironmentGenerationResult{}, err

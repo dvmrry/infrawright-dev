@@ -77,10 +77,45 @@ func referenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbe
 	if !present {
 		return StateProbeResult{Usable: false}, nil
 	}
-	if _, present := output.Value[referentType]; !present {
+	value, present := output.Value[referentType]
+	if !present {
 		return StateProbeResult{Usable: false}, nil
 	}
+	// Presence is not enough. A JSON null decodes to a present key holding a
+	// nil value, and a string or list decodes to a present key holding the
+	// wrong shape; both would be reported usable by a bare key check and then
+	// halt Terraform at plan time on the index. An absent key is a degenerate
+	// root and falls back, but a key holding a non-object is a malformed
+	// state we cannot reason about, so it fails closed.
+	if _, isObject := value.(map[string]any); !isObject {
+		return StateProbeResult{}, fmt.Errorf(
+			"probe state for root %s: %s.%s is %T, want an object of reference identifiers",
+			rootLabel, InfrawrightReferenceOutput, referentType, value,
+		)
+	}
 	return StateProbeResult{Usable: true}, nil
+}
+
+// memoizedStateProbe caches probe outcomes per (root, referent type) for one
+// generation run, so a state that changes mid-run cannot classify two
+// identical references differently and a root referenced by many bindings is
+// read once. Errors are cached too: a probe that failed once must not appear
+// to succeed later in the same run.
+func memoizedStateProbe(probe StateProbe) StateProbe {
+	type outcome struct {
+		result StateProbeResult
+		err    error
+	}
+	cache := map[string]outcome{}
+	return func(rootLabel, referentType string) (StateProbeResult, error) {
+		identity := rootLabel + "\x00" + referentType
+		if cached, hit := cache[identity]; hit {
+			return cached.result, cached.err
+		}
+		result, err := probe(rootLabel, referentType)
+		cache[identity] = outcome{result: result, err: err}
+		return result, err
+	}
 }
 
 // filterStatelessGeneratedBindings drops generated bindings whose referenced
