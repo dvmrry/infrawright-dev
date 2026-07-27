@@ -2,9 +2,10 @@ package envgen
 
 import (
 	"errors"
-	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -404,15 +405,22 @@ func TestStateAwareWithUsableStateMatchesUnprobedOutput(t *testing.T) {
 
 // TestStateAwareKeepsOperatorRemoteStateBinding pins the operator escape
 // hatch. An operator who writes a remote-state reference by hand is asserting
-// intent, so it keeps its data block and keeps failing loudly at plan time
-// even when the generated binding onto the same stateless root falls back.
+// intent, so it survives even when the generated binding onto the same
+// stateless root falls back, and it keeps failing loudly at plan time.
+//
+// The operator expression deliberately selects a different key than the
+// generated one. Asserting only that "some remote-state block exists" cannot
+// tell the layers apart, because the generated binding renders an identical
+// block -- such a test passes even when the operator layer is never appended.
+// The emitted bytes have to name the operator's own key to mean anything.
 func TestStateAwareKeepsOperatorRemoteStateBinding(t *testing.T) {
+	const operatorKey = "segment_two"
 	fixture := newStateAwareFixture(t)
 	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_application_segment.expressions.json"), map[string]any{
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["` + operatorKey + `"]`,
 				},
 			},
 		},
@@ -420,6 +428,13 @@ func TestStateAwareKeepsOperatorRemoteStateBinding(t *testing.T) {
 
 	fixture.generate(t, true)
 
+	bindings, err := os.ReadFile(fixture.referrerFile("expression_bindings.tf"))
+	if err != nil {
+		t.Fatalf("os.ReadFile(expression_bindings.tf) error = %v, want the operator binding emitted", err)
+	}
+	if !strings.Contains(string(bindings), `"`+operatorKey+`"`) {
+		t.Errorf("expression_bindings.tf does not carry the operator expression:\n%s", bindings)
+	}
 	main, err := os.ReadFile(fixture.referrerFile("main.tf"))
 	if err != nil {
 		t.Fatalf("os.ReadFile(main.tf) error = %v, want nil", err)
@@ -446,16 +461,11 @@ func TestStateBlindGenerationIgnoresPresentState(t *testing.T) {
 	}
 }
 
+// equalTrees compares snapshots by key presence as well as content. A bare
+// right[name] != content lookup returns the zero value for an absent key, so
+// two trees with disjoint names but empty contents compared equal.
 func equalTrees(left, right map[string]string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for name, content := range left {
-		if right[name] != content {
-			return false
-		}
-	}
-	return true
+	return reflect.DeepEqual(left, right)
 }
 
 func mapKeysForTest(tree map[string]string) []string {
@@ -463,5 +473,6 @@ func mapKeysForTest(tree map[string]string) []string {
 	for name := range tree {
 		names = append(names, name)
 	}
-	return canonjson.SortedStrings(names)
+	sort.Strings(names)
+	return names
 }
