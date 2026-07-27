@@ -87,6 +87,11 @@ jobs:
     if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.runtime == 'true') }}
     runs-on: ubuntu-latest
     steps:
+      - name: Require successful CI scope discovery
+        if: ${{ needs.scope.result != 'success' }}
+        run: |
+          echo "CI scope discovery concluded ${{ needs.scope.result }}" >&2
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
@@ -106,6 +111,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Require successful CI scope discovery
+        if: ${{ needs.scope.result != 'success' }}
+        run: |
+          echo "CI scope discovery concluded ${{ needs.scope.result }}" >&2
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:

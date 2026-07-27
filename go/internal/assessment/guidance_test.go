@@ -647,6 +647,7 @@ func TestRealPackRootSuppliesAllGuidanceLanes(t *testing.T) {
 		t.Fatalf("metadata.LoadPackRoot(full) error = %v, want nil", err)
 	}
 	tests := []struct {
+		pack         string
 		resourceType string
 		provider     string
 		before       map[string]any
@@ -657,6 +658,7 @@ func TestRealPackRootSuppliesAllGuidanceLanes(t *testing.T) {
 		wantValue    string
 	}{
 		{
+			pack:         "google",
 			resourceType: "google_bigquery_dataset", provider: "google",
 			before:   map[string]any{"terraform_labels": map[string]any{}},
 			after:    map[string]any{"terraform_labels": map[string]any{"goog-terraform-provisioned": "true"}},
@@ -664,12 +666,14 @@ func TestRealPackRootSuppliesAllGuidanceLanes(t *testing.T) {
 			wantLane: "provider_config", wantKey: "setting", wantValue: "add_terraform_attribution_label",
 		},
 		{
+			pack:         "aws",
 			resourceType: "aws_cloudwatch_log_group", provider: "aws",
 			before: map[string]any{"name_prefix": ""}, after: map[string]any{"name_prefix": nil},
 			path: PlanPath{"name_prefix"}, wantLane: "absent_default",
 			wantKey: "rule", wantValue: "aws_cloudwatch_log_group_empty_name_prefix",
 		},
 		{
+			pack:         "cloudflare",
 			resourceType: "cloudflare_dns_record", provider: "cloudflare",
 			before: map[string]any{"data": map[string]any{"flags": "old"}},
 			after:  map[string]any{"data": map[string]any{"flags": "new"}},
@@ -677,12 +681,27 @@ func TestRealPackRootSuppliesAllGuidanceLanes(t *testing.T) {
 			wantKey: "rule", wantValue: "cloudflare_dns_record_data_flags_dynamic",
 		},
 	}
+	installedPacks := make(map[string]struct{}, len(root.Packs.Manifests))
+	for _, manifest := range root.Packs.Manifests {
+		installedPacks[manifest.Name] = struct{}{}
+	}
+	resources := make(map[string]metadata.LoadedResourceMetadata, len(root.Resources)+len(tests))
+	for resourceType, resource := range root.Resources {
+		resources[resourceType] = resource
+	}
+	for _, test := range tests {
+		if _, installed := installedPacks[test.pack]; installed {
+			resources[test.resourceType] = metadata.LoadedResourceMetadata{
+				Type: test.resourceType, Product: test.provider, Provider: test.provider,
+			}
+		}
+	}
+	root.Resources = resources
 	source := NewAssessmentGuidanceSource(root)
 	for _, test := range tests {
 		t.Run(test.resourceType, func(t *testing.T) {
-			resource, installed := root.Resources[test.resourceType]
-			if !installed || resource.Provider != test.provider {
-				t.Skipf("%s pack contract is not installed in the selected profile", test.provider)
+			if _, installed := installedPacks[test.pack]; !installed {
+				t.Skipf("%s pack contract is not installed in the selected profile", test.pack)
 			}
 			address := test.resourceType + `.this["one"]`
 			result := CollectAssessmentGuidance(CollectAssessmentGuidanceOptions{
