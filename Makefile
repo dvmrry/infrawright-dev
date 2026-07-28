@@ -128,9 +128,9 @@ fetch: dist/iw ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<t
 fetch-diag: dist/iw ## Probe TLS to the fetcher's hosts under system trust and +bundle
 	$(IW) fetch-diag --profile "$(PACK_PROFILE)"
 
-gen-env: dist/iw ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [RESOURCE="<type|provider> ..."])
-	@test -n "$(TENANT)" || { echo "usage: make gen-env TENANT=<label> [BACKEND=azurerm] [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	$(IW) gen-env --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" $(if $(BACKEND),--backend "$(BACKEND)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
+gen-env: dist/iw ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [STATE_AWARE=1] [RESOURCE="<type|provider> ..."])
+	@test -n "$(TENANT)" || { echo "usage: make gen-env TENANT=<label> [BACKEND=azurerm] [STATE_AWARE=1] [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
+	$(IW) gen-env --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" $(if $(BACKEND),--backend "$(BACKEND)") $(if $(STATE_AWARE),--state-aware) $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 transform: dist/iw ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make transform IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }

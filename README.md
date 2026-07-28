@@ -136,7 +136,7 @@ Make/CLI inventory.
 | Path | Role |
 |------|------|
 | `go/` | operational and authoring `iw` CLI |
-| `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, and schemas |
+| `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, schemas, and optional reviewed pack evidence |
 | `packs/*.packset.json` | exact pack-distribution profiles |
 | `tests/fixtures/` | current cross-package and external-contract corpora |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars[.json]` | generated tenant config; `deployment.json` `tfvars_format` selects `json` by default or opt-in `hcl` |

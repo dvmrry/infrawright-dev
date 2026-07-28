@@ -1,5 +1,5 @@
 {
-  "input_provenance_sha256": "cf6c9945d33f99756bbdfdce78e3f8f122b9cf6c81445a58517b7cac216d465e",
+  "input_provenance_sha256": "8681e0f63499179310599cf3c501fdd487536db63d1a3f71a0c7365104361864",
   "kind": "infrawright.source_evidence_report",
   "resources": {
     "zpa_app_connector_group": {
@@ -17,7 +17,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup",
             "symbol": "GetAll"
           },
@@ -105,7 +105,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment",
             "symbol": "Get"
           },
@@ -230,7 +230,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller",
             "symbol": "Get"
           },
@@ -355,7 +355,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/bacertificate",
             "symbol": "Get"
           },
@@ -480,7 +480,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/emergencyaccess",
             "symbol": "Get"
           },
@@ -605,7 +605,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_custom_controls",
             "symbol": "Get"
           },
@@ -730,7 +730,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_profile",
             "symbol": "Get"
           },
@@ -855,7 +855,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/microtenants",
             "symbol": "Get"
           },
@@ -980,7 +980,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
             "symbol": "GetByPolicyType"
           },
@@ -990,7 +990,7 @@
                 "location": {
                   "column": 6,
                   "function": "fetchPolicySetIDByType",
-                  "line": 1239,
+                  "line": 1244,
                   "origin": "provider",
                   "path": "zpa/common.go",
                   "sdk_module_path": null
@@ -1039,7 +1039,7 @@
                 "location": {
                   "column": 6,
                   "function": "fetchPolicySetIDByType",
-                  "line": 1239,
+                  "line": 1244,
                   "origin": "provider",
                   "path": "zpa/common.go",
                   "sdk_module_path": null
@@ -1052,7 +1052,7 @@
               "location": {
                 "column": 49,
                 "function": "fetchPolicySetIDByType",
-                "line": 1269,
+                "line": 1274,
                 "origin": "provider",
                 "path": "zpa/common.go",
                 "sdk_module_path": null
@@ -1111,7 +1111,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
             "symbol": "GetPolicyRule"
           },
@@ -1236,7 +1236,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praapproval",
             "symbol": "Get"
           },
@@ -1361,7 +1361,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praconsole",
             "symbol": "Get"
           },
@@ -1486,7 +1486,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/pracredential",
             "symbol": "Get"
           },
@@ -1611,7 +1611,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praportal",
             "symbol": "Get"
           },
@@ -1736,7 +1736,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/segmentgroup",
             "symbol": "Get"
           },
@@ -1861,7 +1861,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup",
             "symbol": "Get"
           },
@@ -1986,7 +1986,7 @@
               "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
             },
             "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-            "module_version": "v3.8.40",
+            "module_version": "v3.8.42",
             "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgegroup",
             "symbol": "Get"
           },
@@ -2098,7 +2098,7 @@
     }
   },
   "schema_version": 1,
-  "source_manifest_sha256": "577eaf74544f0d24a52205a13922ca4cc3803701cfda7557da6367e68ead55bc",
+  "source_manifest_sha256": "84fa0b2b2002888fc96f69910e97b6a62f78f74057cc13792435e82dcd77425f",
   "source_trust": "verified",
   "summary": {
     "applicable_total": 16,

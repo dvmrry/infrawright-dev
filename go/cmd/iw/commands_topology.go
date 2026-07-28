@@ -21,6 +21,8 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
+	"github.com/dvmrry/infrawright-dev/go/internal/stateprobe"
+	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
 	"github.com/spf13/cobra"
 )
@@ -366,6 +368,7 @@ func newGenEnvCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "gen-env", short: "Generate tenant environment roots",
 		valueFlags: []string{"--tenant", "--backend", "--resource", "--terraform", "--deployment", "--root", "--profile"},
+		boolFlags:  []string{"--state-aware"},
 		run: func(parsed commandInput) (int, error) {
 			return legacyPlanLifecycleCommand(func() (int, error) {
 				if len(parsed.Positionals) != 0 {
@@ -395,8 +398,8 @@ func genEnvInput(parsed commandInput) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	// --terraform remains accepted as an operator-facing compatibility option;
-	// formatting is performed in process, so its value is intentionally unused.
+	// Formatting is performed in process, so --terraform matters only when
+	// state-aware generation needs to ask Terraform about a referenced root.
 	formatter := modulesgen.NewHCLFormatter()
 	generateOptions := envgen.GenerateEnvironmentRootsOptions{
 		Deployment: loadedDeployment,
@@ -404,12 +407,31 @@ func genEnvInput(parsed commandInput) (int, error) {
 		OnDiagnostic: func(message string) {
 			fmt.Fprintf(os.Stderr, "%s\n", message)
 		},
-		Root:      loadedRoot,
-		Selectors: parsed.Options["--resource"],
-		Tenant:    tenant,
+		Root:       loadedRoot,
+		Selectors:  parsed.Options["--resource"],
+		StateAware: parsed.Flags.Has("--state-aware"),
+		Tenant:     tenant,
 	}
 	if backend, ok := lastCommandOption(parsed, "--backend"); ok {
 		generateOptions.Backend = &backend
+	}
+	if generateOptions.StateAware {
+		// The probe asks Terraform, which resolves whatever backend each root
+		// was initialized with, so no backend name is needed here and none of
+		// local/azurerm/s3/gcs is a special case.
+		environment := environMap()
+		selectedTerraform, _ := lastCommandOption(parsed, "--terraform")
+		executable, err := terraformcmd.ResolveTerraformExecutable(selectedTerraform, environment)
+		if err != nil {
+			return 0, err
+		}
+		generateOptions.StateProbe = stateprobe.New(stateprobe.Options{
+			Environment:         environment,
+			TerraformExecutable: executable,
+			ResolveRootDirectory: func(rootLabel string) (string, error) {
+				return envgen.EnvironmentRootDirectory(loadedDeployment, tenant, rootLabel, nil)
+			},
+		})
 	}
 	if _, err := envgen.GenerateEnvironmentRoots(generateOptions); err != nil {
 		return 0, err

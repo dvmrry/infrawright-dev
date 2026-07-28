@@ -86,6 +86,14 @@ shows the problem.
 6. The builder asks the reviewer to recheck only the changed surface.
 7. Final acceptance or merge verdict comes after the review/fix loop.
 
+Every new invariant regression must be shown to fail against the pre-fix
+behavior or a faithful unsafe mutation before it is accepted as proof. A full
+corpus is a promotion gate: use a focused reproducer to diagnose failures, do
+not rerun constituent checks after a passing superset on the same commit, and
+do not repeat the same full gate on the same commit without a concrete new
+reason. If one attempted fix fails to establish the same invariant, stop and
+redesign before another broad pass.
+
 If review catches a repeatable class of miss, update the handoff, run prompt, or
 checklist so the next review starts sharper.
 

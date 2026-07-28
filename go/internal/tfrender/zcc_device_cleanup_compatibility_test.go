@@ -1,8 +1,10 @@
 package tfrender
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -10,18 +12,70 @@ import (
 	transformkernel "github.com/dvmrry/infrawright-dev/go/internal/transform"
 )
 
-func TestZCCDeviceCleanupTransformCompatibility(t *testing.T) {
-	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+func tfrenderRepositoryRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatalf("filepath.Abs(repository root) error: %v", err)
 	}
-	profilePath := filepath.Join(repositoryRoot, "packs", "full.packset.json")
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profilePath,
+	return root
+}
+
+func requireTfrenderPack(t *testing.T, pack string) {
+	t.Helper()
+	path := filepath.Join(tfrenderRepositoryRoot(t), "packs", pack)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("%s pack is not installed", pack)
+		}
+		t.Fatalf("os.Stat(%q) error: %v", path, err)
+	}
+}
+
+func installedTfrenderRoot(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	packsRoot := filepath.Join(tfrenderRepositoryRoot(t), "packs")
+	entries, err := os.ReadDir(packsRoot)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error: %v", packsRoot, err)
+	}
+	packs := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != "_shared" {
+			packs = append(packs, entry.Name())
+		}
+	}
+	shared := []any{}
+	sharedRoot := filepath.Join(packsRoot, "_shared")
+	sharedEntries, err := os.ReadDir(sharedRoot)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("os.ReadDir(%q) error: %v", sharedRoot, err)
+	}
+	for _, entry := range sharedEntries {
+		if entry.IsDir() {
+			shared = append(shared, entry.Name())
+		}
+	}
+	profile := filepath.Join(t.TempDir(), "installed.packset.json")
+	data, err := json.Marshal(metadata.JsonObject{
+		"kind": metadata.PackSetKind, "version": 1, "packs": packs, "shared": shared,
 	})
 	if err != nil {
-		t.Fatalf("metadata.LoadPackRoot() error: %v", err)
+		t.Fatalf("json.Marshal(installed pack set) error: %v", err)
 	}
+	if err := os.WriteFile(profile, append(data, '\n'), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error: %v", profile, err)
+	}
+	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{PacksRoot: packsRoot, ProfilePath: &profile})
+	if err != nil {
+		t.Fatalf("metadata.LoadPackRoot(installed packs) error: %v", err)
+	}
+	return loaded
+}
+
+func TestZCCDeviceCleanupTransformCompatibility(t *testing.T) {
+	requireTfrenderPack(t, "zcc")
+	loaded := installedTfrenderRoot(t)
 	const resourceType = "zcc_device_cleanup"
 	resource, ok := loaded.Resources[resourceType]
 	if !ok {
@@ -78,17 +132,8 @@ func TestZCCDeviceCleanupTransformCompatibility(t *testing.T) {
 }
 
 func TestDetailedTransformCorpusImportCompatibility(t *testing.T) {
-	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
-	if err != nil {
-		t.Fatalf("filepath.Abs(repository root) error: %v", err)
-	}
-	profilePath := filepath.Join(repositoryRoot, "packs", "full.packset.json")
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profilePath,
-	})
-	if err != nil {
-		t.Fatalf("metadata.LoadPackRoot() error: %v", err)
-	}
+	repositoryRoot := tfrenderRepositoryRoot(t)
+	loaded := installedTfrenderRoot(t)
 	fixtureRoot := filepath.Join(repositoryRoot, "tests", "fixtures", "transform")
 	entries, err := os.ReadDir(fixtureRoot)
 	if err != nil {
@@ -107,6 +152,8 @@ func TestDetailedTransformCorpusImportCompatibility(t *testing.T) {
 		}
 		covered++
 		t.Run(resourceType, func(t *testing.T) {
+			pack, _, _ := strings.Cut(resourceType, "_")
+			requireTfrenderPack(t, pack)
 			resource, ok := loaded.Resources[resourceType]
 			if !ok {
 				t.Fatalf("active pack root has no %s resource", resourceType)

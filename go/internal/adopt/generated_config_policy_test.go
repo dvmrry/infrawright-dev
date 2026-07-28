@@ -137,6 +137,86 @@ func TestGeneratedConfigProjectionOmitWholeOptionalBlock(t *testing.T) {
 	}
 }
 
+func TestGeneratedConfigProjectionOmitNestedRepeatedBlocks(t *testing.T) {
+	policy := testPolicy(t, "projection_omit", policyEntry("optional_block[].child", nil))
+	input := "resource \"test_item\" \"example\" {\n" +
+		"  optional_block {\n" +
+		"    name = \"parent-0\"\n" +
+		"    child {\n" +
+		"      name = \"drop-0-0\"\n" +
+		"    }\n" +
+		"    child {\n" +
+		"      name = \"drop-0-1\"\n" +
+		"    }\n" +
+		"  }\n" +
+		"  optional_block {\n" +
+		"    name = \"parent-1\"\n" +
+		"    child {\n" +
+		"      name = \"drop-1-0\"\n" +
+		"    }\n" +
+		"  }\n" +
+		"  required_value = \"keep\"\n" +
+		"}\n"
+	result, err := ApplyGeneratedConfigPolicy(input, GeneratedConfigPolicyResource{
+		AddressToKey: map[string]string{"test_item.example": "key"},
+		Policy:       policy,
+		ResourceType: testResourceType,
+	}, generatedPolicyRoot(t, nil))
+	if err != nil {
+		t.Fatalf("ApplyGeneratedConfigPolicy(optional_block[].child): %v", err)
+	}
+	want := "resource \"test_item\" \"example\" {\n" +
+		"  optional_block {\n" +
+		"    name = \"parent-0\"\n" +
+		"  }\n" +
+		"  optional_block {\n" +
+		"    name = \"parent-1\"\n" +
+		"  }\n" +
+		"  required_value = \"keep\"\n" +
+		"}\n"
+	if result.Edits != 3 || result.Text != want {
+		t.Errorf("ApplyGeneratedConfigPolicy(optional_block[].child) = %#v, want edits=3 text=%q", result, want)
+	}
+	if stale := policy.StaleEntries(metadata.StaleEntriesOptions{}); len(stale) != 0 {
+		t.Errorf("ApplyGeneratedConfigPolicy(optional_block[].child) stale entries = %#v, want none", stale)
+	}
+}
+
+func TestGeneratedConfigProjectionOmitDefersExactIndexedBlock(t *testing.T) {
+	policy := testPolicy(t, "projection_omit", policyEntry("optional_block[0].child", nil))
+	input := "resource \"test_item\" \"example\" {\n" +
+		"  optional_block {\n" +
+		"    name = \"parent-0\"\n" +
+		"    child {\n" +
+		"      name = \"keep-0\"\n" +
+		"    }\n" +
+		"  }\n" +
+		"  optional_block {\n" +
+		"    name = \"parent-1\"\n" +
+		"    child {\n" +
+		"      name = \"keep-1\"\n" +
+		"    }\n" +
+		"  }\n" +
+		"  required_value = \"keep\"\n" +
+		"}\n"
+	result, err := ApplyGeneratedConfigPolicy(input, GeneratedConfigPolicyResource{
+		AddressToKey: map[string]string{"test_item.example": "key"},
+		Policy:       policy,
+		ResourceType: testResourceType,
+	}, generatedPolicyRoot(t, nil))
+	if err != nil {
+		t.Fatalf("ApplyGeneratedConfigPolicy(optional_block[0].child): %v", err)
+	}
+	if result.Edits != 0 || result.Text != input {
+		t.Errorf("ApplyGeneratedConfigPolicy(optional_block[0].child) = %#v, want edits=0 text=%q", result, input)
+	}
+	stale := policy.StaleEntries(metadata.StaleEntriesOptions{})
+	if len(stale) != 1 || stale[0].ResourceType != testResourceType ||
+		stale[0].Mode != metadata.PolicyProjectionOmit || stale[0].Path != "optional_block[0].child" {
+		t.Errorf("ApplyGeneratedConfigPolicy(optional_block[0].child) stale entries = %#v, want the exact-index entry deferred", stale)
+	}
+}
+
 func TestGeneratedConfigProjectionOmitRejectsRequiredBlock(t *testing.T) {
 	policy := testPolicy(t, "projection_omit", policyEntry("required_block", nil))
 	input := "resource \"test_item\" \"example\" {\n" +
@@ -154,14 +234,8 @@ func TestGeneratedConfigProjectionOmitRejectsRequiredBlock(t *testing.T) {
 }
 
 func TestCommittedZIA480GeneratedConfigOmitsEndpointBlocks(t *testing.T) {
-	repositoryRoot := filepath.Clean(filepath.Join("..", "..", ".."))
-	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
-	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot(ZIA 4.8.0): %v", err)
-	}
+	requireAdoptionPackSelection(t, metadata.PackSelection{Packs: []string{"zia"}, Shared: []string{"zscaler"}})
+	root := installedAdoptionRoot(t)
 	for _, resourceType := range []string{
 		"zia_firewall_dns_rule",
 		"zia_firewall_filtering_rule",

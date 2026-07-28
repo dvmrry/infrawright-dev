@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
 // zscalerFixtureTransport is invoked from this package's own worker pool
@@ -60,6 +62,9 @@ func jsonResponseNoT(value any) (HTTPResponse, error) {
 }
 
 func TestGenericFetchCollectsRealZccAndZtcRegistriesFromPythonFreeRoot(t *testing.T) {
+	requireCollectorPackSelection(t, metadata.PackSelection{
+		Packs: []string{"zcc", "ztc"}, Shared: []string{"zscaler"},
+	})
 	root := repoRoot(t)
 	directory := t.TempDir()
 	packsRoot := filepath.Join(directory, "packs")

@@ -52,3 +52,19 @@ Treat these changes as review-required:
 Routine docs-only edits, typo fixes, or narrow README updates do not need the
 full workflow unless they alter process, claims, generated-output
 interpretation, or source-evidence meaning.
+
+## Validation Promotion
+
+- Full-corpus suites are promotion gates, not discovery tools. Before running
+  one, add and pass an independently runnable focused regression for every new
+  invariant, and prove that regression fails against the pre-fix behavior or a
+  faithful unsafe mutation.
+- If a full-corpus gate fails, reproduce the defect with a focused command
+  before editing or rerunning the corpus. Do not rerun checks already covered
+  by a passing superset on the same commit.
+- After one attempted fix fails to establish the same invariant, stop patching
+  and return to design before another broad validation pass.
+- During a provider refresh, adding a key to `overrideKeys` extends the pack
+  contract vocabulary. Stop and obtain explicit scope direction before making
+  that change; touching a generic implementation file alone is review context,
+  not an automatic stop.

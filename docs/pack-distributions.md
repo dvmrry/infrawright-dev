@@ -47,14 +47,12 @@ the `zscaler` shared component. A downstream profile that drops unrelated packs
 remains valid, but dropping a component required by a retained pack fails
 before tests or collection begin.
 
-The committed profiles are intentionally checked for derivability: single-pack
-profiles equal the named pack plus its `requires_shared` closure, the Zscaler
-profile equals every `vendor: zscaler` pack plus that closure, and the full and
-empty profiles equal all and no packs respectively. This proves the selections
-can eventually be generated. The documents remain committed for now because an
-exact distribution lock must be independent of the installed directories it
-checks; deriving `full` from an already damaged root would make an accidental
-deletion appear intentional.
+Committed profiles are discovered rather than enumerated in code or CI. Each
+profile must name installed packs and exactly their `requires_shared` closure;
+the profile's name and pack composition remain distribution policy. This lets a
+downstream distribution omit unrelated cloud packs without editing test or
+workflow inventories. The documents remain committed because an exact
+distribution lock must be independent of the installed directories it checks.
 
 Every top-level directory other than `_shared` counts as an installed pack,
 even when it has no `pack.json`; every directory immediately below `_shared`

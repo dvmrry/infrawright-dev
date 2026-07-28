@@ -1,6 +1,7 @@
 package assessment
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -99,14 +100,90 @@ func assessmentRepoRoot(t *testing.T) string {
 
 func loadedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
-	repository := assessmentRepoRoot(t)
-	profile := filepath.Join(repository, "packs", "full.packset.json")
+	directory := t.TempDir()
+	pack := filepath.Join(directory, "sample")
+	write := func(path string, value any) {
+		t.Helper()
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("json.Marshal(%q) error: %v", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("os.MkdirAll(%q) error: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(%q) error: %v", path, err)
+		}
+	}
+	write(filepath.Join(pack, "pack.json"), metadata.JsonObject{
+		"provider_prefixes": metadata.JsonObject{"zia_": "zia", "zpa_": "zpa"},
+		"provider_sources":  metadata.JsonObject{"zia": "example/zia", "zpa": "example/zpa"},
+		"references": metadata.JsonObject{
+			"zpa_application_segment": metadata.JsonObject{
+				"segment_group_id": metadata.JsonObject{"name_field": "name", "referent": "zpa_segment_group"},
+			},
+		},
+	})
+	registry := metadata.JsonObject{}
+	for _, resourceType := range []string{
+		"zia_admin_users", "zia_url_categories", "zia_workload_groups",
+		"zpa_application_segment", "zpa_sample", "zpa_segment_group",
+	} {
+		product, _, _ := strings.Cut(resourceType, "_")
+		registry[resourceType] = metadata.JsonObject{"generate": true, "product": product}
+	}
+	write(filepath.Join(pack, "registry.json"), registry)
+	profile := filepath.Join(directory, "profile.json")
+	write(profile, metadata.JsonObject{
+		"kind": metadata.PackSetKind, "version": 1, "packs": []string{"sample"}, "shared": []string{},
+	})
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot:   filepath.Join(repository, "packs"),
+		PacksRoot:   directory,
 		ProfilePath: &profile,
 	})
 	if err != nil {
-		t.Fatalf("metadata.LoadPackRoot(%q) error: %v", repository, err)
+		t.Fatalf("metadata.LoadPackRoot(synthetic assessment pack) error: %v", err)
+	}
+	return root
+}
+
+func installedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	packsRoot := filepath.Join(assessmentRepoRoot(t), "packs")
+	entries, err := os.ReadDir(packsRoot)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error: %v", packsRoot, err)
+	}
+	packs := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != "_shared" {
+			packs = append(packs, entry.Name())
+		}
+	}
+	shared := []any{}
+	sharedRoot := filepath.Join(packsRoot, "_shared")
+	sharedEntries, err := os.ReadDir(sharedRoot)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("os.ReadDir(%q) error: %v", sharedRoot, err)
+	}
+	for _, entry := range sharedEntries {
+		if entry.IsDir() {
+			shared = append(shared, entry.Name())
+		}
+	}
+	profile := filepath.Join(t.TempDir(), "installed.packset.json")
+	data, err := json.Marshal(metadata.JsonObject{
+		"kind": metadata.PackSetKind, "version": 1, "packs": packs, "shared": shared,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(installed pack set) error: %v", err)
+	}
+	if err := os.WriteFile(profile, append(data, '\n'), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error: %v", profile, err)
+	}
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{PacksRoot: packsRoot, ProfilePath: &profile})
+	if err != nil {
+		t.Fatalf("metadata.LoadPackRoot(installed packs) error: %v", err)
 	}
 	return root
 }

@@ -370,6 +370,7 @@ Flags:
       --profile string      pack profile path
       --resource string     resource selector (repeatable)
       --root string         pack root directory
+      --state-aware         inspect Terraform state before binding references or staging imports
       --tenant string       deployment tenant label
       --terraform string    Terraform executable path
 ```
@@ -646,7 +647,7 @@ Flags:
       --profile string          pack profile path
       --resource string         resource selector (repeatable)
       --root string             pack root directory
-      --state-aware             inspect local ephemeral state while staging imports
+      --state-aware             inspect Terraform state before binding references or staging imports
       --tenant string           deployment tenant label
       --terraform string        Terraform executable path
 ```

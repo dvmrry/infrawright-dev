@@ -29,6 +29,10 @@ All root Make targets route through `IW ?= dist/iw`. The command inventory is:
 - Authoring: `reconcile`, `openapi-map`, `source-operation-map`,
   `source-evidence-eval`, `provider-probe`, `transform-adopt-parity`.
 
+The generated [complete CLI reference](../go/cmd/iw/testdata/cli-reference.md)
+is retained as a test golden beside the command implementation; `docs/`
+contains prose rather than executable test authority.
+
 `INFRAWRIGHT_PACKAGE_ROOT` may explicitly select runtime data. Otherwise `iw`
 walks upward from its executable until it finds `packs/full.packset.json`.
 Pack profiles live only at `packs/*.packset.json`; packs and profiles are the

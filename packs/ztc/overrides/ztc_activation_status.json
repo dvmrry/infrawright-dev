@@ -1,5 +1,5 @@
 {
   "sample": {
-    "admin_activate_status": "ACTIVE"
+    "admin_activate_status": "ADM_LOGGED_IN"
   }
 }
