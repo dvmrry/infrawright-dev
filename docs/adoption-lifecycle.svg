@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 1380" width="1560" height="1380" role="img" aria-labelledby="title desc">
-  <title id="title">infrawright adoption and drift reconciliation lifecycles</title>
-  <desc id="desc">Two sections. First, eight sequential steps turning live infrastructure into managed Terraform: fetch, adopt, gen-modules, gen-env, stage-imports, plan, assert-adoptable, apply, with a fail-closed gate before apply and two feedback loops. Second, the drift reconciliation lifecycle: four ordered projection operations inside adopt, moved-block reconciliation for identity drift, and plan tolerance classification at the gate producing clean, tolerated, or blocked outcomes.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 1810" width="1560" height="1810" role="img" aria-labelledby="title desc">
+  <title id="title">infrawright adoption, drift reconciliation, and override validation lifecycles</title>
+  <desc id="desc">Three sections. First, eight sequential steps turning live infrastructure into managed Terraform: fetch, adopt, gen-modules, gen-env, stage-imports, plan, assert-adoptable, apply, with a fail-closed gate before apply and two feedback loops. Second, the drift reconciliation lifecycle: four ordered projection operations inside adopt, moved-block reconciliation for identity drift, and plan tolerance classification at the gate producing clean, tolerated, or blocked outcomes. Third, how pack overrides are checked against the provider's own Go source through AST analysis, producing qualified, unverified, or refused evidence.</desc>
 
   <style>
     :root {
@@ -59,7 +59,7 @@
     </marker>
   </defs>
 
-  <rect class="ground" x="0" y="0" width="1560" height="1380"/>
+  <rect class="ground" x="0" y="0" width="1560" height="1810"/>
 
   <!-- Header -->
   <text class="h1" x="39" y="62">The adoption lifecycle</text>
@@ -276,4 +276,64 @@
   <text class="body" x="1024" y="1279">first two apply, anything else stops the run</text>
 
   <text class="body" x="39" y="1336">Every tolerated difference carries a reason and a named approver in the policy file, so the audit trail is the policy itself.</text>
+
+  <!-- ============ SECTION THREE: OVERRIDE VALIDATION ============ -->
+  <line class="rule" x1="39" y1="1406" x2="1521" y2="1406"/>
+
+  <text class="h2" x="39" y="1452">How pack overrides are checked</text>
+  <text class="lede" x="39" y="1478">An override is a pack author's claim about how a provider behaves. The engine does not take the claim on trust: it reads the</text>
+  <text class="lede" x="39" y="1496">provider's own Go source, derives what each field actually does, and holds the claim against that.</text>
+
+  <text class="lane" x="39" y="1538">Source-first evidence</text>
+  <text class="note" x="1521" y="1538" text-anchor="end">Evidence that does not qualify is its own outcome, never a quiet pass.</text>
+
+  <rect class="card" x="39" y="1552" width="355" height="126" rx="8"/>
+  <rect x="39" y="1552" width="3" height="126" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="57" y="1578">sourcebind</text>
+  <text class="body" x="57" y="1602">Captures every accepted byte of provider source</text>
+  <text class="body" x="57" y="1617">once. Everything downstream parses those captured</text>
+  <text class="body" x="57" y="1632">bytes and never reopens the checkout, so evidence</text>
+  <text class="body" x="57" y="1647">cannot shift under the analysis.</text>
+
+  <rect class="card" x="414" y="1552" width="355" height="126" rx="8"/>
+  <rect x="414" y="1552" width="3" height="126" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="432" y="1578">sourceanalysis</text>
+  <text class="body" x="432" y="1602">Walks the provider's Go AST to derive how each</text>
+  <text class="body" x="432" y="1617">field is really read. Bounded at 64 call depth and</text>
+  <text class="body" x="432" y="1632">10,000 files, and hardened against decoy Read</text>
+  <text class="body" x="432" y="1647">functions, so hostile source refuses rather than fools.</text>
+
+  <rect class="card" x="789" y="1552" width="355" height="126" rx="8"/>
+  <rect x="789" y="1552" width="3" height="126" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="807" y="1578">sourceoperation</text>
+  <text class="body" x="807" y="1602">Compiles the evidence into a sealed bundle and</text>
+  <text class="body" x="807" y="1617">checks its diagnostics against the exact source</text>
+  <text class="body" x="807" y="1632">report. Nothing is published to disk until the whole</text>
+  <text class="body" x="807" y="1647">bundle validates.</text>
+
+  <rect class="card" x="1164" y="1552" width="355" height="126" rx="8"/>
+  <rect x="1164" y="1552" width="3" height="126" rx="1.5" fill="var(--block)"/>
+  <text class="cmd" x="1182" y="1578">reconcile</text>
+  <text class="body" x="1182" y="1602">Holds the override against the provider schema and</text>
+  <text class="body" x="1182" y="1617">the normalized API object, so a claim that no longer</text>
+  <text class="body" x="1182" y="1632">matches the provider fails loudly instead of quietly</text>
+  <text class="body" x="1182" y="1647">mis-projecting the config.</text>
+
+  <path class="flow" d="M 398 1608 L 408 1608" marker-end="url(#tip)"/>
+  <path class="flow" d="M 773 1608 L 783 1608" marker-end="url(#tip)"/>
+  <path class="flow" d="M 1148 1608 L 1158 1608" marker-end="url(#tip)"/>
+
+  <rect x="39" y="1704" width="78" height="18" rx="9" fill="var(--safe-soft)"/>
+  <text class="pill-text" x="48" y="1717" fill="var(--safe)">QUALIFIED</text>
+  <text class="body" x="127" y="1717">the provider's source backs the claim</text>
+
+  <rect x="399" y="1704" width="84" height="18" rx="9" fill="var(--accent-soft)"/>
+  <text class="pill-text" x="408" y="1717" fill="var(--accent)">UNVERIFIED</text>
+  <text class="body" x="493" y="1717">a sealed diagnostic result that cannot satisfy a qualified-evidence caller</text>
+
+  <rect x="930" y="1704" width="70" height="18" rx="9" fill="var(--block-soft)"/>
+  <text class="pill-text" x="939" y="1717" fill="var(--block)">REFUSED</text>
+  <text class="body" x="1010" y="1717">malformed, unbounded, or decoy source</text>
+
+  <text class="body" x="39" y="1766">Structure is checked separately and just as strictly: an unknown top-level key in an override file fails validation outright, so a typo can never become a silent no-op.</text>
 </svg>
