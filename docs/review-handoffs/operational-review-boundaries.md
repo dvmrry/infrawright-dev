@@ -17,7 +17,10 @@
 
 - Base: `9b0b40a84871fd325c25e0c0a92c1348e51664cf` (`origin/main` after PR
   #260).
-- Implementation head: `e3e46a66b68ab07d7c826809b135642cdad0ebb1`.
+- Initial refreshed implementation head:
+  `e3e46a66b68ab07d7c826809b135642cdad0ebb1`.
+- Review-correction implementation head:
+  `eda73fb25d38edfc6453d5ed8809921d9f5cb7ae`.
 - Head: the handoff-only commit immediately after the implementation head; the
   exact hash is supplied to the reviewer and contains no implementation change.
 - Diff command: `git diff 9b0b40a84871fd325c25e0c0a92c1348e51664cf..<exact-review-head>`.
@@ -174,3 +177,7 @@
 - The current-main refresh found stale runtime-specific diagnostics and a stale
   handoff. The implementation and this handoff address those findings; a fresh
   reviewer must independently approve the exact refreshed tip.
+- The refreshed review found that `CollectorContext` documentation overclaimed
+  that every absent optional field uses a product default. The correction now
+  states the real contract: an empty field is absent, and each adapter decides
+  whether absence selects a fallback or fails closed.
