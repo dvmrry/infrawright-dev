@@ -1,0 +1,279 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 1380" width="1560" height="1380" role="img" aria-labelledby="title desc">
+  <title id="title">infrawright adoption and drift reconciliation lifecycles</title>
+  <desc id="desc">Two sections. First, eight sequential steps turning live infrastructure into managed Terraform: fetch, adopt, gen-modules, gen-env, stage-imports, plan, assert-adoptable, apply, with a fail-closed gate before apply and two feedback loops. Second, the drift reconciliation lifecycle: four ordered projection operations inside adopt, moved-block reconciliation for identity drift, and plan tolerance classification at the gate producing clean, tolerated, or blocked outcomes.</desc>
+
+  <style>
+    :root {
+      --ground:#F4F6F9; --surface:#FFFFFF; --ink:#101720; --muted:#5C6B7E;
+      --line:#C9D4E0; --hairline:#DDE4EC;
+      --accent:#1F7A8C; --accent-soft:#E2EDF0;
+      --safe:#2E7D5B; --safe-soft:#E2EFE8;
+      --block:#B4522F; --block-soft:#F7E8E1;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ground:#0D131B; --surface:#161F2B; --ink:#E8EEF5; --muted:#91A2B5;
+        --line:#2C3B4D; --hairline:#212C3A;
+        --accent:#58B6C9; --accent-soft:#14303A;
+        --safe:#6FBF8E; --safe-soft:#132A22;
+        --block:#E08A63; --block-soft:#2E1D16;
+      }
+    }
+    .ground{fill:var(--ground)}
+    .card{fill:var(--surface);stroke:var(--line);stroke-width:1}
+    .ink{fill:var(--ink)}
+    .muted{fill:var(--muted)}
+    .rule{stroke:var(--hairline);stroke-width:1}
+    .flow{stroke:var(--line);stroke-width:1.5;fill:none}
+    .loop{stroke:var(--accent);stroke-width:1.5;fill:none;stroke-dasharray:5 4}
+    .loop-block{stroke:var(--block);stroke-width:1.5;fill:none;stroke-dasharray:5 4}
+    .feed{stroke:var(--line);stroke-width:1.5;fill:none;stroke-dasharray:3 4}
+
+    .h1{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:31px;font-weight:650;letter-spacing:-0.015em;fill:var(--ink)}
+    .lede{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:13.5px;font-weight:400;fill:var(--muted)}
+    .cmd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;font-weight:600;fill:var(--ink)}
+    .body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:11px;fill:var(--muted)}
+    .idx{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;fill:var(--accent)}
+    .idx-block{fill:var(--block)}
+    .idx-safe{fill:var(--safe)}
+    .chip{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:9.5px;fill:var(--muted)}
+    .label{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:9.5px;font-weight:650;letter-spacing:0.11em;text-transform:uppercase}
+    .pill-text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:9px;font-weight:650;letter-spacing:0.07em}
+    .loop-label{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:11px;font-weight:500}
+    .inv-h{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:12.5px;font-weight:650;fill:var(--ink)}
+    .inv-b{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:11px;fill:var(--muted)}
+    .h2{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:24px;font-weight:650;letter-spacing:-0.012em;fill:var(--ink)}
+    .lane{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:9.5px;font-weight:650;letter-spacing:0.11em;text-transform:uppercase;fill:var(--ink)}
+    .note{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:10.5px;font-style:italic;fill:var(--muted)}
+  </style>
+
+  <defs>
+    <marker id="tip" viewBox="0 0 8 8" refX="6.5" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0.5 0.8 L7 4 L0.5 7.2 Z" fill="var(--line)"/>
+    </marker>
+    <marker id="tip-accent" viewBox="0 0 8 8" refX="6.5" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0.5 0.8 L7 4 L0.5 7.2 Z" fill="var(--accent)"/>
+    </marker>
+    <marker id="tip-block" viewBox="0 0 8 8" refX="6.5" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0.5 0.8 L7 4 L0.5 7.2 Z" fill="var(--block)"/>
+    </marker>
+  </defs>
+
+  <rect class="ground" x="0" y="0" width="1560" height="1380"/>
+
+  <!-- Header -->
+  <text class="h1" x="39" y="62">The adoption lifecycle</text>
+  <text class="lede" x="39" y="88">Live infrastructure becomes managed Terraform without a destroy. Each step is a <tspan style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">make</tspan> target, and nothing reaches the tenant until the gate</text>
+  <text class="lede" x="39" y="106">before <tspan style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">apply</tspan> has proved every saved plan is a no-op or an import.</text>
+  <line class="rule" x1="39" y1="126" x2="1521" y2="126"/>
+
+  <!-- Pack metadata source -->
+  <rect class="card" x="39" y="150" width="342" height="52" rx="7"/>
+  <rect x="39" y="150" width="3" height="52" rx="1.5" fill="var(--muted)"/>
+  <text class="label" x="58" y="171" fill="var(--muted)">Pack metadata</text>
+  <text class="chip" x="58" y="190">registry.json · provider schemas · overrides</text>
+  <path class="feed" d="M 250 202 C 250 240, 310 250, 310 288" marker-end="url(#tip)"/>
+  <text class="body" x="264" y="248">informs steps 02–04</text>
+
+  <!-- Upgrade ratchet loop (above spine) -->
+  <path class="loop" d="M 1438 288 L 1438 252 L 686 252 L 686 288" marker-end="url(#tip-accent)"/>
+  <rect x="860" y="240" width="278" height="24" rx="6" fill="var(--ground)"/>
+  <text class="loop-label" x="868" y="257" fill="var(--accent)">Each newly adopted root upgrades its referrers</text>
+
+  <!-- ================= SPINE ================= -->
+
+  <!-- 01 fetch -->
+  <text class="idx" x="39" y="282">01</text>
+  <rect class="card" x="39" y="290" width="166" height="120" rx="8"/>
+  <rect x="39" y="290" width="3" height="120" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="57" y="316">fetch</text>
+  <text class="body" x="57" y="340">Pull live API evidence</text>
+  <text class="body" x="57" y="355">into a tenant folder</text>
+  <text class="chip" x="57" y="430">→ pulls/</text>
+
+  <!-- 02 adopt -->
+  <text class="idx" x="227" y="282">02</text>
+  <rect class="card" x="227" y="290" width="166" height="120" rx="8"/>
+  <rect x="227" y="290" width="3" height="120" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="245" y="316">adopt</text>
+  <text class="body" x="245" y="340">Import through Terraform;</text>
+  <text class="body" x="245" y="355">provider state is the truth</text>
+  <text class="chip" x="245" y="430">→ config/ imports/</text>
+
+  <!-- 03 gen-modules -->
+  <text class="idx" x="415" y="282">03</text>
+  <rect class="card" x="415" y="290" width="166" height="120" rx="8"/>
+  <rect x="415" y="290" width="3" height="120" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="433" y="316">gen-modules</text>
+  <text class="body" x="433" y="340">Generate reusable modules</text>
+  <text class="body" x="433" y="355">for the chosen resources</text>
+  <text class="chip" x="433" y="430">→ modules/</text>
+
+  <!-- 04 gen-env -->
+  <text class="idx" x="603" y="282">04</text>
+  <rect class="card" x="603" y="290" width="166" height="120" rx="8"/>
+  <rect x="603" y="290" width="3" height="120" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="621" y="316">gen-env</text>
+  <text class="body" x="621" y="340">Generate isolated roots</text>
+  <text class="body" x="621" y="355">that source those modules</text>
+  <rect x="621" y="366" width="132" height="18" rx="9" fill="var(--accent-soft)"/>
+  <text class="pill-text" x="630" y="379" fill="var(--accent)">RESOLVES REFERENCES</text>
+  <text class="chip" x="621" y="430">→ envs/</text>
+
+  <!-- 05 stage-imports -->
+  <text class="idx" x="791" y="282">05</text>
+  <rect class="card" x="791" y="290" width="166" height="120" rx="8"/>
+  <rect x="791" y="290" width="3" height="120" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="809" y="316">stage-imports</text>
+  <text class="body" x="809" y="340">Place import and moved</text>
+  <text class="body" x="809" y="355">blocks into the roots</text>
+  <text class="chip" x="809" y="430">→ import{} · moved{}</text>
+
+  <!-- 06 plan -->
+  <text class="idx" x="979" y="282">06</text>
+  <rect class="card" x="979" y="290" width="166" height="120" rx="8"/>
+  <rect x="979" y="290" width="3" height="120" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="997" y="316">plan</text>
+  <text class="body" x="997" y="340">Save a Terraform plan</text>
+  <text class="body" x="997" y="355">for every root</text>
+  <text class="chip" x="997" y="430">→ tfplan</text>
+
+  <!-- 07 assert-adoptable : the gate -->
+  <text class="idx idx-block" x="1167" y="282">07</text>
+  <rect class="card" x="1167" y="290" width="166" height="120" rx="8" stroke="var(--block)"/>
+  <rect x="1167" y="290" width="3" height="120" rx="1.5" fill="var(--block)"/>
+  <text class="cmd" x="1185" y="316" style="font-size:11.8px">assert-adoptable</text>
+  <text class="body" x="1185" y="340">Classify every plan and</text>
+  <text class="body" x="1185" y="355">refuse what is not clean</text>
+  <rect x="1185" y="366" width="86" height="18" rx="9" fill="var(--block-soft)"/>
+  <text class="pill-text" x="1194" y="379" fill="var(--block)">FAIL-CLOSED</text>
+  <text class="chip" x="1185" y="430">→ report.json</text>
+
+  <!-- 08 apply -->
+  <text class="idx idx-safe" x="1355" y="282">08</text>
+  <rect class="card" x="1355" y="290" width="166" height="120" rx="8"/>
+  <rect x="1355" y="290" width="3" height="120" rx="1.5" fill="var(--safe)"/>
+  <text class="cmd" x="1373" y="316">apply</text>
+  <text class="body" x="1373" y="340">Re-check, then apply</text>
+  <text class="body" x="1373" y="355">only what passed</text>
+  <rect x="1373" y="366" width="104" height="18" rx="9" fill="var(--safe-soft)"/>
+  <text class="pill-text" x="1382" y="379" fill="var(--safe)">VERIFIES AGAIN</text>
+  <text class="chip" x="1373" y="430">→ managed state</text>
+
+  <!-- Flow arrows between steps -->
+  <path class="flow" d="M 209 350 L 219 350" marker-end="url(#tip)"/>
+  <path class="flow" d="M 397 350 L 407 350" marker-end="url(#tip)"/>
+  <path class="flow" d="M 585 350 L 595 350" marker-end="url(#tip)"/>
+  <path class="flow" d="M 773 350 L 783 350" marker-end="url(#tip)"/>
+  <path class="flow" d="M 961 350 L 971 350" marker-end="url(#tip)"/>
+  <path class="flow" d="M 1149 350 L 1159 350" marker-end="url(#tip)"/>
+  <path class="flow" d="M 1337 350 L 1347 350" marker-end="url(#tip)"/>
+
+  <!-- Remediation loop (below spine) -->
+  <path class="loop-block" d="M 1310 412 L 1310 494 L 370 494 L 370 412" marker-end="url(#tip-block)"/>
+  <rect x="620" y="482" width="278" height="24" rx="6" fill="var(--ground)"/>
+  <text class="loop-label" x="628" y="499" fill="var(--block)">Blocked → fix the evidence or the policy, re-adopt</text>
+
+  <line class="rule" x1="39" y1="558" x2="1521" y2="558"/>
+
+  <!-- Invariants -->
+  <text class="label" x="39" y="592" fill="var(--muted)">What holds across every step</text>
+
+  <rect class="card" x="39" y="610" width="470" height="128" rx="8"/>
+  <rect x="39" y="610" width="3" height="128" rx="1.5" fill="var(--safe)"/>
+  <text class="inv-h" x="59" y="640">Keys never move</text>
+  <text class="inv-b" x="59" y="664">The same live resource maps to the same</text>
+  <text class="inv-b" x="59" y="681">state address on every run, so a rerun cannot</text>
+  <text class="inv-b" x="59" y="698">silently turn an update into a replacement.</text>
+  <text class="chip" x="59" y="722">identity-derived keys</text>
+
+  <rect class="card" x="545" y="610" width="470" height="128" rx="8"/>
+  <rect x="545" y="610" width="3" height="128" rx="1.5" fill="var(--safe)"/>
+  <text class="inv-h" x="565" y="640">A rename is a move, not a rebuild</text>
+  <text class="inv-b" x="565" y="664">When a key does change it is emitted as a</text>
+  <text class="inv-b" x="565" y="681">move. An unresolved rename stops the run until</text>
+  <text class="inv-b" x="565" y="698">someone confirms the state migration.</text>
+  <text class="chip" x="565" y="722">moved {} reconciliation</text>
+
+  <rect class="card" x="1051" y="610" width="470" height="128" rx="8"/>
+  <rect x="1051" y="610" width="3" height="128" rx="1.5" fill="var(--safe)"/>
+  <text class="inv-h" x="1071" y="640">The same inputs give the same bytes</text>
+  <text class="inv-b" x="1071" y="664">Committed artifacts are regenerated and</text>
+  <text class="inv-b" x="1071" y="681">compared on every check, so a change nobody</text>
+  <text class="inv-b" x="1071" y="698">asked for fails the build rather than shipping.</text>
+  <text class="chip" x="1071" y="722">verified against goldens</text>
+
+  <text class="body" x="39" y="782">Steps 01–06 only write files you can delete. Step 07 decides. Step 08 is the first and only step that touches the tenant.</text>
+
+  <!-- ============ SECTION TWO: DRIFT RECONCILIATION ============ -->
+  <line class="rule" x1="39" y1="856" x2="1521" y2="856"/>
+
+  <text class="h2" x="39" y="902">The drift reconciliation lifecycle</text>
+  <text class="lede" x="39" y="928">Live infrastructure and providers both return values that are not configuration. Drift is reconciled in three separate places,</text>
+  <text class="lede" x="39" y="946">and each one narrows what the next has to decide. Nothing is tolerated without a written reason and a named approver.</text>
+
+  <!-- Lane A: projection -->
+  <text class="lane" x="39" y="990">At projection — while <tspan style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-transform:none;letter-spacing:0">adopt</tspan> writes the tfvars</text>
+  <text class="note" x="1521" y="990" text-anchor="end">Applied in this order. The order is not configurable.</text>
+
+  <rect class="card" x="39" y="1004" width="355" height="112" rx="8"/>
+  <rect x="39" y="1004" width="3" height="112" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="57" y="1030">projection_omit</text>
+  <text class="body" x="57" y="1054">Drops provider-observed values that are not</text>
+  <text class="body" x="57" y="1069">desired configuration — telemetry, timestamps,</text>
+  <text class="body" x="57" y="1084">and other read-only churn.</text>
+
+  <rect class="card" x="414" y="1004" width="355" height="112" rx="8"/>
+  <rect x="414" y="1004" width="3" height="112" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="432" y="1030">projection_sync</text>
+  <text class="body" x="432" y="1054">Fills an absent, null, or empty target from another</text>
+  <text class="body" x="432" y="1069">observed path. Never overwrites a populated one,</text>
+  <text class="body" x="432" y="1084">so a real difference stays visible.</text>
+
+  <rect class="card" x="789" y="1004" width="355" height="112" rx="8"/>
+  <rect x="789" y="1004" width="3" height="112" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="807" y="1030">projection_fill</text>
+  <text class="body" x="807" y="1054">Fills from the raw pull when the provider never</text>
+  <text class="body" x="807" y="1069">returns the value at all, so the field is absent</text>
+  <text class="body" x="807" y="1084">rather than merely empty.</text>
+
+  <rect class="card" x="1164" y="1004" width="355" height="112" rx="8"/>
+  <rect x="1164" y="1004" width="3" height="112" rx="1.5" fill="var(--accent)"/>
+  <text class="cmd" x="1182" y="1030">projection_omit_if</text>
+  <text class="body" x="1182" y="1054">Strips only the leaves matching an exact value.</text>
+  <text class="body" x="1182" y="1069">Strict JSON equality, so false is not 0, and a</text>
+  <text class="body" x="1182" y="1084">required path is refused outright.</text>
+
+  <path class="flow" d="M 398 1060 L 408 1060" marker-end="url(#tip)"/>
+  <path class="flow" d="M 773 1060 L 783 1060" marker-end="url(#tip)"/>
+  <path class="flow" d="M 1148 1060 L 1158 1060" marker-end="url(#tip)"/>
+
+  <!-- Lane B: identity -->
+  <text class="lane" x="39" y="1160">At identity — when a resource key changes</text>
+  <rect class="card" x="39" y="1174" width="730" height="118" rx="8"/>
+  <rect x="39" y="1174" width="3" height="118" rx="1.5" fill="var(--safe)"/>
+  <text class="cmd" x="57" y="1200">moved {}</text>
+  <text class="body" x="57" y="1224">A key that changes is emitted as a move, never as a destroy and</text>
+  <text class="body" x="57" y="1239">recreate. Rerunning preserves unresolved move bytes; a different</text>
+  <text class="body" x="57" y="1254">rename stops the run until someone confirms the state migration</text>
+  <text class="body" x="57" y="1269">and removes the old artifact deliberately.</text>
+
+  <!-- Lane C: the gate -->
+  <text class="lane" x="790" y="1160">At the gate — inside <tspan style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-transform:none;letter-spacing:0">assert-adoptable</tspan></text>
+  <rect class="card" x="790" y="1174" width="731" height="118" rx="8"/>
+  <rect x="790" y="1174" width="3" height="118" rx="1.5" fill="var(--block)"/>
+  <text class="cmd" x="808" y="1200">plan_tolerate</text>
+  <text class="body" x="808" y="1224">Classifies a saved plan when provider noise survives projection,</text>
+  <text class="body" x="808" y="1239">scoped to a path and a set of actions. It is an infrawright gate:</text>
+  <text class="body" x="808" y="1254">it never changes what Terraform itself plans.</text>
+
+  <rect x="808" y="1266" width="52" height="18" rx="9" fill="var(--safe-soft)"/>
+  <text class="pill-text" x="817" y="1279" fill="var(--safe)">CLEAN</text>
+  <rect x="866" y="1266" width="76" height="18" rx="9" fill="var(--accent-soft)"/>
+  <text class="pill-text" x="875" y="1279" fill="var(--accent)">TOLERATED</text>
+  <rect x="948" y="1266" width="64" height="18" rx="9" fill="var(--block-soft)"/>
+  <text class="pill-text" x="957" y="1279" fill="var(--block)">BLOCKED</text>
+  <text class="body" x="1024" y="1279">first two apply, anything else stops the run</text>
+
+  <text class="body" x="39" y="1336">Every tolerated difference carries a reason and a named approver in the policy file, so the audit trail is the policy itself.</text>
+</svg>
