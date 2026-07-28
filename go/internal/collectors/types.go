@@ -22,7 +22,8 @@ const (
 type Environment = map[string]string
 
 // CollectorContext holds tenant- and product-specific values derived during
-// authentication. Empty optional fields use their product defaults.
+// authentication. An empty field means the value was not supplied; each
+// adapter decides whether that absence selects a fallback or is an error.
 type CollectorContext struct {
 	Cloud         string
 	CustomerID    string
