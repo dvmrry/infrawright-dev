@@ -268,8 +268,7 @@ func TestCommittedCASBPagersHandleFullBoundariesAndWriteDeterministicBytes(t *te
 // ziaAdoptionFixture mirrors the shape of
 // tests/fixtures/zia-adoption-classification-v4.8.0.json well enough
 // to rebuild each resource type's exact-order payload
-// (skip + system_skip + unsupported + keep, matching the Node test's own
-// concatenation order) without re-encoding any evidence item -- each is
+// (skip + system_skip + unsupported + keep) without re-encoding any evidence item -- each is
 // kept as json.RawMessage so the artifact-bytes comparison below is not
 // laundered through an intermediate Go value representation.
 type ziaAdoptionFixture struct {
@@ -353,7 +352,7 @@ func TestZiaAdoptionClassifiersReceiveExactFetchShapedSystemFields(t *testing.T)
 	}
 }
 
-func TestBatchSharesOneAPIAuthSkipsOptionalWritesPythonBytesInvalidatesStaleSkips(t *testing.T) {
+func TestBatchSharesOneAPIAuthSkipsOptionalWritesCanonicalBytesInvalidatesStaleSkips(t *testing.T) {
 	packRoot := syntheticCollectorRegistryRoot(t, map[string]map[string]any{
 		"alpha": {
 			"alpha_optional": map[string]any{"product": "alpha", "fetch": map[string]any{
@@ -1160,12 +1159,8 @@ func TestFetchConcurrencyRejectsInvalidLibraryValues(t *testing.T) {
 			"sample_settings": map[string]any{"product": "sample", "fetch": map[string]any{"pagination": "single", "path": "settings"}},
 		},
 	})
-	// Only the integer-representable invalid values from the Node test
-	// are ported (0, -1, 65): the Node source additionally covers 1.5 and
-	// NaN, both structurally unrepresentable as Go's *int concurrency
-	// field -- Go's static typing already provides the guarantee those
-	// two cases exist to prove at compile time, so there is no runtime
-	// behavior left to port for them (see this port's report).
+	// Fractional and NaN values are structurally unrepresentable as *int, so
+	// runtime validation covers the remaining invalid values.
 	for _, concurrency := range []int{0, -1, 65} {
 		acquisitions := 0
 		adapter := testAdapter("sample", nil)

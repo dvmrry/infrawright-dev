@@ -197,10 +197,9 @@ type TransformLoadedItemsOptions struct {
 	Resource metadata.LoadedResourceMetadata
 	Schema   metadata.JsonObject
 	RawItems []any
-	// HTMLUnescape is one Python-compatible html.unescape pass; the kernel
-	// applies it twice where the resource's projection calls for HTML
-	// unescaping. nil is the Go analogue of the Node source's
-	// options.htmlUnescape being undefined.
+	// HTMLUnescape performs one compatible HTML entity-decoding pass. The
+	// kernel applies it twice where the resource projection requests unescaping.
+	// Nil means no decoder was supplied.
 	HTMLUnescape func(string) string
 	// UnescapeHTML is true only when the owning pack lists this resource
 	// prefix for unescape (the Go analogue of options.unescapeHtml === true

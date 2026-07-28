@@ -264,7 +264,7 @@ func TestA6AuthoringCommandsRunWithoutExternalExecutables(t *testing.T) {
 		}
 	}
 	if bytes, err := os.ReadFile(log); err == nil {
-		t.Errorf("A6 Node-free smoke invoked forbidden executable(s): %q", bytes)
+		t.Errorf("A6 hermetic smoke invoked forbidden executable(s): %q", bytes)
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("os.ReadFile(%q): %v", log, err)
 	}

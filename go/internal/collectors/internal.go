@@ -2,10 +2,8 @@ package collectors
 
 import "strings"
 
-// internal.go holds small package-local helpers with no direct Node source
-// counterpart: plain-Go plumbing (set construction, JSON-style string
-// quoting for error messages) that the TS source gets for free from
-// JS's Set/JSON.stringify and this package must spell out explicitly.
+// internal.go holds small package-local helpers for set construction and
+// JSON-style string quoting in error messages.
 
 // toSet builds a membership set from values, for the same O(1)
 // `new Set(array).has(x)` membership checks the original implementation
@@ -18,9 +16,7 @@ func toSet(values []string) map[string]struct{} {
 	return set
 }
 
-// setKeys returns set's members in unspecified order, for feeding into
-// canonjson.SortedStrings (the Go analogue of the Node source's own
-// `[...set]` spread immediately before `sortedStrings(...)`/`.sort()`).
+// setKeys returns set's members in unspecified order for canonical sorting.
 func setKeys(set map[string]struct{}) []string {
 	keys := make([]string, 0, len(set))
 	for key := range set {

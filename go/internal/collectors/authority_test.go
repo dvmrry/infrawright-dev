@@ -23,10 +23,8 @@ func loadRootFromPacksDir(t *testing.T, packsRoot string) metadata.LoadedPackRoo
 	return loaded
 }
 
-// copiedRoot ports the copiedRoot test helper from
-// the original test corpus: a temp packs/ tree containing
-// _shared/zscaler plus the named product packs, with no Python source
-// left in it.
+// copiedRoot returns a temporary packs tree containing _shared/zscaler and
+// the named product packs.
 func copiedRoot(t *testing.T, products []string) string {
 	t.Helper()
 	requireCollectorPackSelection(t, metadata.PackSelection{Packs: products, Shared: []string{"zscaler"}})
@@ -126,7 +124,7 @@ func TestResolveCollectorAdaptersAgainstCommittedProviderSources(t *testing.T) {
 	}
 }
 
-func TestResolveCollectorAdaptersAgainstPythonFreeCopiedRoot(t *testing.T) {
+func TestResolveCollectorAdaptersAgainstCopiedRoot(t *testing.T) {
 	packsRoot := copiedRoot(t, []string{"zia"})
 	root := loadRootFromPacksDir(t, packsRoot)
 	resolved, err := ResolveCollectorAdapters(ResolveCollectorAdaptersOptions{
@@ -162,8 +160,9 @@ func TestResolveCollectorAdaptersFailsClosedOnMismatchedProviderSources(t *testi
 		ResourceTypes: []string{"zcc_resource"},
 		Root:          root,
 	})
-	if err == nil || !regexp.MustCompile(`example/custom-zcc.*not available`).MatchString(err.Error()) {
-		t.Errorf("expected an 'example/custom-zcc ... not available' error, got %v", err)
+	want := "selected fetch resource \"zcc_resource\" uses provider source \"example/custom-zcc\" and product \"zcc\", but a matching collector adapter is not available; use a caller that injects a matching collector adapter"
+	if err == nil || err.Error() != want {
+		t.Errorf("ResolveCollectorAdapters() error = %v, want %q", err, want)
 	}
 
 	rewriteManifest(t, packsRoot, "zia", func(manifest map[string]any) {

@@ -255,6 +255,48 @@ func TestLoadedMetadataDrivesOverrideOrderAndProjection(t *testing.T) {
 	}
 }
 
+func TestTransformHTMLDecoderErrorsAreRuntimeNeutral(t *testing.T) {
+	schema := metadata.JsonObject{
+		"block": metadata.JsonObject{
+			"attributes": metadata.JsonObject{
+				"custom": metadata.JsonObject{"optional": true, "type": "string"},
+				"name":   metadata.JsonObject{"optional": true, "type": "string"},
+			},
+		},
+	}
+	tests := []struct {
+		name         string
+		override     metadata.JsonObject
+		unescapeHTML bool
+		want         string
+	}{
+		{
+			name:     "escape field",
+			override: metadata.JsonObject{"html_escape_fields": []any{"custom"}},
+			want:     "sample_rule HTML escaping requires an HTML decoder",
+		},
+		{
+			name:         "display field",
+			override:     metadata.JsonObject{},
+			unescapeHTML: true,
+			want:         "sample_rule display-field unescaping requires an HTML decoder",
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := TransformLoadedItems(TransformLoadedItemsOptions{
+				Resource:     sampleRuleResource(testCase.override),
+				Schema:       schema,
+				RawItems:     []any{metadata.JsonObject{"custom": "value", "name": "name"}},
+				UnescapeHTML: testCase.unescapeHTML,
+			})
+			if err == nil || err.Error() != testCase.want {
+				t.Fatalf("TransformLoadedItems() error = %v, want %q", err, testCase.want)
+			}
+		})
+	}
+}
+
 func TestCommittedZIAOverridesDropRawEmptyStringSentinels(t *testing.T) {
 	requireInstalledPack(t, "zia")
 	loaded := installedPackRoot(t)

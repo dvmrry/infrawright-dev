@@ -23,9 +23,8 @@ const (
 	// set. It ports REST_HTTP_TIMEOUT_MS from the retired resthttp
 	// package.
 	DefaultTimeoutMs = 30_000
-	// DefaultResponseLimitBytes bounds a single response body. It is a
-	// DoS guard against an unbounded or compromised peer, not a Node
-	// parity requirement -- see the Go runtime contract §2.
+	// DefaultResponseLimitBytes bounds a single response body as a DoS guard
+	// against an unbounded or compromised peer.
 	DefaultResponseLimitBytes = 64 * 1024 * 1024
 	// DefaultMaxRedirects caps automatic redirect following.
 	DefaultMaxRedirects = 10

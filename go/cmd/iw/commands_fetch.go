@@ -136,8 +136,8 @@ func selectedFetchProducts(
 	return products, nil
 }
 
-// fetchWithOwnedTransport preserves the Node finally block's error precedence:
-// Fetch failure is primary; Close failure matters only after a successful run.
+// fetchWithOwnedTransport keeps a fetch failure primary; a close failure is
+// returned only after a successful run.
 func fetchWithOwnedTransport(
 	transport collectors.HttpTransport,
 	options collectors.FetchResourcesOptions,
@@ -152,12 +152,9 @@ func fetchWithOwnedTransport(
 	return collectors.FetchResources(options)
 }
 
-// deferredProbeTransport lets ProbeRestHost remain the sole authority for
-// diagnostic-target validation while preserving the Node construction order:
-// hostUrl(host) runs before createRestHttpTransport(...). Setup failures are
-// retained separately because ProbeRestHost deliberately turns request errors
-// into a FAIL result, whereas Node transport-construction failures escape the
-// probe and remain fatal.
+// deferredProbeTransport lets ProbeRestHost validate the diagnostic target
+// before constructing the real transport. Setup failures remain fatal, while
+// request failures become probe results.
 type deferredProbeTransport struct {
 	environment     collectors.Environment
 	includeCustomCA bool
@@ -313,8 +310,7 @@ func probeRestHostWithOwnedTransport(
 		timeoutMs:       timeoutMs,
 	}
 	defer func() {
-		// Node treats diagnostic-transport cleanup as best effort so the
-		// connectivity result remains authoritative.
+		// Cleanup is best effort so the connectivity result remains authoritative.
 		_ = transport.Close()
 	}()
 	result, err := collectors.ProbeRestHost(host, collectors.RestHostProbeOptions{

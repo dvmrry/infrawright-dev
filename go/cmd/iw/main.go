@@ -177,17 +177,15 @@ func transformCommandInput(parsed commandInput) (int, error) {
 	return 4, nil
 }
 
-// run ports the main dispatch in the original implementation. The retained authoring
-// surface is served by this same binary; there is no Node fallback or second
-// authoring executable.
+// run dispatches the complete command surface through this binary; there is no
+// fallback runtime or second authoring executable.
 func run(arguments []string) (int, error) {
 	return runCobra(arguments)
 }
 
 func main() {
-	// The Node entry point's top-level try/catch converts every thrown
-	// value -- including programmer-error TypeErrors -- into the generic
-	// "error: <message>" branch. recover() reproduces that catch-all.
+	// Convert unexpected panics into the same generic top-level error path used
+	// for ordinary command failures.
 	code := func() (code int) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
