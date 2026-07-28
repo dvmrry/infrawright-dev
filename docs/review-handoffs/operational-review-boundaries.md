@@ -4,41 +4,59 @@
 
 - Clarify that Infrawright's adoption/codegen core is provider-neutral while
   live collection requires a matching compiled adapter.
-- Add the operational state-safety paths that require fresh adversarial review.
-- Keep runtime behavior, pack metadata, generated artifacts, and CI unchanged.
+- Add operational state-safety paths to the existing fresh-context adversarial
+  review policy.
+- Remove stale Node/Python runtime language from the active collection,
+  transport, and HTML-decoder paths now that the repository ships one Go
+  runtime.
+- Preserve collection, transport, transformation, pack, and generated-output
+  behavior except for four operator diagnostics whose remediation language is
+  now runtime-neutral.
 
 ## Base / Head
 
-- Base: `aa062eb584a40c8ba93ab3f0dca17e9881d20f4d`
-- Initial implementation head: `f1e50daba3fc0eb2211498c1611b283ba16bebd8`
-- Review-correction implementation head:
-  `f66e26401e002308dde1762ab7f63ee072fd45c0`.
-- Exact review head: the handoff-only commit after
-  `f66e26401e002308dde1762ab7f63ee072fd45c0`; it is supplied to the reviewer
-  explicitly and introduces no further implementation change.
-- Diff command: `git diff aa062eb584a40c8ba93ab3f0dca17e9881d20f4d..<exact-review-head>`
+- Base: `9b0b40a84871fd325c25e0c0a92c1348e51664cf` (`origin/main` after PR
+  #260).
+- Implementation head: `e3e46a66b68ab07d7c826809b135642cdad0ebb1`.
+- Head: the handoff-only commit immediately after the implementation head; the
+  exact hash is supplied to the reviewer and contains no implementation change.
+- Diff command: `git diff 9b0b40a84871fd325c25e0c0a92c1348e51664cf..<exact-review-head>`.
 
 ## Files Changed
 
-- `AGENTS.md`
-- `README.md`
-- `docs/adversarial-review.md`
-- `docs/adversarial-review-run-prompt.md`
-- `docs/review-handoffs/operational-review-boundaries.md`
-- Files intentionally left untouched: runtime code, collector code, pack
-  metadata, workflows, generated artifacts, and the broader cleanup backlog.
+- Files:
+  - Review policy and public boundary documentation: `AGENTS.md`, `README.md`,
+    `docs/adversarial-review.md`, and
+    `docs/adversarial-review-run-prompt.md`.
+  - This handoff:
+    `docs/review-handoffs/operational-review-boundaries.md`.
+  - Collection and CLI boundary wording/tests: `go/cmd/iw/{main.go,
+    commands_fetch.go,authoring_commands_test.go,v2_vertical_slice_test.go}`
+    and the affected files under `go/internal/collectors/`.
+  - Go transport boundary wording: `go/internal/httptransport/{doc.go,
+    errors.go,transport.go}`.
+  - Generic unrelated-file fixture:
+    `go/internal/metadata/loader_test.go`.
+  - Runtime-neutral HTML-decoder diagnostics and focused proof:
+    `go/internal/transform/{kernel.go,kernel_test.go,overrides.go}`.
+- Files intentionally left untouched: pack metadata, provider schemas, generated
+  artifacts, demo outputs, workflows, and compatibility algorithms whose names
+  document exact byte/ordering semantics rather than an executable dependency.
 
 ## Source Inputs Consulted
 
 - Provider schemas: N/A.
 - OpenAPI/API contracts: N/A.
 - Provider source files: N/A.
-- Pack metadata: committed `provider_sources` declarations in `packs/*/pack.json`.
-- Existing docs or design records: `docs/adoption-command-surface.md` collector
-  boundary and the existing adversarial-review contract.
+- Pack metadata: committed `provider_sources` declarations in
+  `packs/*/pack.json`.
+- Existing docs or design records: `docs/adoption-command-surface.md`,
+  `docs/adversarial-review.md`, `docs/adversarial-review-run-prompt.md`, and
+  `docs/review-handoff-template.md`.
 - Other source evidence: `go/cmd/iw/commands_fetch.go`,
-  `go/internal/collectors/authority.go`, `go/internal/collectors/rest.go`, and
-  `go/internal/collectors/zscaler_adapters.go`.
+  `go/internal/collectors/{authority.go,rest.go,rest_diagnostics.go,types.go,
+  zscaler_adapters.go}`, `go/internal/httptransport/`, and
+  `go/internal/transform/{kernel.go,overrides.go}`.
 
 ## Generated Artifacts
 
@@ -51,67 +69,108 @@
 
 ## Expected Delta
 
-- Expected behavior change: None; documentation and review policy only.
-- Expected report/count/coverage changes: None.
+- Expected behavior change: four operator errors no longer name retired
+  runtimes or a transport parcel that already exists. Missing collector
+  authority, missing probe transport, and missing HTML decoder still fail
+  closed at the same points.
+- Expected report/count/coverage changes: one new focused two-case transform
+  regression; no production count or coverage-accounting change.
 - Expected generated-output changes: None.
-- Expected no-op areas: all executable and generated surfaces.
+- Expected no-op areas: provider collection requests, authentication, URL
+  composition, retry schedule, pagination, transformation output, pack loading,
+  adoption/codegen, Terraform output, and generated artifacts.
 
 ## Invariants Claimed
 
 - Evidence must not be silently dropped: unchanged.
 - Generic matcher evidence must not outrank source-backed evidence: unchanged.
-- Source precedence/provenance must remain explicit: unchanged.
+- Source precedence/provenance must remain explicit: unchanged; pack provider
+  sources resolve only through caller-approved compiled adapters.
 - Ambiguity must stay classified instead of being coerced to success: unchanged.
 - Provider-readiness counts must stay explainable: unchanged.
-- Adoption safety invariants: changes to identity keys, moved-block handling,
-  import IDs and blocks, saved-plan classification, and apply guardrails now
-  explicitly require the existing fresh-context adversarial-review process.
+- Adoption safety invariants: identity keys, import IDs/blocks, moved blocks,
+  saved-plan classification, and apply authority now explicitly require the
+  existing fresh-context adversarial-review process.
+- Runtime boundary: no JavaScript or Python source/runtime files or executable
+  invocations were introduced. Collection, fetch command assembly, and the Go
+  HTTP transport contain no Node/Python runtime references after this change.
 
 ## Tests Run
 
-- Commands: `make check`, `git diff --check`.
-- Relevant output summary: the complete Go/runtime/distribution gate passed;
-  whitespace validation passed.
-- Tests not run and why: no live provider or tenant tests were relevant to a
-  documentation-only change.
+- Commands:
+  - `go test -count=1 ./internal/collectors -run '^(TestResolveCollectorAdaptersFailsClosedOnMismatchedProviderSources|TestProbeRestHostRequiresAnInjectedTransport|TestResolveCollectorAdaptersAgainstCopiedRoot|TestGenericFetchCollectsRealZccAndZtcRegistriesFromCopiedRoot)$'`
+  - `go test -count=1 ./internal/transform -run '^TestTransformHTMLDecoderErrorsAreRuntimeNeutral$'`
+  - `go test -count=1 ./internal/collectors ./internal/httptransport ./internal/metadata ./cmd/iw`
+  - `make check`
+  - `go vet ./...`
+  - `test -z "$(gofmt -l go/cmd go/internal)"`
+  - `git diff --check`
+  - `bash /Users/dm/.codex/skills/go-error-handling/scripts/check-errors.sh --no-bare-return go/internal/collectors`
+  - targeted `rg` audits for tracked runtime files, executable invocations, and
+    active Node/Python wording in collection/fetch/transport sources.
+- Relevant output summary: all focused tests, affected packages, the complete Go
+  and distribution gate, vet, formatting, whitespace, and error-handling scan
+  passed. The targeted runtime-file/invocation audits found none; the active
+  collection/fetch/transport source audit is empty.
+- Focused regression and pre-fix/unsafe-mutation proof:
+  - Before the authority fix, the focused test failed only because the actual
+    error ended in `matching injected Node adapter` instead of the neutral
+    compiled-adapter remediation.
+  - Before the probe fix, the focused test failed only because the actual error
+    still said `until the rest-http-transport parcel lands`.
+  - Before the HTML fix, both transform subtests failed on distinct stale
+    Python-specific diagnostics. Both pass after the production strings changed.
+- Promotion efficiency: approximately 47 hours 36 minutes from the original
+  candidate commit to the refreshed implementation commit; two known full-corpus
+  `make check` sweeps across the original handoff and this refresh, with no failed
+  or interrupted sweep recorded.
+- Tests not run and why: no live provider or tenant tests; the change does not
+  alter provider requests or require credentials.
 
 ## Known Deferrals
 
-- Deferred work: collector implementation changes and unrelated cleanup items.
-- Reason it is safe to defer: this slice only corrects the public boundary
-  description and review routing; it makes no runtime support claim.
-- Follow-up owner or trigger: add a compiled collector adapter when a provider
-  graduates from lab metadata to live collection support.
+- Deferred work: a repository-wide mechanical rename of compatibility symbols
+  and provenance comments that still describe exact historical string, numeric,
+  Unicode, and ordering semantics.
+- Reason it is safe to defer: those references encode current observable
+  compatibility rules and are not runtime files, subprocess calls, fallbacks, or
+  operator remediation. Renaming them is a broad review-only cleanup and should
+  not obscure this PR's operational boundary correction.
+- Follow-up owner or trigger: perform as a dedicated cleanup PR with no behavior
+  delta, repository-wide symbol accounting, and full mutation/promotion proof.
 
 ## Review Focus
 
-- Highest-risk files or paths: `AGENTS.md` and the opening README claim.
-- Specific assumptions to attack: whether the shipped CLI actually requires a
-  compiled adapter for live fetch; whether every newly listed operational path
-  can affect tenant state safety.
+- Highest-risk files or paths: `README.md`, the three review-policy lists,
+  `go/internal/collectors/authority.go`,
+  `go/internal/collectors/rest_diagnostics.go`, and
+  `go/internal/transform/overrides.go`.
+- Specific assumptions to attack: whether adapters own only authentication and
+  URL composition; whether the generic coordinator/transport own the remaining
+  duties; whether each new state-safety trigger belongs in mandatory review;
+  whether any comment cleanup concealed an executable change; and whether each
+  neutral diagnostic remains actionable and fail-closed.
 - Source evidence the reviewer should verify: adapter construction in
-  `commands_fetch.go`, provider-source resolution in `authority.go`, and the
-  collector/adoption separation in `docs/adoption-command-surface.md`.
+  `commands_fetch.go`, provider-source resolution in `authority.go`, transport
+  construction in `go/internal/httptransport`, and HTML decoder injection through
+  `TransformLoadedItemsOptions`.
 - Generated artifacts the reviewer should compare: None.
 - Edge cases that could silently overclaim, remap, drop, or weaken evidence:
-  wording that implies pack metadata alone enables live fetch, or a review list
-  that omits identity, import, move, classification, or apply-authority changes.
+  wording that implies pack metadata alone enables live fetch; a review list that
+  omits identity/import/move/classification/apply paths; accepting an unavailable
+  adapter or nil transport/decoder instead of failing; or a test that asserts only
+  a substring and would allow retired-runtime guidance to return.
 
-## Initial Review Resolution
+## Prior Review Resolution (Not Current Approval)
 
-- Finding: README assigned pagination, retries, and output to adapters.
-  Root cause: the sentence collapsed adapter, coordinator, and transport
-  responsibilities. Fix: it now assigns only authentication and URL composition
-  to compiled adapters and names the generic coordinator/transport ownership.
-  Verification: compare against `CollectorAdapter`, `FetchResources`, and the
-  HTTP transport implementation.
-- Finding: only `AGENTS.md` carried the new triggers. Root cause: the reusable
-  workflow and run prompt duplicated the old list. Fix: the same operational
-  triggers now appear in all three required review documents. Verification:
-  compare the lists directly.
-- Finding: import-ID derivation and the import-block lifecycle were absent.
-  Root cause: the original slice named moves and classification but overlooked
-  the import-only path accepted by the classifier. Fix: both import-ID mapping
-  and `import {}` generation/filtering/staging/lifecycle are explicit triggers
-  in all three documents. Verification: trace adoption metadata through import
-  rendering/staging and import-only classification.
+- The original review found that README collapsed adapter, coordinator, and
+  transport duties. The corrected text assigns authentication/URL composition
+  to compiled adapters and pagination/retries/failure/output to generic Go code.
+- It found that only `AGENTS.md` carried the new operational triggers. The same
+  list now appears in `AGENTS.md`, `docs/adversarial-review.md`, and the run
+  prompt.
+- It found import-ID and import-block lifecycle coverage missing. Both are now
+  explicit review triggers.
+- The current-main refresh found stale runtime-specific diagnostics and a stale
+  handoff. The implementation and this handoff address those findings; a fresh
+  reviewer must independently approve the exact refreshed tip.
