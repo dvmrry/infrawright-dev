@@ -114,7 +114,26 @@ func configuredTenants(options CheckFetchableOptions) ([]string, error) {
 	}
 	tenants := make([]string, 0, len(entries))
 	for _, entry := range entries {
+		// DirEntry.IsDir is false for a symlink to a directory, so testing it
+		// alone drops a symlinked tenant without saying so. Silently checking
+		// fewer tenants than the consumer has is the failure this check is
+		// meant to be immune to, so resolve the link rather than skip it.
 		if entry.IsDir() {
+			tenants = append(tenants, entry.Name())
+			continue
+		}
+		if entry.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(parent, entry.Name()))
+		if err != nil {
+			return nil, checkFailure(
+				"CONFIG_ROOT_UNREADABLE",
+				"unable to resolve committed config tenant "+entry.Name(),
+				procerr.CategoryIO,
+			)
+		}
+		if info.IsDir() {
 			tenants = append(tenants, entry.Name())
 		}
 	}

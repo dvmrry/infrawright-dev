@@ -24,6 +24,89 @@ func writeConfig(t *testing.T, workspace, tenant, name string) {
 	}
 }
 
+// TestCheckFetchableEnumeratesSymlinkedTenants pins that a tenant reached
+// through a symlink is checked rather than silently skipped. Checking fewer
+// tenants than the consumer has is the failure mode this check claims immunity
+// to, and it would report a clean result while doing it.
+func TestCheckFetchableEnumeratesSymlinkedTenants(t *testing.T) {
+	workspace := t.TempDir()
+	writeConfig(t, workspace, "direct", "zia_url_categories.auto.tfvars.json")
+
+	// A tenant directory living outside the workspace, linked into it.
+	external := t.TempDir()
+	linked := filepath.Join(external, "linked")
+	if err := os.MkdirAll(linked, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", linked, err)
+	}
+	target := filepath.Join(linked, "zia_generate_only.auto.tfvars.json")
+	if err := os.WriteFile(target, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v, want nil", target, err)
+	}
+	link := filepath.Join(workspace, "config", "linked")
+	if err := os.Symlink(linked, link); err != nil {
+		t.Fatalf("os.Symlink(%q) error = %v, want nil", link, err)
+	}
+
+	// A symlink to a file is not a tenant. Resolving the link is not enough
+	// on its own -- what it resolves to still has to be a directory.
+	fileLink := filepath.Join(workspace, "config", "not_a_tenant")
+	if err := os.Symlink(target, fileLink); err != nil {
+		t.Fatalf("os.Symlink(%q) error = %v, want nil", fileLink, err)
+	}
+
+	root := fetchableRoot(map[string]map[string]any{
+		"zia_url_categories": {"product": "zia", "fetch": map[string]any{"path": "/urlCategories"}},
+		"zia_generate_only":  {"product": "zia", "generate": true},
+	})
+	result := runCheck(t, workspace, root)
+
+	for _, tenant := range result.Tenants {
+		if tenant == "not_a_tenant" {
+			t.Errorf("CheckFetchable().Tenants = %#v, want no symlink-to-a-file entry", result.Tenants)
+		}
+	}
+	if len(result.Tenants) != 2 {
+		t.Errorf("CheckFetchable().Tenants = %#v, want both the direct and linked tenant", result.Tenants)
+	}
+	// The violation is what proves the linked tenant was read, not merely
+	// counted: a skipped tenant reports clean.
+	if len(result.Violations) != 1 || result.Violations[0].Tenant != "linked" {
+		t.Errorf(
+			"CheckFetchable().Violations = %#v, want the undeclared type in the linked tenant",
+			result.Violations,
+		)
+	}
+}
+
+// TestCheckFetchableRefusesABrokenTenantLink pins that a dangling symlink in
+// the config root is a refusal rather than a skip or a panic. A link named
+// like a tenant says the consumer meant a tenant to be there; treating it as
+// absent is the silent narrowing this check must not do.
+func TestCheckFetchableRefusesABrokenTenantLink(t *testing.T) {
+	workspace := t.TempDir()
+	writeConfig(t, workspace, "direct", "zia_url_categories.auto.tfvars.json")
+	link := filepath.Join(workspace, "config", "dangling")
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone"), link); err != nil {
+		t.Fatalf("os.Symlink(%q) error = %v, want nil", link, err)
+	}
+
+	root := fetchableRoot(map[string]map[string]any{
+		"zia_url_categories": {"product": "zia", "fetch": map[string]any{"path": "/urlCategories"}},
+	})
+	_, err := CheckFetchable(CheckFetchableOptions{
+		Workspace:  workspace,
+		Deployment: deployment.Deployment{Overlay: "."},
+		Root:       root,
+	})
+	var failure *procerr.ProcessFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("CheckFetchable(broken tenant link) error = %v, want a ProcessFailure", err)
+	}
+	if failure.Code != "CONFIG_ROOT_UNREADABLE" {
+		t.Errorf("ProcessFailure.Code = %q, want %q", failure.Code, "CONFIG_ROOT_UNREADABLE")
+	}
+}
+
 func fetchableRoot(entries map[string]map[string]any) metadata.LoadedPackRoot {
 	resources := make(map[string]metadata.LoadedResourceMetadata, len(entries))
 	for resourceType, registry := range entries {
