@@ -72,12 +72,8 @@ func TestPlanReportCompatibility(t *testing.T) {
 	}
 	for _, status := range []PlanStatus{Clean, Tolerated, Blocked} {
 		report := buildReportForTest(t, status)
-		got, err := RenderAssessmentReport(report)
-		if err != nil {
-			t.Fatalf("RenderAssessmentReport(%q) error: %v", status, err)
-		}
 		want := findPlanReportCompatibilityCase(t, fixture, string(status)).OutputBytes
-		got = renderedAsV1Report(t, report)
+		got := renderedAsV1Report(t, report)
 		if got != want {
 			t.Errorf("RenderAssessmentReport(%q) = %q, want %q", status, got, want)
 		}
@@ -95,11 +91,7 @@ func TestPlanReportCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSavedPlanAssessmentReport(float compatibility) error: %v", err)
 	}
-	got, err := RenderAssessmentReport(floatReport)
-	if err != nil {
-		t.Fatalf("RenderAssessmentReport(float compatibility) error: %v", err)
-	}
-	got = renderedAsV1Report(t, floatReport)
+	got := renderedAsV1Report(t, floatReport)
 	if fixture.FloatCase.Name != "guidance-float-provenance" || fixture.FloatCase.Token != "1.0" || got != fixture.FloatCase.OutputBytes {
 		t.Errorf("RenderAssessmentReport(float compatibility) = %q, want token %q and bytes %q", got, fixture.FloatCase.Token, fixture.FloatCase.OutputBytes)
 	}
@@ -131,7 +123,26 @@ func findPlanReportCompatibilityCase(t *testing.T, fixture planReportCompatibili
 // regression anywhere else in the report still fails this test.
 func renderedAsV1Report(t *testing.T, report SavedPlanAssessmentReport) string {
 	t.Helper()
-	value := assessmentReportJSONValue(report)
+	// Project what production actually emits. Building the projection from
+	// assessmentReportJSONValue instead would compare the fixture against the
+	// test's own re-render and leave RenderAssessmentReport untested.
+	rendered, err := RenderAssessmentReport(report)
+	if err != nil {
+		t.Fatalf("RenderAssessmentReport(compatibility) error: %v", err)
+	}
+	parsed, err := canonjson.ParseDataJSONLosslessly(rendered)
+	if err != nil {
+		t.Fatalf("canonjson.ParseDataJSONLosslessly(rendered report) error: %v", err)
+	}
+	value, ok := parsed.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered report is %T, want an object", parsed)
+	}
+	// Assert the version before replacing it, so the projection cannot mask a
+	// constant that moved to some third value.
+	if got := value["schema_version"]; !canonjson.JSONEqual(got, json.Number("2")) {
+		t.Fatalf("rendered schema_version = %v, want 2 before projecting to v1", got)
+	}
 	value["schema_version"] = json.Number("1")
 	roots, _ := value["roots"].([]any)
 	for _, rawRoot := range roots {
@@ -146,9 +157,9 @@ func renderedAsV1Report(t *testing.T, report SavedPlanAssessmentReport) string {
 			}
 		}
 	}
-	rendered, err := canonjson.Render(value)
+	projected, err := canonjson.Render(value)
 	if err != nil {
 		t.Fatalf("canonjson.Render(v1 projection) error: %v", err)
 	}
-	return rendered
+	return projected
 }
