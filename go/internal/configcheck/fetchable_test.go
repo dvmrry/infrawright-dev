@@ -142,9 +142,12 @@ func TestCheckFetchableRangesOverEveryTenantAndConfigSpelling(t *testing.T) {
 	}
 	// The HCL-spelled config names a type with no registry entry at all,
 	// which is the same blindness by a different route.
-	if len(result.Violations) != 1 || result.Violations[0].Tenant != "zs3" ||
-		result.Violations[0].Type != "zia_orphan" {
-		t.Errorf("CheckFetchable().Violations = %#v, want the zs3 orphan", result.Violations)
+	wantViolations := []FetchableViolation{{
+		Tenant: "zs3", Type: "zia_orphan",
+		Detail: "committed config has no registry entry",
+	}}
+	if !reflect.DeepEqual(result.Violations, wantViolations) {
+		t.Errorf("CheckFetchable().Violations = %#v, want %#v", result.Violations, wantViolations)
 	}
 }
 

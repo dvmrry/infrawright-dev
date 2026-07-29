@@ -70,11 +70,6 @@ func checkFailure(code, message string, category procerr.Category) *procerr.Proc
 var configExtensions = []string{".auto.tfvars.json", ".auto.tfvars"}
 
 func resourceTypeFromConfigName(name string) (string, bool) {
-	// Generated sidecars sit in the same directory and are not committed
-	// config for a resource type.
-	if strings.HasSuffix(name, ".generated.expressions.json") {
-		return "", false
-	}
 	for _, extension := range configExtensions {
 		if strings.HasSuffix(name, extension) {
 			resourceType := strings.TrimSuffix(name, extension)
