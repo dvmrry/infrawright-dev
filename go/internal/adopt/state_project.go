@@ -435,15 +435,20 @@ func schemaTypeBlockAt(block metadata.JsonObject, path []any, label string, reso
 	if !ok {
 		return nil, nil
 	}
-	inputs, err := classifiedAttributes(block, label, resourceTop)
-	if err != nil {
-		return nil, err
-	}
 	attributes, err := metadata.TerraformAttributesForBlock(block, label)
 	if err != nil {
 		return nil, err
 	}
-	if contains(inputs.Required, segment) || contains(inputs.Optional, segment) {
+	// Any declared attribute resolves a type, computed-only ones included.
+	// This function answers a shape question -- do two paths name the same
+	// Terraform type -- and shape does not depend on writability. Writability
+	// is enforced where it is a requirement: applyProjectionSync gates the
+	// target on ProviderSchemaStatus, and the projection itself never copies
+	// a computed value into generated tfvars. Restricting type resolution to
+	// inputs made every computed source fail "schema types differ" against a
+	// correctly-typed target, which reports a type problem that does not
+	// exist instead of the writability rule that was actually consulted.
+	if _, isAttribute := attributes[segment]; isAttribute {
 		attribute, err := metadata.TerraformRequireObject(attributes[segment], label+".attributes."+segment)
 		if err != nil {
 			return nil, err
@@ -477,15 +482,14 @@ func guardProjectionSyncPath(block metadata.JsonObject, path []any, label string
 	if !ok {
 		return nil
 	}
-	inputs, err := classifiedAttributes(block, label, resourceTop)
-	if err != nil {
-		return err
-	}
 	attributes, err := metadata.TerraformAttributesForBlock(block, label)
 	if err != nil {
 		return err
 	}
-	if contains(inputs.Required, segment) || contains(inputs.Optional, segment) {
+	// Widened alongside schemaTypeBlockAt: a computed attribute traverses the
+	// same guard an input does, so a bad path through one is refused with the
+	// same message rather than surfacing later as a type mismatch.
+	if _, isAttribute := attributes[segment]; isAttribute {
 		attribute, err := metadata.TerraformRequireObject(attributes[segment], label+".attributes."+segment)
 		if err != nil {
 			return err
@@ -536,7 +540,104 @@ func guardProjectionSyncPath(block metadata.JsonObject, path []any, label string
 	return nil
 }
 
-func applyProjectionSync(block metadata.JsonObject, output map[string]any, policy *metadata.DriftPolicy, resourceType string, schema metadata.JsonObject) error {
+// computedProjectionSyncSource reads a projection_sync source that the
+// projected output cannot carry: a computed-only top-level attribute.
+//
+// The projection copies writable inputs only, so a computed source is absent
+// from output no matter what the provider reported -- which made
+// projection_sync from one a silent no-op even once its type resolved. The
+// fallback reads the provider state directly, under two refusals and one
+// exclusion:
+//
+//   - An input attribute never falls back. Absent-from-output for an input
+//     means absent-from-state or deliberately projection_omitted, and a
+//     fallback would resurrect exactly what the omit removed.
+//   - A source the runtime mask marks sensitive is refused, not skipped. The
+//     projection refuses to write sensitive inputs; syncing a sensitive
+//     computed value into a writable target is the same write with an alias.
+//   - A source whose schema declares it sensitive is refused the same way,
+//     so the guarantee does not depend on the provider having populated the
+//     runtime mask.
+//
+// Only the top-level attribute case is handled: a computed attribute nested
+// inside a block stays out of reach, as it is dropped by the recursive
+// projection and no downstream need for it has been demonstrated.
+func computedProjectionSyncSource(
+	block metadata.JsonObject,
+	resourceType string,
+	source []any,
+	stateValues any,
+	mask any,
+	sourceText string,
+) (any, bool, error) {
+	first, ok := source[0].(string)
+	if !ok {
+		return nil, false, nil
+	}
+	inputs, err := classifiedAttributes(block, resourceType, true)
+	if err != nil {
+		return nil, false, err
+	}
+	if contains(inputs.Required, first) || contains(inputs.Optional, first) {
+		return nil, false, nil
+	}
+	attributes, err := metadata.TerraformAttributesForBlock(block, resourceType)
+	if err != nil {
+		return nil, false, err
+	}
+	rawAttribute, isAttribute := attributes[first]
+	if !isAttribute {
+		return nil, false, nil
+	}
+	attribute, err := metadata.TerraformRequireObject(rawAttribute, resourceType+".attributes."+first)
+	if err != nil {
+		return nil, false, err
+	}
+	declaredSensitive, err := attributeSensitive(attribute)
+	if err != nil {
+		return nil, false, err
+	}
+	if declaredSensitive || maskAnySensitiveAtPath(mask, source) {
+		return nil, false, projectionErrorf(
+			"refusing to projection_sync sensitive source %s of %s into generated tfvars",
+			sourceText, resourceType,
+		)
+	}
+	value, present := projectionPathValue(stateValues, source)
+	return value, present, nil
+}
+
+// maskAnySensitiveAtPath walks a sensitivity mask along a projection path. A
+// mask collapsed to true at any ancestor marks everything beneath it, and a
+// mask that ends before the path does marks nothing.
+func maskAnySensitiveAtPath(mask any, path []any) bool {
+	current := mask
+	for _, rawSegment := range path {
+		if current == true {
+			return true
+		}
+		segment, ok := rawSegment.(string)
+		if !ok {
+			return false
+		}
+		record, ok := projectionRecord(current)
+		if !ok {
+			return false
+		}
+		current = record[segment]
+	}
+	return anySensitive(current)
+}
+
+func applyProjectionSync(
+	block metadata.JsonObject,
+	output map[string]any,
+	policy *metadata.DriftPolicy,
+	resourceType string,
+	schema metadata.JsonObject,
+	stateValues any,
+	mask any,
+) error {
 	for _, entry := range policy.Entries(resourceType, metadata.PolicyProjectionSync) {
 		data := entry.Data()
 		targetText := fmt.Sprint(data["target_path"])
@@ -577,6 +678,14 @@ func applyProjectionSync(block metadata.JsonObject, output map[string]any, polic
 			continue
 		}
 		sourceValue, present := projectionPathValue(output, source)
+		if !present {
+			sourceValue, present, err = computedProjectionSyncSource(
+				block, resourceType, source, stateValues, mask, sourceText,
+			)
+			if err != nil {
+				return err
+			}
+		}
 		if !present || absentOrEmptyProjection(sourceValue) {
 			continue
 		}
@@ -769,7 +878,9 @@ func ProjectProviderState(options ProjectProviderStateOptions) (map[string]any, 
 		return nil, err
 	}
 	if options.Policy != nil {
-		if err := applyProjectionSync(block, output, options.Policy, options.ResourceType, schema); err != nil {
+		if err := applyProjectionSync(
+			block, output, options.Policy, options.ResourceType, schema, options.StateValues, mask,
+		); err != nil {
 			return nil, err
 		}
 		if err := applyProjectionFill(output, options.Policy, options.RawItem, options.ResourceType, schema); err != nil {
