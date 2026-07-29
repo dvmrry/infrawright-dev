@@ -528,18 +528,45 @@ func validateReportFinding(value any, path string, validation *assessmentValidat
 		validateStringArray(paths, path+"/paths", false, false, "", validation)
 	}
 	if changes, present := finding["changes"]; present {
-		validateReportChanges(changes, path+"/changes", validation)
+		validateReportChanges(changes, path+"/changes", findingPathSet(finding), validation)
 	}
 }
 
-func validateReportChanges(value any, path string, validation *assessmentValidation) {
+// findingPathSet collects the finding's declared paths so a change can be held
+// to them. A nil result means paths were absent or malformed -- already
+// reported by the paths validation, so change membership stays quiet rather
+// than reporting the same defect twice.
+func findingPathSet(finding map[string]any) map[string]struct{} {
+	raw, present := finding["paths"].([]any)
+	if !present {
+		return nil
+	}
+	paths := make(map[string]struct{}, len(raw))
+	for _, value := range raw {
+		text, ok := value.(string)
+		if !ok {
+			return nil
+		}
+		paths[text] = struct{}{}
+	}
+	return paths
+}
+
+func validateReportChanges(
+	value any,
+	path string,
+	findingPaths map[string]struct{},
+	validation *assessmentValidation,
+) {
 	changes, ok := value.([]any)
 	if !ok {
 		validation.add(path, "type", "must be array")
 		return
 	}
 	for index, rawChange := range changes {
-		validateReportChange(rawChange, fmt.Sprintf("%s/%d", path, index), validation)
+		validateReportChange(
+			rawChange, fmt.Sprintf("%s/%d", path, index), findingPaths, validation,
+		)
 	}
 }
 
@@ -547,7 +574,12 @@ func validateReportChanges(value any, path string, validation *assessmentValidat
 // rest of the report: every field is required, so a consumer never has to
 // distinguish an absent key from an inapplicable one, and Kind alone says
 // which value pair to read.
-func validateReportChange(value any, path string, validation *assessmentValidation) {
+func validateReportChange(
+	value any,
+	path string,
+	findingPaths map[string]struct{},
+	validation *assessmentValidation,
+) {
 	change, ok := value.(map[string]any)
 	if !ok {
 		validation.add(path, "type", "must be object")
@@ -557,8 +589,16 @@ func validateReportChange(value any, path string, validation *assessmentValidati
 	requiredProperties(change, path, keys, validation)
 	additionalProperties(change, path, stringSet(keys...), validation)
 	if pathValue, present := change["path"]; present {
-		if _, ok := pathValue.(string); !ok {
+		text, ok := pathValue.(string)
+		if !ok {
 			validation.add(path+"/path", "type", "must be string")
+		} else if findingPaths != nil {
+			// Every change describes one of the finding's own paths. A change
+			// naming anything else is evidence about a path the finding does
+			// not claim, which a reader has no way to place.
+			if _, declared := findingPaths[text]; !declared {
+				validation.add(path+"/path", "enum", "must be one of the finding's paths")
+			}
 		}
 	}
 	if kind, present := change["kind"]; present && kind != "scalar" && kind != "set" {
@@ -573,6 +613,24 @@ func validateReportChange(value any, path string, validation *assessmentValidati
 		if members, present := change[field]; present {
 			if _, ok := members.([]any); !ok {
 				validation.add(path+"/"+field, "type", "must be array")
+			}
+		}
+	}
+	// Kind says which value pair to read, so the other pair has to be empty.
+	// Without this a scalar change could ship set members and a set change a
+	// before/after pair, and a reader honouring kind would silently ignore
+	// half the evidence in the record.
+	switch change["kind"] {
+	case "scalar":
+		for _, field := range []string{"added", "removed"} {
+			if members, ok := change[field].([]any); ok && len(members) > 0 {
+				validation.add(path+"/"+field, "maxItems", "must be empty for a scalar change")
+			}
+		}
+	case "set":
+		for _, field := range []string{"before", "after"} {
+			if content, present := change[field]; present && content != nil {
+				validation.add(path+"/"+field, "const", "must be null for a set change")
 			}
 		}
 	}

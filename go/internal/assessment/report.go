@@ -199,7 +199,7 @@ func validatedAssessmentReport(report SavedPlanAssessmentReport) (SavedPlanAsses
 	return SavedPlanAssessmentReport{}, procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
 		Code:     "INVALID_ASSESSMENT_REPORT",
 		Category: procerr.CategoryInternal,
-		Message:  "saved-plan assessment report is outside schema version 1",
+		Message:  "saved-plan assessment report is outside schema version 2",
 		Details:  details,
 	})
 }
