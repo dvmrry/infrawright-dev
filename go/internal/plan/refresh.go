@@ -144,11 +144,79 @@ func refreshRecordImports(record any) bool {
 	return ok && len(importing) > 0
 }
 
+// refreshExecutableSections are the plan sections other than resource_changes
+// that carry remote intent. Terraform executes action invocations on apply and
+// resumes deferred work, so a plan carrying either is not state-only however
+// its resource changes read. ValidateAssessmentPlan refuses the same three for
+// saved-plan assessment; this path deliberately bypasses the classifier, so it
+// has to refuse them itself rather than inherit the refusal.
+var refreshExecutableSections = [...]string{
+	"action_invocations",
+	"deferred_action_invocations",
+	"deferred_changes",
+}
+
+// requireRefreshPlanEnvelope refuses a plan whose envelope does not support the
+// state-only claim. An incomplete or errored plan has not finished deciding
+// what it would do, and a resource_changes that is present but not an array
+// would otherwise read as zero changes rather than as an unreadable plan.
+func requireRefreshPlanEnvelope(planObject map[string]any, label string) error {
+	if planObject["complete"] != true {
+		return refreshFailure(
+			"INVALID_REFRESH_PLAN",
+			label+" refresh-only plan is not complete; refused before apply.",
+			procerr.CategoryDomain,
+		)
+	}
+	if planObject["errored"] != false {
+		return refreshFailure(
+			"INVALID_REFRESH_PLAN",
+			label+" refresh-only plan reports an error; refused before apply.",
+			procerr.CategoryDomain,
+		)
+	}
+	if value, present := planObject["resource_changes"]; present {
+		if _, ok := value.([]any); !ok {
+			return refreshFailure(
+				"INVALID_REFRESH_PLAN",
+				label+" refresh-only plan resource_changes must be an array",
+				procerr.CategoryDomain,
+			)
+		}
+	}
+	for _, section := range refreshExecutableSections {
+		value, present := planObject[section]
+		if !present {
+			continue
+		}
+		entries, ok := value.([]any)
+		if !ok {
+			return refreshFailure(
+				"INVALID_REFRESH_PLAN",
+				label+" refresh-only plan "+section+" must be an array",
+				procerr.CategoryDomain,
+			)
+		}
+		if len(entries) > 0 {
+			return refreshFailure(
+				"REFRESH_PLAN_NOT_STATE_ONLY",
+				label+" refresh-only plan carries "+
+					fmt.Sprintf("%d %s record(s)", len(entries), section)+
+					" instead of only recorded state"+
+					". Refused; this path may never create, modify, or destroy.",
+				procerr.CategoryDomain,
+			)
+		}
+	}
+	return nil
+}
+
 // requireStateOnlyRefreshPlan is the enforcement that makes an allow-flag
 // unnecessary. A refresh-only plan reconciles recorded values and writes
-// nothing remote, so every entry in resource_changes must be a no-op. Anything
-// else means the artifact about to be applied is not the operation this
-// command claims to perform, whatever produced it.
+// nothing remote, so every entry in resource_changes must be a no-op and no
+// other section may carry remote intent. Anything else means the artifact about
+// to be applied is not the operation this command claims to perform, whatever
+// produced it.
 func requireStateOnlyRefreshPlan(planValue any, label string) error {
 	planObject, ok := planValue.(map[string]any)
 	if !ok {
@@ -157,6 +225,9 @@ func requireStateOnlyRefreshPlan(planValue any, label string) error {
 			"Terraform show did not emit a plan object for "+label,
 			procerr.CategoryDomain,
 		)
+	}
+	if err := requireRefreshPlanEnvelope(planObject, label); err != nil {
+		return err
 	}
 	records, _ := planObject["resource_changes"].([]any)
 	offending := make([]string, 0)

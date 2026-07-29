@@ -41,7 +41,16 @@ func (fake *refreshFakeTerraform) Apply(request RefreshApplyRequest) error {
 }
 
 func refreshPlanJSON(changes, drift string) string {
-	return `{"format_version":"1.2","terraform_version":"1.15.4",` +
+	return refreshPlanJSONWith(`"complete":true,"errored":false,`, changes, drift)
+}
+
+// refreshPlanJSONWith carries the envelope a real Terraform plan always has.
+// Omitting complete/errored made every fixture accept a plan the guard must
+// refuse, so the state-only cases have to supply them to fail for their own
+// reason rather than on the envelope. envelope replaces those keys outright
+// rather than shadowing them, so no fixture depends on duplicate-key ordering.
+func refreshPlanJSONWith(envelope, changes, drift string) string {
+	return `{"format_version":"1.2","terraform_version":"1.15.4",` + envelope +
 		`"resource_changes":[` + changes + `],"resource_drift":[` + drift + `]}`
 }
 
@@ -163,6 +172,60 @@ func TestRefreshEnvironmentRootsRefusesAnyPlanThatWouldWriteRemoteState(t *testi
 				t.Errorf("Terraform apply calls = %d, want 0 on a refused plan", len(fake.applied))
 			}
 		})
+	}
+}
+
+// TestRefreshEnvironmentRootsRefusesRemoteIntentOutsideResourceChanges covers
+// the sections a guard that reads only resource_changes cannot see. Every case
+// here carries a clean no-op resource change, so the plan passes the
+// per-resource walk and is refused solely on the section under test.
+func TestRefreshEnvironmentRootsRefusesRemoteIntentOutsideResourceChanges(t *testing.T) {
+	invocation := `{"address":"action.zia_activation.this","type":"zia_activation"}`
+	clean := `"complete":true,"errored":false,`
+	tests := []struct {
+		name     string
+		envelope string
+		code     string
+	}{
+		{"action_invocations", clean + `"action_invocations":[` + invocation + `],`, "REFRESH_PLAN_NOT_STATE_ONLY"},
+		{"deferred_action_invocations", clean + `"deferred_action_invocations":[` + invocation + `],`, "REFRESH_PLAN_NOT_STATE_ONLY"},
+		{"deferred_changes", clean + `"deferred_changes":[{"reason":"provider_config_unknown"}],`, "REFRESH_PLAN_NOT_STATE_ONLY"},
+		{"incomplete_plan", `"complete":false,"errored":false,`, "INVALID_REFRESH_PLAN"},
+		{"errored_plan", `"complete":true,"errored":true,`, "INVALID_REFRESH_PLAN"},
+		{"missing_envelope", ``, "INVALID_REFRESH_PLAN"},
+		{"action_invocations_not_an_array", clean + `"action_invocations":{},`, "INVALID_REFRESH_PLAN"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			workspace, _ := newRefreshWorkspace(t)
+			fake := &refreshFakeTerraform{planJSON: refreshPlanJSONWith(
+				test.envelope,
+				refreshRecord("zia_url_categories.this", `"no-op"`),
+				"",
+			)}
+
+			_, _, err := runRefresh(t, workspace, fake)
+			requireLifecycleFailure(t, err, test.code)
+			if len(fake.applied) != 0 {
+				t.Errorf("Terraform apply calls = %d, want 0 on a refused plan", len(fake.applied))
+			}
+		})
+	}
+}
+
+// TestRefreshEnvironmentRootsRefusesUnreadableResourceChanges pins the
+// difference between absent and malformed. A resource_changes that is present
+// but not an array must not read as zero changes.
+func TestRefreshEnvironmentRootsRefusesUnreadableResourceChanges(t *testing.T) {
+	workspace, _ := newRefreshWorkspace(t)
+	fake := &refreshFakeTerraform{planJSON: `{"format_version":"1.2",` +
+		`"terraform_version":"1.15.4","complete":true,"errored":false,` +
+		`"resource_changes":{"zia_url_categories.this":{"actions":["delete"]}}}`}
+
+	_, _, err := runRefresh(t, workspace, fake)
+	requireLifecycleFailure(t, err, "INVALID_REFRESH_PLAN")
+	if len(fake.applied) != 0 {
+		t.Errorf("Terraform apply calls = %d, want 0 on a refused plan", len(fake.applied))
 	}
 }
 
