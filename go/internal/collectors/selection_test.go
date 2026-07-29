@@ -33,6 +33,56 @@ func loadFullRoot(t *testing.T) metadata.LoadedPackRoot {
 	return loaded
 }
 
+// testExpectsFetchable is deliberately a second implementation rather than a
+// call to hasFetchEntry. Deriving the expectation from the same predicate
+// production uses makes the oracle circular: a mutation widening
+// hasFetchEntry moves both sides together and the comparison still passes,
+// however wrong selection has become. Restating the rule against the raw
+// registry is what makes the agreement assertion mean something.
+func testExpectsFetchable(resource metadata.LoadedResourceMetadata) bool {
+	_, isFetchBlock := resource.Registry["fetch"].(map[string]any)
+	return isFetchBlock
+}
+
+// TestFetchPredicateAgainstAHandWrittenOracle pins the predicate itself
+// against cases whose answers are written out, not computed. The committed
+// root exercises the predicate over real data but cannot pin what it should
+// say: every entry there is one the predicate already classifies.
+func TestFetchPredicateAgainstAHandWrittenOracle(t *testing.T) {
+	tests := []struct {
+		name     string
+		registry metadata.JsonObject
+		want     bool
+	}{
+		{"fetch_block", metadata.JsonObject{"fetch": map[string]any{"path": "/x"}}, true},
+		{"empty_fetch_block", metadata.JsonObject{"fetch": map[string]any{}}, true},
+		{"no_fetch_key", metadata.JsonObject{"generate": true}, false},
+		{"fetch_false", metadata.JsonObject{"fetch": false}, false},
+		// "fetch": true is refused by metadata validation because it does not
+		// describe how to fetch; the predicate must not treat it as one.
+		{"fetch_true", metadata.JsonObject{"fetch": true}, false},
+		{"fetch_string", metadata.JsonObject{"fetch": "/x"}, false},
+		{"fetch_array", metadata.JsonObject{"fetch": []any{"/x"}}, false},
+		{"fetch_null", metadata.JsonObject{"fetch": nil}, false},
+		{"derive_only", metadata.JsonObject{"derive": map[string]any{"from": "other"}}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resource := metadata.LoadedResourceMetadata{
+				Type: "sample_resource", Product: "zia", Registry: test.registry,
+			}
+			if got := hasFetchEntry(resource); got != test.want {
+				t.Errorf("hasFetchEntry(%s) = %v, want %v", test.name, got, test.want)
+			}
+			// The test-side oracle has to agree, or the derived expectation
+			// in the committed-root test is measuring a different rule.
+			if got := testExpectsFetchable(resource); got != test.want {
+				t.Errorf("testExpectsFetchable(%s) = %v, want %v", test.name, got, test.want)
+			}
+		})
+	}
+}
+
 func TestSelectFetchResourcesAgainstCommittedRoot(t *testing.T) {
 	packRoot := loadFullRoot(t)
 
@@ -50,7 +100,7 @@ func TestSelectFetchResourcesAgainstCommittedRoot(t *testing.T) {
 	// agrees with the registry, which holds for any pack tree.
 	expected := map[string][]string{}
 	for resourceType, resource := range packRoot.Resources {
-		if hasFetchEntry(resource) {
+		if testExpectsFetchable(resource) {
 			expected[resource.Product] = append(expected[resource.Product], resourceType)
 		}
 	}
