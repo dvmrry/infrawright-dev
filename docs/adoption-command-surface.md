@@ -47,6 +47,7 @@ Supporting adoption commands:
 | `make unstage-imports` | Remove staged import/move blocks from env roots. |
 | `make clean-plans` | Remove saved plan artifacts. |
 | `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Blocks on refresh drift, which is the out-of-band change this gate exists to catch. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
+| `make check-config` | Require every resource type with committed config to be fetchable. Runs in the credential-free lane with the other validators and reads only files already in your tree. |
 | `make roots` | Emit the configured root topology as versioned JSON for downstream path-to-root scoping. |
 | `make scope-paths` | Map a caller-supplied JSON list of changed paths to affected resources and complete logical roots without invoking a VCS. |
 | `make plan-roots` | Enumerate materialized env roots and the exact `tfplan`/`tfplan.sources` artifact locations used for save/restore. |
@@ -89,6 +90,33 @@ Re-run `make plan SAVE=1` after any of those inputs change. When planning with
 `BACKEND_CONFIG=<file>`, pass the same option to `assert-clean`,
 `assert-adoptable`, and `apply`; omitting it or changing its contents makes the
 saved plan stale before classification or apply.
+
+## Committed Config Must Stay Fetchable
+
+Committed config means you own a resource; a `fetch` block in the registry
+means the engine can pull its live state. When the first holds and the second
+does not, the resource is nominally managed and invisible: `make fetch` errors
+on it, `make drift` starts with a fetch and so goes blind to it, and every
+other check keeps reporting healthy, because they all sit above the fetch
+layer.
+
+`make check-config` is the only check that looks across that boundary.
+`check-pack` validates each file's shape, and a missing `fetch` block is valid
+JSON and a valid registry entry, so there is nothing malformed for it to find.
+`DROPS_CHECK` covers the opposite direction, where the API grew a field the
+packs do not acknowledge.
+
+Some types are legitimately generate-without-fetch. Two ways to say so, both
+as data, because `registry.json` is strict JSON and a comment cannot carry it:
+
+- a `derive` block already states that the type's config is produced from
+  another resource, so it has no API object of its own and needs no further
+  declaration;
+- anything else declares `"fetch": false` with a non-empty `fetch_skip_reason`.
+
+A `"fetch": false` with no reason is refused, and a `fetch_skip_reason`
+without the skip is refused, so a declaration cannot decay into the silent gap
+it was meant to replace.
 
 ## Machine-Readable Downstream Contracts
 
