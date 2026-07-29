@@ -232,12 +232,20 @@ func fetchCommandInput(parsed commandInput, performance collectors.PerformanceRe
 	if err != nil {
 		return 0, err
 	}
-	selected, err := collectors.SelectFetchResources(collectors.SelectFetchResourcesOptions{
-		Root:      root,
-		Selectors: options.resources,
-	})
+	selected, skipped, err := collectors.SelectFetchResourcesWithSkips(
+		collectors.SelectFetchResourcesOptions{
+			Root:      root,
+			Selectors: options.resources,
+		},
+	)
 	if err != nil {
 		return 0, usageError(err.Error())
+	}
+	// A type the registry declares unfetchable on purpose is skipped rather
+	// than refused, but never silently: the operator asked for it, and the
+	// registry has a reason worth reading.
+	for _, entry := range skipped {
+		fmt.Fprintf(os.Stderr, "%s: skipped (%s)\n", entry.Type, entry.Reason)
 	}
 	products, err := selectedFetchProducts(root, selected)
 	if err != nil {

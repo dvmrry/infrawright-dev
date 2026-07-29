@@ -27,7 +27,7 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/iw: $(GO_BUILD_INPUTS)
 	@mkdir -p dist
@@ -69,6 +69,9 @@ check-pack: dist/iw ## Validate pack.json and registry.json metadata ([PACK=<nam
 
 check-pack-set: dist/iw ## Require the installed pack root to match PACK_PROFILE exactly
 	$(IW) check-pack-set --profile "$(PACK_PROFILE)"
+
+check-config: dist/iw ## Require every committed resource type to be fetchable ([TENANT=<label>])
+	$(IW) check-config $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)"
 
 v2-authority: ## Run the exact Go-v2 authority goldens
 	cd go && $(GO) test -count=1 ./cmd/iw -run '^Test.*V2.*Authority'
@@ -117,7 +120,7 @@ check-schema-parity: ## Published assessment schema matches the copy the engine 
 		}
 	@echo "published assessment schema matches its engine-side copy"
 
-check-distribution: check-pack-set check-examples check-modules check-tfvars-fmt check-pack check-schema-parity ## Active distribution without selecting its runtime test suite
+check-distribution: check-pack-set check-config check-examples check-modules check-tfvars-fmt check-pack check-schema-parity ## Active distribution without selecting its runtime test suite
 
 check: dist/iw check-distribution test-go ## Complete Go distribution and runtime gate
 
