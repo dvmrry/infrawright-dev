@@ -15,7 +15,7 @@ import (
 // package, deliberately not a generated struct (see the Go runtime contract
 // Slice 0). It is produced by encoding/json's default decoding (with
 // UseNumber enabled) and is documentation-only: any Go value handled by
-// Render and ByteLength below is a valid Value.
+// Render below is a valid Value.
 //
 //   - JSON null    -> untyped nil
 //   - JSON boolean  -> bool
@@ -39,7 +39,7 @@ import (
 // encoding/json's last-key-wins behavior (see decode.go).
 type Value = any
 
-// ErrNotJSONValue is returned by Render and ByteLength when they encounter a
+// ErrNotJSONValue is returned by Render when it encounters a
 // Go value that is not one of the Value shapes documented above, or a
 // non-finite plain float64. It is this package's single sentinel for the
 // several `throw new TypeError(...)` call sites scattered across

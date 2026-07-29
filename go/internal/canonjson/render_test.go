@@ -224,9 +224,9 @@ func TestRenderRejectsNonFiniteFloat(t *testing.T) {
 
 // TestUTF16UnitsHelperMatchesManualEncoding sanity-checks the utf16Units
 // helper against Go's own unicode/utf16 package for a string containing
-// both BMP and astral characters, since encodeString/encodedStringLength
-// both depend on it walking UTF-16 code units (not Unicode code points)
-// the same way the Node source's charCodeAt-based loop does.
+// both BMP and astral characters, since encodeString depends on it walking
+// UTF-16 code units (not Unicode code points) the same way the Node
+// source's charCodeAt-based loop does.
 func TestUTF16UnitsHelperMatchesManualEncoding(t *testing.T) {
 	s := "a\U0001F600b"
 	got := utf16Units(s)

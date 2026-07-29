@@ -550,8 +550,6 @@ func modulesInput(verb string, parsed commandInput) (int, error) {
 		fmt.Fprintf(os.Stdout, "validated generated module tree %s: %d module(s)\n", outputRoot, len(selected))
 		return 0, nil
 	}
-	// --terraform remains accepted as an operator-facing compatibility option;
-	// generation and validation do not shell out, so its value is unused.
 	generateOptions := modulesgen.GenerateModuleOptions{
 		OutputRoot: outputRoot,
 		FormatHCL:  modulesgen.NewHCLFormatter(),

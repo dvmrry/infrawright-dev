@@ -79,15 +79,23 @@ jobs:
       - name: Whitespace hygiene
         # `git diff --check` alone inspects the working tree, which is clean on
         # a fresh checkout and so never inspected the PR's own commits. Diff
-        # against the merge base instead.
+        # committed changes instead: for pull requests against the merge base,
+        # for pushes against the previous branch tip (covering every commit in
+        # a multi-commit push), falling back to the last commit when the
+        # previous tip is unavailable (new branch or forced push).
         run: |
           base="${{ github.event.pull_request.base.sha }}"
-          if [ -z "$base" ]; then
-            echo "No pull-request base; checking the last commit."
-            git diff --check HEAD~1 HEAD
+          if [ -n "$base" ]; then
+            git diff --check "$(git merge-base "$base" HEAD)" HEAD
             exit 0
           fi
-          git diff --check "$(git merge-base "$base" HEAD)" HEAD
+          before="${{ github.event.before }}"
+          if [ -n "$before" ] && ! echo "$before" | grep -q '^0*$' && git cat-file -e "$before" 2>/dev/null; then
+            git diff --check "$before" HEAD
+            exit 0
+          fi
+          echo "No usable push base; checking the last commit."
+          git diff --check HEAD~1 HEAD
 
   full-go-check:
     needs: scope

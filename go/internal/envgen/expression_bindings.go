@@ -121,7 +121,7 @@ type ExpressionBinding struct {
 	// canonical, already-range-checked list index), in traversal order.
 	PathParts []any
 	// Expression is always non-empty and already validated against the v1
-	// allowlist (see ValidateExpression).
+	// allowlist (see validateExpression).
 	Expression string
 	Sensitive  bool
 	// Reason is nil for the TS source's `reason: string | null` being null.
