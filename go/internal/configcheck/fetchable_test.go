@@ -32,18 +32,13 @@ func TestCheckFetchableEnumeratesSymlinkedTenants(t *testing.T) {
 	workspace := t.TempDir()
 	writeConfig(t, workspace, "direct", "zia_url_categories.auto.tfvars.json")
 
-	// A tenant directory living outside the workspace, linked into it.
-	external := t.TempDir()
-	linked := filepath.Join(external, "linked")
-	if err := os.MkdirAll(linked, 0o755); err != nil {
-		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", linked, err)
-	}
-	target := filepath.Join(linked, "zia_generate_only.auto.tfvars.json")
-	if err := os.WriteFile(target, []byte("{}\n"), 0o600); err != nil {
-		t.Fatalf("os.WriteFile(%q) error = %v, want nil", target, err)
-	}
+	// The link target stays inside the config root, so what the check reads
+	// does not depend on the machine. An escaping link is refused instead --
+	// see TestCheckFetchableRefusesATenantLinkLeavingTheConfigRoot.
+	writeConfig(t, workspace, "real_linked", "zia_generate_only.auto.tfvars.json")
+	target := filepath.Join(workspace, "config", "real_linked", "zia_generate_only.auto.tfvars.json")
 	link := filepath.Join(workspace, "config", "linked")
-	if err := os.Symlink(linked, link); err != nil {
+	if err := os.Symlink(filepath.Join(workspace, "config", "real_linked"), link); err != nil {
 		t.Fatalf("os.Symlink(%q) error = %v, want nil", link, err)
 	}
 
@@ -65,16 +60,54 @@ func TestCheckFetchableEnumeratesSymlinkedTenants(t *testing.T) {
 			t.Errorf("CheckFetchable().Tenants = %#v, want no symlink-to-a-file entry", result.Tenants)
 		}
 	}
-	if len(result.Tenants) != 2 {
-		t.Errorf("CheckFetchable().Tenants = %#v, want both the direct and linked tenant", result.Tenants)
+	if len(result.Tenants) != 3 {
+		t.Errorf("CheckFetchable().Tenants = %#v, want the direct, real and linked tenants", result.Tenants)
 	}
 	// The violation is what proves the linked tenant was read, not merely
-	// counted: a skipped tenant reports clean.
-	if len(result.Violations) != 1 || result.Violations[0].Tenant != "linked" {
+	// counted: a skipped tenant reports clean. Both the link and its target
+	// report, since each is a tenant directory in its own right.
+	if len(result.Violations) != 2 {
 		t.Errorf(
-			"CheckFetchable().Violations = %#v, want the undeclared type in the linked tenant",
+			"CheckFetchable().Violations = %#v, want the undeclared type through both the link and its target",
 			result.Violations,
 		)
+	}
+}
+
+// TestCheckFetchableRefusesATenantLinkLeavingTheConfigRoot pins the gate's
+// hermeticity. Following a link to an arbitrary path would make the same
+// commit pass where the target exists and fail, or read different config,
+// elsewhere -- so the claim that this check reads only the consumer's own tree
+// would stop being true. Refused, not skipped: skipping is the silent
+// narrowing the link handling exists to prevent.
+func TestCheckFetchableRefusesATenantLinkLeavingTheConfigRoot(t *testing.T) {
+	workspace := t.TempDir()
+	writeConfig(t, workspace, "direct", "zia_url_categories.auto.tfvars.json")
+
+	external := t.TempDir()
+	outside := filepath.Join(external, "prod")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", outside, err)
+	}
+	link := filepath.Join(workspace, "config", "prod")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("os.Symlink(%q) error = %v, want nil", link, err)
+	}
+
+	root := fetchableRoot(map[string]map[string]any{
+		"zia_url_categories": {"product": "zia", "fetch": map[string]any{"path": "/urlCategories"}},
+	})
+	_, err := CheckFetchable(CheckFetchableOptions{
+		Workspace:  workspace,
+		Deployment: deployment.Deployment{Overlay: "."},
+		Root:       root,
+	})
+	var failure *procerr.ProcessFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("CheckFetchable(escaping tenant link) error = %v, want a ProcessFailure", err)
+	}
+	if failure.Code != "CONFIG_TENANT_OUTSIDE_ROOT" {
+		t.Errorf("ProcessFailure.Code = %q, want %q", failure.Code, "CONFIG_TENANT_OUTSIDE_ROOT")
 	}
 }
 
@@ -282,6 +315,34 @@ func TestCheckFetchableTreatsDeriveAsAStructuralDeclaration(t *testing.T) {
 			"CheckFetchable().Violations = %#v, want only the undeclared generate-only type",
 			result.Violations,
 		)
+	}
+}
+
+// TestCheckFetchableLetsDirectFetchOutrankDerive pins the precedence runtime
+// selection uses: SelectFetchResources tests fetchableSet before it looks at a
+// derive block, and metadata permits an entry carrying both. Checking derive
+// first would refuse a type whose own fetch block works -- a refusal with no
+// operational counterpart, which is the kind that gets a gate switched off.
+func TestCheckFetchableLetsDirectFetchOutrankDerive(t *testing.T) {
+	workspace := t.TempDir()
+	writeConfig(t, workspace, "demo", "sample_resource.auto.tfvars.json")
+	root := fetchableRoot(map[string]map[string]any{
+		"sample_resource": {
+			"product": "zia",
+			"fetch":   map[string]any{"path": "/sample"},
+			"derive":  map[string]any{"from": "missing_source"},
+		},
+	})
+
+	result := runCheck(t, workspace, root)
+	if len(result.Violations) != 0 {
+		t.Errorf(
+			"CheckFetchable(direct fetch + broken derive).Violations = %#v, want none; runtime selects it",
+			result.Violations,
+		)
+	}
+	if result.Skipped != 0 {
+		t.Errorf("CheckFetchable() skipped = %d, want it counted as fetchable, not declared", result.Skipped)
 	}
 }
 

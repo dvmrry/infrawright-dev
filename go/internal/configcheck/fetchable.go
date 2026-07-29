@@ -125,7 +125,32 @@ func configuredTenants(options CheckFetchableOptions) ([]string, error) {
 		if entry.Type()&os.ModeSymlink == 0 {
 			continue
 		}
-		info, err := os.Stat(filepath.Join(parent, entry.Name()))
+		linkPath := filepath.Join(parent, entry.Name())
+		resolved, err := filepath.EvalSymlinks(linkPath)
+		if err != nil {
+			return nil, checkFailure(
+				"CONFIG_ROOT_UNREADABLE",
+				"unable to resolve committed config tenant "+entry.Name(),
+				procerr.CategoryIO,
+			)
+		}
+		// A link pointing outside the config root would make the result depend
+		// on the machine: the same commit passes where the target exists and
+		// fails, or reads different config, elsewhere. This check's value is
+		// that it reads only the consumer's own tree, so an escaping link is
+		// refused rather than followed -- and refused rather than skipped,
+		// because skipping is the silent narrowing the link handling exists to
+		// prevent.
+		if !configRootContains(parent, resolved) {
+			return nil, checkFailure(
+				"CONFIG_TENANT_OUTSIDE_ROOT",
+				"committed config tenant "+entry.Name()+
+					" is a symlink resolving outside the config root, so what this"+
+					" check reads would depend on the machine it runs on",
+				procerr.CategoryDomain,
+			)
+		}
+		info, err := os.Stat(resolved)
 		if err != nil {
 			return nil, checkFailure(
 				"CONFIG_ROOT_UNREADABLE",
@@ -138,6 +163,21 @@ func configuredTenants(options CheckFetchableOptions) ([]string, error) {
 		}
 	}
 	return canonjson.SortedStrings(tenants), nil
+}
+
+// configRootContains reports whether resolved lies within root. Both sides are
+// resolved first so a symlinked config root itself stays supported: it is the
+// escape that matters, not the presence of links on the path.
+func configRootContains(root, resolved string) bool {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(resolvedRoot, resolved)
+	if err != nil {
+		return false
+	}
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 // fetchDeclaration reports whether a registry entry says the engine can fetch
@@ -161,6 +201,15 @@ func fetchDeclaration(
 	resource metadata.LoadedResourceMetadata,
 	resources map[string]metadata.LoadedResourceMetadata,
 ) (fetchable bool, skipReason string, declared bool, detail string) {
+	// Direct fetch outranks derive, because runtime selection resolves it
+	// first: SelectFetchResources tests fetchableSet before it looks at a
+	// derive block. Metadata permits an entry carrying both, so checking
+	// derive first would refuse a type whose own fetch block works -- a
+	// refusal with no operational counterpart, which is the kind that gets a
+	// gate switched off.
+	if canonjson.IsJSONRecord(resource.Registry["fetch"]) {
+		return true, "", true, ""
+	}
 	if derive, isRecord := resource.Registry["derive"].(map[string]any); isRecord {
 		from, ok := derive["from"].(string)
 		if !ok || from == "" {
