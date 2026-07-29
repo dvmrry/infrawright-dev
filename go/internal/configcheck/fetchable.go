@@ -128,7 +128,18 @@ func configuredTenants(options CheckFetchableOptions) ([]string, error) {
 
 // fetchDeclaration reports whether a registry entry says the engine can fetch
 // the type, and the reason when it deliberately cannot.
+//
+// A derived type needs no written reason. Its registry entry already says its
+// config is produced from another resource's data, so it has no API object of
+// its own to fetch -- the structural fact is already stated, and demanding a
+// redundant sentence for it is the ceremony that makes gates get disabled. The
+// written reason is required exactly where the registry is otherwise
+// ambiguous: a generate-only type with no derive block looks identical to one
+// whose fetch block was dropped.
 func fetchDeclaration(resource metadata.LoadedResourceMetadata) (fetchable bool, skipReason string, declared bool) {
+	if canonjson.IsJSONRecord(resource.Registry["derive"]) {
+		return false, "derived from another resource; no API object of its own", true
+	}
 	value, present := resource.Registry["fetch"]
 	if !present {
 		return false, "", false

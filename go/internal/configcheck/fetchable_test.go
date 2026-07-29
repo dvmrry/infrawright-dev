@@ -163,3 +163,31 @@ func TestCheckFetchableIsCleanForACorrectlyConfiguredConsumerAndEmptyTree(t *tes
 		t.Errorf("CheckFetchable(no config tree) = %+v, want an empty clean result", empty)
 	}
 }
+
+// A derived type's registry entry already states that its config comes from
+// another resource, so it needs no written reason. A generate-only type with
+// no derive block is the ambiguous case, and still does.
+func TestCheckFetchableTreatsDeriveAsAStructuralDeclaration(t *testing.T) {
+	workspace := t.TempDir()
+	writeConfig(t, workspace, "demo", "zpa_policy_access_rule_reorder.auto.tfvars.json")
+	writeConfig(t, workspace, "demo", "zia_generate_only.auto.tfvars.json")
+	root := fetchableRoot(map[string]map[string]any{
+		"zpa_policy_access_rule_reorder": {
+			"product":  "zpa",
+			"generate": true,
+			"derive":   map[string]any{"from": "zpa_policy_access_rule"},
+		},
+		"zia_generate_only": {"product": "zia", "generate": true},
+	})
+
+	result := runCheck(t, workspace, root)
+	if result.Skipped != 1 {
+		t.Errorf("CheckFetchable() skipped = %d, want the derived type skipped", result.Skipped)
+	}
+	if len(result.Violations) != 1 || result.Violations[0].Type != "zia_generate_only" {
+		t.Errorf(
+			"CheckFetchable().Violations = %#v, want only the undeclared generate-only type",
+			result.Violations,
+		)
+	}
+}
