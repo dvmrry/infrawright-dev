@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -75,6 +77,7 @@ func TestPlanReportCompatibility(t *testing.T) {
 			t.Fatalf("RenderAssessmentReport(%q) error: %v", status, err)
 		}
 		want := findPlanReportCompatibilityCase(t, fixture, string(status)).OutputBytes
+		got = renderedAsV1Report(t, report)
 		if got != want {
 			t.Errorf("RenderAssessmentReport(%q) = %q, want %q", status, got, want)
 		}
@@ -96,6 +99,7 @@ func TestPlanReportCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderAssessmentReport(float compatibility) error: %v", err)
 	}
+	got = renderedAsV1Report(t, floatReport)
 	if fixture.FloatCase.Name != "guidance-float-provenance" || fixture.FloatCase.Token != "1.0" || got != fixture.FloatCase.OutputBytes {
 		t.Errorf("RenderAssessmentReport(float compatibility) = %q, want token %q and bytes %q", got, fixture.FloatCase.Token, fixture.FloatCase.OutputBytes)
 	}
@@ -113,4 +117,38 @@ func findPlanReportCompatibilityCase(t *testing.T, fixture planReportCompatibili
 		t.Fatalf("plan report compatibility case %q count = %d, want 1", name, len(matches))
 	}
 	return matches[0]
+}
+
+// renderedAsV1Report re-renders a v2 report in the v1 shape so the
+// digest-pinned fixture stays a live byte assertion rather than an inert file.
+// The fixture records the retired implementation's exact output and cannot be
+// regenerated: regenerating it would destroy the evidence it exists to
+// provide.
+//
+// Exactly two admitted differences are undone here -- the additive per-finding
+// `changes` key and the `schema_version` constant. Every other byte, including
+// every path, is still compared against the retired implementation, so a
+// regression anywhere else in the report still fails this test.
+func renderedAsV1Report(t *testing.T, report SavedPlanAssessmentReport) string {
+	t.Helper()
+	value := assessmentReportJSONValue(report)
+	value["schema_version"] = json.Number("1")
+	roots, _ := value["roots"].([]any)
+	for _, rawRoot := range roots {
+		root, ok := rawRoot.(map[string]any)
+		if !ok {
+			continue
+		}
+		findings, _ := root["findings"].([]any)
+		for _, rawFinding := range findings {
+			if finding, ok := rawFinding.(map[string]any); ok {
+				delete(finding, "changes")
+			}
+		}
+	}
+	rendered, err := canonjson.Render(value)
+	if err != nil {
+		t.Fatalf("canonjson.Render(v1 projection) error: %v", err)
+	}
+	return rendered
 }

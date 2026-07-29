@@ -455,7 +455,7 @@ func buildRunnerPreflightErrorReport(
 	// this narrow error-only fallback outside the published schema validation.
 	report = SavedPlanAssessmentReport{
 		Kind:          "infrawright.saved_plan_assessment",
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Mode:          mode,
 		Summary: AssessmentReportSummary{
 			Status: "error",

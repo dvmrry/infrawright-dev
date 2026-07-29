@@ -385,7 +385,7 @@ func TestErrorReportExactBytes(t *testing.T) {
       "tenant": "tenant"
     }
   ],
-  "schema_version": 1,
+  "schema_version": 2,
   "stale_policy": [
     {
       "mode": "plan_tolerate",

@@ -286,7 +286,7 @@ func validateAssessmentStructure(report map[string]any, validation *assessmentVa
 		validation.add("/kind", "const", "must be equal to constant")
 	}
 	if value, present := report["schema_version"]; present {
-		if integer, ok := jsonIntegerValue(value); !ok || integer != 1 {
+		if integer, ok := jsonIntegerValue(value); !ok || integer != 2 {
 			validation.add("/schema_version", "const", "must be equal to constant")
 		}
 	}
@@ -502,10 +502,10 @@ func validateReportFinding(value any, path string, validation *assessmentValidat
 		return
 	}
 	requiredProperties(finding, path, []string{
-		"status", "source", "address", "resource_type", "actions", "paths",
+		"status", "source", "address", "resource_type", "actions", "paths", "changes",
 	}, validation)
 	additionalProperties(finding, path, stringSet(
-		"status", "source", "address", "resource_type", "actions", "paths",
+		"status", "source", "address", "resource_type", "actions", "paths", "changes",
 	), validation)
 	if status, present := finding["status"]; present && status != "clean" &&
 		status != "clean_with_tolerated_drift" && status != "blocked" {
@@ -526,6 +526,69 @@ func validateReportFinding(value any, path string, validation *assessmentValidat
 	}
 	if paths, present := finding["paths"]; present {
 		validateStringArray(paths, path+"/paths", false, false, "", validation)
+	}
+	if changes, present := finding["changes"]; present {
+		validateReportChanges(changes, path+"/changes", validation)
+	}
+}
+
+func validateReportChanges(value any, path string, validation *assessmentValidation) {
+	changes, ok := value.([]any)
+	if !ok {
+		validation.add(path, "type", "must be array")
+		return
+	}
+	for index, rawChange := range changes {
+		validateReportChange(rawChange, fmt.Sprintf("%s/%d", path, index), validation)
+	}
+}
+
+// validateReportChange holds the emitted change to the same strictness as the
+// rest of the report: every field is required, so a consumer never has to
+// distinguish an absent key from an inapplicable one, and Kind alone says
+// which value pair to read.
+func validateReportChange(value any, path string, validation *assessmentValidation) {
+	change, ok := value.(map[string]any)
+	if !ok {
+		validation.add(path, "type", "must be object")
+		return
+	}
+	keys := []string{"path", "kind", "sensitive", "before", "after", "added", "removed"}
+	requiredProperties(change, path, keys, validation)
+	additionalProperties(change, path, stringSet(keys...), validation)
+	if pathValue, present := change["path"]; present {
+		if _, ok := pathValue.(string); !ok {
+			validation.add(path+"/path", "type", "must be string")
+		}
+	}
+	if kind, present := change["kind"]; present && kind != "scalar" && kind != "set" {
+		validation.add(path+"/kind", "enum", "must be equal to one of the allowed values")
+	}
+	if sensitive, present := change["sensitive"]; present {
+		if _, ok := sensitive.(bool); !ok {
+			validation.add(path+"/sensitive", "type", "must be boolean")
+		}
+	}
+	for _, field := range []string{"added", "removed"} {
+		if members, present := change[field]; present {
+			if _, ok := members.([]any); !ok {
+				validation.add(path+"/"+field, "type", "must be array")
+			}
+		}
+	}
+	// A sensitive change must not carry content. This is the one rule here
+	// that protects something rather than describing it.
+	if sensitive, ok := change["sensitive"].(bool); ok && sensitive {
+		for _, field := range []string{"before", "after"} {
+			if content, present := change[field]; present && content != nil {
+				validation.add(path+"/"+field, "const", "must be null for a sensitive change")
+			}
+		}
+		for _, field := range []string{"added", "removed"} {
+			if members, ok := change[field].([]any); ok && len(members) > 0 {
+				validation.add(path+"/"+field, "maxItems", "must be empty for a sensitive change")
+			}
+		}
 	}
 }
 
