@@ -345,6 +345,16 @@ func diffChangesAt(
 // attribute: a sensitivity mask anywhere under a set withholds the delta rather
 // than the members it happens to cover, because naming what entered a set is
 // naming its contents.
+//
+// A set attribute moving between null and a populated array is reported as a
+// scalar change rather than as membership, and that asymmetry with [] to
+// populated is deliberate. Terraform distinguishes an unset set from an empty
+// one, and the scalar form is the only one that carries the distinction: it
+// shows null on one side. Rendering it as membership would spell "unset became
+// {a, b}" and "empty became {a, b}" identically, which loses information the
+// plan actually contained. The rule is that the delta form is used where both
+// sides are collections and both readings agree; otherwise the fuller form
+// wins.
 func setAttributeChanges(
 	before, after, beforeSensitive, afterSensitive any,
 	path PlanPath,

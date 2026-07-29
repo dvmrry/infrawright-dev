@@ -148,6 +148,12 @@ func TestDiffChangesSetEqualMembersReportNothing(t *testing.T) {
 // TestDiffChangesSetFallsBackWhenNotAnArray pins that an attribute the schema
 // calls a set but the plan does not render as a collection is still reported.
 // Nothing may be skipped for want of the expected shape.
+//
+// It also pins the scalar kind for these, which is the deliberate half of an
+// asymmetry: null to populated reports scalar while [] to populated reports
+// set. Terraform distinguishes an unset set from an empty one, and only the
+// scalar form carries that -- it shows the null. A membership delta would
+// render both transitions identically.
 func TestDiffChangesSetFallsBackWhenNotAnArray(t *testing.T) {
 	for _, test := range []struct{ name, before, after string }{
 		{"created", `{"db_categorized_urls":null}`, `{"db_categorized_urls":["a"]}`},
@@ -661,5 +667,56 @@ func TestRunnerRendersSensitiveSetMembership(t *testing.T) {
 	want := []string{"db_categorized_urls: (sensitive value changed)"}
 	if !reflect.DeepEqual(lines, want) {
 		t.Errorf("runnerFindingLines(sensitive set change) = %#v, want %#v", lines, want)
+	}
+}
+
+// TestPublishedReportNeverEmitsNullForRequiredChangeArrays pins the published
+// contract for added and removed, which the schema marks required and typed
+// array for every change, not only for a set change.
+//
+// The internal PlanChange leaves both nil for a scalar, and Go marshals a nil
+// slice as null. Nothing in the type system stops that reaching the report; the
+// only thing that does is the report writer copying through append([]any{},
+// ...), which turns nil into an empty slice. That is one call site with no test
+// behind it, so a later simplification to change.Added would emit null for
+// every scalar change and break every conforming consumer, silently.
+func TestPublishedReportNeverEmitsNullForRequiredChangeArrays(t *testing.T) {
+	report := SavedPlanAssessmentReport{
+		Kind: "infrawright.saved_plan_assessment", SchemaVersion: 2, Mode: AssertClean,
+		Roots: []AssessmentReportRoot{{
+			Tenant: "tenant", Label: "zia_url_categories",
+			Findings: []NormalizedAssessmentFinding{{
+				Status: "blocked", Source: "resource_changes",
+				Address: "zia_url_categories.this",
+				Paths:   []string{"configured_name", "db_categorized_urls"},
+				Changes: []NormalizedPlanChange{
+					{Path: "configured_name", Kind: string(ScalarChange), Before: "old", After: "new"},
+					{
+						Path: "db_categorized_urls", Kind: string(SetChange),
+						Added: []any{"new.example"}, Removed: []any{"old.example"},
+					},
+				},
+			}},
+		}},
+	}
+	rendered, err := RenderAssessmentReport(report)
+	if err != nil {
+		t.Fatalf("RenderAssessmentReport(mixed kinds) error = %v, want nil", err)
+	}
+	for _, forbidden := range []string{`"added": null`, `"removed": null`, `"added":null`, `"removed":null`} {
+		if strings.Contains(rendered, forbidden) {
+			t.Errorf("RenderAssessmentReport emitted %s; the schema requires an array", forbidden)
+		}
+	}
+	// Exactly one empty pair, from the scalar change; the set change's pair
+	// carries its members. This also pins that the copy is not quietly
+	// emptying a populated delta on its way out.
+	if got := strings.Count(rendered, `"added": []`); got != 1 {
+		t.Errorf("rendered %d empty added arrays, want exactly the scalar change's one:\n%s", got, rendered)
+	}
+	for _, member := range []string{"new.example", "old.example"} {
+		if !strings.Contains(rendered, member) {
+			t.Errorf("RenderAssessmentReport dropped set member %q:\n%s", member, rendered)
+		}
 	}
 }
