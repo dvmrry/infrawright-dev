@@ -710,3 +710,65 @@ func TestCommittedPackProfilesAreDerivable(t *testing.T) {
 		})
 	}
 }
+
+// TestRegistryFetchSkipMustBeDeclaredAsData pins the escape hatch that makes
+// the committed-config-implies-fetchable invariant safe to enforce. Every rule
+// here exists so the declaration cannot decay into a silent gap: a reason
+// without a skip is stale, a skip without a reason is the same blindness in a
+// different spelling, and registry.json is strict JSON so a comment cannot
+// carry any of it.
+func TestRegistryFetchSkipMustBeDeclaredAsData(t *testing.T) {
+	tests := []struct {
+		name    string
+		entry   JsonObject
+		wantErr string
+	}{
+		{
+			name:    "skip without a reason",
+			entry:   JsonObject{"product": "sample", "fetch": false},
+			wantErr: "fetch is false but registry.json.sample_resource.fetch_skip_reason is missing",
+		},
+		{
+			name:    "empty reason",
+			entry:   JsonObject{"product": "sample", "fetch": false, "fetch_skip_reason": ""},
+			wantErr: "fetch_skip_reason",
+		},
+		{
+			name:    "reason without a skip",
+			entry:   JsonObject{"product": "sample", "fetch_skip_reason": "stale"},
+			wantErr: `fetch_skip_reason is only valid with "fetch": false`,
+		},
+		{
+			name: "reason alongside a real fetch block",
+			entry: JsonObject{
+				"product":           "sample",
+				"fetch":             JsonObject{"path": "/items", "pagination": "single"},
+				"fetch_skip_reason": "contradicts the block above",
+			},
+			wantErr: `fetch_skip_reason is only valid with "fetch": false`,
+		},
+		{
+			name:    "fetch true says nothing about how to fetch",
+			entry:   JsonObject{"product": "sample", "fetch": true},
+			wantErr: "true does not describe how to fetch",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ValidateRegistry(JsonObject{"sample_resource": test.entry}, "registry.json")
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("ValidateRegistry(%s) error = %v, want one containing %q", test.name, err, test.wantErr)
+			}
+		})
+	}
+
+	if _, err := ValidateRegistry(JsonObject{
+		"sample_resource": JsonObject{
+			"product":           "sample",
+			"fetch":             false,
+			"fetch_skip_reason": "generate-only; the API exposes no read for this type",
+		},
+	}, "registry.json"); err != nil {
+		t.Errorf("ValidateRegistry(declared unfetchable) error = %v, want nil", err)
+	}
+}

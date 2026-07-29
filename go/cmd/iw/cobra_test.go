@@ -21,8 +21,9 @@ func TestCobraTreeCarriesCompleteCommandSurface(t *testing.T) {
 	}
 	sort.Strings(got)
 	want := []string{
-		"adopt", "apply", "assert-adoptable", "assert-clean", "check-pack",
-		"check-pack-set", "clean-plans", "deployment", "fetch", "fetch-diag",
+		"adopt", "apply", "assert-adoptable", "assert-clean", "check-config",
+		"check-pack", "check-pack-set", "clean-plans", "deployment", "fetch",
+		"fetch-diag",
 		"gen-env", "modules", "openapi-map", "plan", "plan-roots",
 		"provider-probe", "reconcile", "resources", "roots",
 		"scope-paths", "source-evidence-eval", "source-operation-map",
@@ -208,6 +209,7 @@ func TestEveryCobraStringFlagRejectsEmptyUnlessExplicitlyAllowed(t *testing.T) {
 		"iw clean-plans --tenant":      true,
 		"iw scope-paths --path":        true,
 		"iw plan --tenant":             true,
+		"iw check-config --tenant":     true,
 		"iw assert-clean --tenant":     true,
 		"iw assert-adoptable --tenant": true,
 		"iw apply --tenant":            true,
