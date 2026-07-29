@@ -5,10 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/plan"
 )
 
 // urlCategoriesSchemaTypes is the fixture the whole set-typed walk turns on.
@@ -171,9 +174,18 @@ func TestDiffChangesSetFallsBackWhenNotAnArray(t *testing.T) {
 				nil, nil,
 				urlCategoriesSetAttributes(),
 			)
-			if len(changes) != 1 || changes[0].Kind != ScalarChange ||
-				!reflect.DeepEqual(changes[0].Path, PlanPath{"db_categorized_urls"}) {
-				t.Errorf("DiffChangesWithSets(%s) = %#v, want one scalar change naming the attribute", test.name, changes)
+			// The values are asserted, not just the shape. Checking only the
+			// count, kind, and path leaves a fallback that emits an empty
+			// scalar change indistinguishable from one that carries the
+			// attribute -- null to ["a"] would render as null to null.
+			want := []PlanChange{{
+				Path:   PlanPath{"db_categorized_urls"},
+				Kind:   ScalarChange,
+				Before: mustParseDataJSON(t, test.before).(map[string]any)["db_categorized_urls"],
+				After:  mustParseDataJSON(t, test.after).(map[string]any)["db_categorized_urls"],
+			}}
+			if !reflect.DeepEqual(changes, want) {
+				t.Errorf("DiffChangesWithSets(%s) = %#v, want %#v", test.name, changes, want)
 			}
 		})
 	}
@@ -182,26 +194,139 @@ func TestDiffChangesSetFallsBackWhenNotAnArray(t *testing.T) {
 // TestDiffChangesSetSensitivityWithholdsTheDelta pins that naming what entered
 // a set is naming its contents, so a sensitivity mask anywhere under the
 // attribute withholds the members while keeping the change visible.
+//
+// Each mask is exercised on both sides. Supplying only before_sensitive would
+// leave after_sensitive unread by any test, and a member that is sensitive only
+// after the change -- the newly written secret -- is exactly the one whose
+// exposure matters most.
 func TestDiffChangesSetSensitivityWithholdsTheDelta(t *testing.T) {
 	for _, test := range []struct{ name, mask string }{
 		{"whole_attribute", `{"db_categorized_urls":true}`},
 		{"one_member", `{"db_categorized_urls":[false,true]}`},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			changes := DiffChangesWithSets(
-				mustParseDataJSON(t, `{"db_categorized_urls":["a","b"]}`),
-				mustParseDataJSON(t, `{"db_categorized_urls":["a","c"]}`),
-				mustParseDataJSON(t, test.mask),
-				nil,
-				urlCategoriesSetAttributes(),
-			)
-			want := []PlanChange{{
-				Path: PlanPath{"db_categorized_urls"}, Kind: SetChange, Sensitive: true,
-			}}
-			if !reflect.DeepEqual(changes, want) {
-				t.Errorf("DiffChangesWithSets(%s sensitive) = %#v, want the path with the delta withheld", test.name, changes)
+		for _, side := range []string{"before", "after"} {
+			t.Run(test.name+"_"+side, func(t *testing.T) {
+				var beforeMask, afterMask any
+				if side == "before" {
+					beforeMask = mustParseDataJSON(t, test.mask)
+				} else {
+					afterMask = mustParseDataJSON(t, test.mask)
+				}
+				changes := DiffChangesWithSets(
+					mustParseDataJSON(t, `{"db_categorized_urls":["a","old-secret"]}`),
+					mustParseDataJSON(t, `{"db_categorized_urls":["a","new-secret"]}`),
+					beforeMask,
+					afterMask,
+					urlCategoriesSetAttributes(),
+				)
+				want := []PlanChange{{
+					Path: PlanPath{"db_categorized_urls"}, Kind: SetChange, Sensitive: true,
+				}}
+				if !reflect.DeepEqual(changes, want) {
+					t.Errorf("DiffChangesWithSets(%s sensitive on %s) = %#v, want the path with the delta withheld",
+						test.name, side, changes)
+				}
+			})
+		}
+	}
+}
+
+// TestDiffChangesSetMembersCompareExactly pins that membership is decided by
+// exact Terraform-number equality, not by the walk's ordinary comparison.
+//
+// The ordinary comparison rounds a non-integer through binary64, so these two
+// values collapse to the same float and a set whose membership really moved
+// reads as unchanged. That answer reaches the branch that clears a record
+// outright, which is why the comparison here has to be the exact one.
+func TestDiffChangesSetMembersCompareExactly(t *testing.T) {
+	before := mustParseDataJSON(t, `{"db_categorized_urls":[1, 9007199254740992.1]}`)
+	after := mustParseDataJSON(t, `{"db_categorized_urls":[9007199254740992.2, 1]}`)
+	changes := DiffChangesWithSets(before, after, nil, nil, urlCategoriesSetAttributes())
+	if len(changes) != 1 || len(changes[0].Added) != 1 || len(changes[0].Removed) != 1 {
+		t.Fatalf("DiffChangesWithSets(binary64-colliding members) = %#v, want one member in and one out", changes)
+	}
+}
+
+// TestClassifyPlanExactNumbersCannotBeClearedByRounding is the same defect at
+// the boundary that matters: a record whose only difference is two set members
+// that collide under binary64 must not be reported clean.
+func TestClassifyPlanExactNumbersCannotBeClearedByRounding(t *testing.T) {
+	planValue := mustParseDataJSON(t, setPlanJSON(
+		"resource_drift",
+		`{"db_categorized_urls":[1, 9007199254740992.1]}`,
+		`{"db_categorized_urls":[9007199254740992.2, 1]}`,
+	))
+	classification, err := ClassifyPlanWithOptions(planValue, nil, nil, ClassifyPlanOptions{
+		SchemaTypes: urlCategoriesSchemaTypes(),
+	})
+	if err != nil {
+		t.Fatalf("ClassifyPlanWithOptions(colliding numbers) error = %v, want nil", err)
+	}
+	if classification.Status != Blocked {
+		t.Errorf("ClassifyPlanWithOptions(colliding numbers).Status = %s, want blocked; %#v",
+			classification.Status, classification.Findings)
+	}
+}
+
+// TestDiffChangesSetHandlesUncomparableMembers pins that membership works for a
+// set of objects. Real packs carry them -- zia_sub_cloud.dcs is set(object) --
+// and comparing members with Go's == panics on a map.
+func TestDiffChangesSetHandlesUncomparableMembers(t *testing.T) {
+	before := mustParseDataJSON(t, `{"db_categorized_urls":[{"id":1},{"id":2}]}`)
+	after := mustParseDataJSON(t, `{"db_categorized_urls":[{"id":2},{"id":3}]}`)
+	changes := DiffChangesWithSets(before, after, nil, nil, urlCategoriesSetAttributes())
+	want := []PlanChange{{
+		Path: PlanPath{"db_categorized_urls"}, Kind: SetChange,
+		Added:   []any{map[string]any{"id": mustParseDataJSON(t, `3`)}},
+		Removed: []any{map[string]any{"id": mustParseDataJSON(t, `1`)}},
+	}}
+	if !reflect.DeepEqual(changes, want) {
+		t.Errorf("DiffChangesWithSets(set of objects) = %#v, want %#v", changes, want)
+	}
+}
+
+// TestSetMembersAreNotBackedByThePlanDocument pins that a reported member
+// cannot be rewritten by a later mutation of the plan it came from.
+func TestSetMembersAreNotBackedByThePlanDocument(t *testing.T) {
+	before := mustParseDataJSON(t, `{"db_categorized_urls":[]}`)
+	after := mustParseDataJSON(t, `{"db_categorized_urls":[{"host":"new"}]}`)
+	changes := DiffChangesWithSets(before, after, nil, nil, urlCategoriesSetAttributes())
+	afterObject := after.(map[string]any)
+	member := afterObject["db_categorized_urls"].([]any)[0].(map[string]any)
+	member["host"] = "mutated-after-classification"
+	got := changes[0].Added[0].(map[string]any)["host"]
+	if got != "new" {
+		t.Errorf("reported member changed to %#v when the plan was mutated, want the value observed at classification", got)
+	}
+}
+
+// TestDiffChangesSetWillNotInventAMemberFromAnUnknown pins that an
+// unknown-until-apply placeholder is never reported as a member that entered
+// the set. A Terraform set cannot hold a null, so a null in the serialized
+// array is a placeholder; counting it produces evidence the plan never carried.
+func TestDiffChangesSetWillNotInventAMemberFromAnUnknown(t *testing.T) {
+	changes := DiffChangesWithSets(
+		mustParseDataJSON(t, `{"db_categorized_urls":["a"]}`),
+		mustParseDataJSON(t, `{"db_categorized_urls":["a",null]}`),
+		nil, nil,
+		urlCategoriesSetAttributes(),
+	)
+	for _, change := range changes {
+		for _, member := range append(append([]any{}, change.Added...), change.Removed...) {
+			if member == nil {
+				t.Errorf("DiffChangesWithSets(unknown member) reported %#v, want no null member", change)
 			}
-		})
+		}
+	}
+	// The attribute is still reported: equality cannot be proven either, so
+	// staying silent would be the under-reporting half of the same mistake.
+	paths := DiffPathsWithSets(
+		mustParseDataJSON(t, `{"db_categorized_urls":["a"]}`),
+		mustParseDataJSON(t, `{"db_categorized_urls":["a",null]}`),
+		urlCategoriesSetAttributes(),
+	)
+	if want := []PlanPath{{"db_categorized_urls"}}; !reflect.DeepEqual(paths, want) {
+		t.Errorf("DiffPathsWithSets(unknown member) = %#v, want %#v", paths, want)
 	}
 }
 
@@ -858,5 +983,384 @@ func TestNewPlanSchemaTypesReadsAWellFormedSyntheticPack(t *testing.T) {
 	want := map[string]struct{}{"members": {}}
 	if got := types.SetAttributes("sample_resource"); !reflect.DeepEqual(got, want) {
 		t.Errorf("SetAttributes(sample_resource) = %#v, want only the set-typed attribute %#v", got, want)
+	}
+}
+
+// TestSetChangeSurvivesTheRealReportPath is the test whose absence let a set
+// change be unpublishable while every other test passed.
+//
+// Two validators guard the report and only one of them is the JSON Schema file.
+// The hand-written semantics validator runs on every successful report and
+// carried its own copy of the kind enum, which still allowed "scalar" alone --
+// so the feature's motivating output was rejected with INVALID_ASSESSMENT_REPORT
+// at the point of publication. Rendering a hand-built report, which is what the
+// other report test does, never reaches that validator. This one goes through
+// BuildSavedPlanAssessmentReport, the path both assertion modes use.
+func TestSetChangeSurvivesTheRealReportPath(t *testing.T) {
+	core := SavedPlanAssessmentCore{
+		Status: Blocked, Checked: 1, Blocked: 1,
+		Roots: []AssessedSavedPlanRoot{{
+			Tenant: "tenant", Label: "zia_url_categories",
+			Members: []string{"zia_url_categories"}, Status: Blocked,
+			Plan: AssessedPlanEvidence{
+				SHA256:           strings.Repeat("b", 64),
+				FormatVersion:    reportStringPointer("1.2"),
+				TerraformVersion: reportStringPointer("1.15.4"),
+			},
+			PlanFingerprint: plan.PlanFingerprintV2{Version: 2, SHA256: strings.Repeat("c", 64)},
+			Findings: []AssessmentFinding{{
+				Status: Blocked, Source: "resource_changes",
+				Address:      "zia_url_categories.this",
+				ResourceType: reportStringPointer("zia_url_categories"),
+				Actions:      []string{"update"},
+				Paths:        []PlanPath{{"db_categorized_urls"}},
+				Changes: []PlanChange{{
+					Path: PlanPath{"db_categorized_urls"}, Kind: SetChange,
+					Added: []any{"new.example"}, Removed: []any{"old.example"},
+				}},
+			}},
+		}},
+		StalePolicy: []metadata.StalePolicyEntry{},
+	}
+	report, err := BuildSavedPlanAssessmentReport(BuildSavedPlanAssessmentReportOptions{
+		Mode:    AssertClean,
+		Request: AssessmentReportRequest{Tenant: reportStringPointer("tenant")},
+		Core:    core,
+	})
+	if err != nil {
+		t.Fatalf("BuildSavedPlanAssessmentReport(set change) error = %v, want a publishable report", err)
+	}
+	rendered, err := RenderAssessmentReport(report)
+	if err != nil {
+		t.Fatalf("RenderAssessmentReport(set change) error = %v, want nil", err)
+	}
+	for _, required := range []string{`"kind": "set"`, "new.example", "old.example"} {
+		if !strings.Contains(rendered, required) {
+			t.Errorf("published report is missing %s:\n%s", required, rendered)
+		}
+	}
+}
+
+// TestPublishedKindEnumMatchesTheValidator pins the two copies of the kind enum
+// against each other. They are in different files -- the published JSON Schema
+// and the hand-written semantics validator -- and nothing but this connects
+// them, which is how they drifted.
+func TestPublishedKindEnumMatchesTheValidator(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "published-assessment-schema.json"))
+	if err != nil {
+		t.Fatalf("os.ReadFile(published schema) error = %v, want nil", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("json.Unmarshal(published schema) error = %v, want nil", err)
+	}
+	defs := document["$defs"].(map[string]any)
+	change := defs["change"].(map[string]any)["properties"].(map[string]any)
+	published := change["kind"].(map[string]any)["enum"].([]any)
+
+	accepted := map[string]struct{}{}
+	for _, kind := range published {
+		text := kind.(string)
+		validation := &assessmentValidation{}
+		validateReportChange(
+			map[string]any{
+				"path": "p", "kind": text, "sensitive": false,
+				"before": nil, "after": nil, "added": []any{}, "removed": []any{},
+			},
+			"/c", map[string]struct{}{"p": {}}, validation,
+		)
+		if len(validation.details) == 0 {
+			accepted[text] = struct{}{}
+		}
+	}
+	for _, kind := range published {
+		if _, ok := accepted[kind.(string)]; !ok {
+			t.Errorf("published schema allows kind %q but the semantics validator rejects it; "+
+				"every report carrying that kind is unpublishable", kind)
+		}
+	}
+}
+
+// TestNewPlanSchemaTypesFailsDeterministically pins that a pack with more than
+// one malformed resource type always reports the same one.
+//
+// The builder ranges resource types; Go randomises map iteration, so without an
+// ordering the error message -- and the report digest that carries it -- differs
+// between identical runs on identical input.
+func TestNewPlanSchemaTypesFailsDeterministically(t *testing.T) {
+	root := schemaTypesPackRoot(t, nil)
+	root.Resources = map[string]metadata.LoadedResourceMetadata{}
+	for _, resourceType := range []string{
+		"sample_missing_alpha", "sample_missing_beta",
+		"sample_missing_gamma", "sample_missing_delta",
+	} {
+		root.Resources[resourceType] = metadata.LoadedResourceMetadata{
+			Type: resourceType, Product: "sample", Provider: "sample",
+		}
+	}
+	first := ""
+	for attempt := range 200 {
+		_, err := NewPlanSchemaTypes(root)
+		if err == nil {
+			t.Fatalf("NewPlanSchemaTypes(several malformed types) error = nil on attempt %d, want a refusal", attempt)
+		}
+		if attempt == 0 {
+			first = err.Error()
+			continue
+		}
+		if err.Error() != first {
+			t.Fatalf("NewPlanSchemaTypes reported %q on attempt %d but %q on the first, want one deterministic failure",
+				err.Error(), attempt, first)
+		}
+	}
+}
+
+// TestClearingRuleWillNotSkipALossilyEqualKey pins the per-key comparison
+// inside the clearing rule, and the fixture that reaches it is narrow enough
+// to deserve its shape spelled out.
+//
+// The rule is consulted only when the value walk found nothing. The walk
+// compares set attributes by exact membership, so an exactly-differing set
+// never gets here -- it produces a real path first. What can get here is a
+// non-set attribute whose two values collapse to the same float64: the walk's
+// ordinary comparison calls them equal and emits nothing. The clearing rule
+// re-examines every key exactly, refuses to explain the record, and it stays
+// blocked as an opaque update. A lossy comparison in that re-examination
+// skips the key as equal, lets the honest set reorder beside it explain the
+// record, and clears drift the walk never saw.
+func TestClearingRuleWillNotSkipALossilyEqualKey(t *testing.T) {
+	planValue := mustParseDataJSON(t, setPlanJSON(
+		"resource_drift",
+		`{"db_categorized_urls":["a","b"],"val":9007199254740992.1}`,
+		`{"db_categorized_urls":["b","a"],"val":9007199254740992.2}`,
+	))
+	classification, err := ClassifyPlanWithOptions(planValue, nil, nil, ClassifyPlanOptions{
+		SchemaTypes: urlCategoriesSchemaTypes(),
+	})
+	if err != nil {
+		t.Fatalf("ClassifyPlanWithOptions(sub-float64 scalar beside honest reorder) error = %v, want nil", err)
+	}
+	if classification.Status != Blocked ||
+		!reflect.DeepEqual(classification.Findings[0].Paths, []PlanPath{{OpaqueUpdate}}) {
+		t.Errorf("ClassifyPlanWithOptions(sub-float64 scalar beside honest reorder) = %#v, "+
+			"want blocked on the opaque marker: the walk cannot see this drift and the "+
+			"clearing rule must not explain it away", classification)
+	}
+}
+
+// The three tests below exist because a reviewer proved their absence: with
+// every unit test above green, discarding the SchemaTypes wiring at the
+// runner, at apply, and at guidance collection each survived the whole suite.
+// Unit tests hand the classifier a schema directly, so they cannot notice a
+// production entry point that never passes one. Each test here rides the real
+// path from a pack root on disk to the observable outcome, and each is backed
+// by a battery mutation that discards exactly one wiring site.
+
+// TestRunSavedPlanAssertionCollapsesSetsFromTheInstalledSchema pins the
+// assert-clean gate end to end: the provider schema on disk declares
+// db_categorized_urls a set, the saved plan's only difference is a pure
+// reorder of it, and the run must come back clean. If the runner stops
+// handing schema types to the assessment, the reorder is positional drift
+// and this run fails.
+func TestRunSavedPlanAssertionCollapsesSetsFromTheInstalledSchema(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("saved-plan snapshot cleanup is deliberately fail-closed on this platform")
+	}
+	workspace := t.TempDir()
+	resourceType := "zia_url_categories"
+	envDir := filepath.Join(workspace, "envs", "tenant", resourceType)
+	moduleDir := filepath.Join(workspace, "modules", resourceType)
+	for _, directory := range []string{envDir, moduleDir} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatalf("os.MkdirAll(%q) error = %v, want nil", directory, err)
+		}
+	}
+	relativeModule, err := filepath.Rel(envDir, moduleDir)
+	if err != nil {
+		t.Fatalf("filepath.Rel(%q, %q) error = %v, want nil", envDir, moduleDir, err)
+	}
+	writeAssessmentTransactionFile(t, filepath.Join(moduleDir, "main.tf"), []byte("# module\n"), 0o600)
+	writeAssessmentTransactionFile(t, filepath.Join(envDir, "main.tf"), []byte(strings.Join([]string{
+		`module "` + resourceType + `" {`,
+		`  source = "` + filepath.ToSlash(relativeModule) + `"`,
+		"  items = var." + resourceType + "_items",
+		"}",
+		"",
+	}, "\n")), 0o600)
+	writeAssessmentTransactionFile(t, filepath.Join(envDir, "tfplan"), []byte("opaque saved plan\n"), 0o600)
+	fingerprint, err := plan.FingerprintPlanV2(plan.PlanFingerprintInput{
+		EnvDir:      envDir,
+		VarFiles:    []string{},
+		MemberTypes: []string{resourceType},
+	}, nil)
+	if err != nil {
+		t.Fatalf("plan.FingerprintPlanV2(set wiring slice) error = %v, want nil", err)
+	}
+	writeAssessmentTransactionFile(
+		t,
+		filepath.Join(envDir, "tfplan.sources"),
+		[]byte(`{"version":2,"sha256":"`+fingerprint.SHA256+`"}`+"\n"),
+		0o600,
+	)
+	planJSON := `{
+		"format_version":"1.2","terraform_version":"1.15.4",
+		"complete":true,"errored":false,
+		"resource_changes":[],
+		"resource_drift":[{
+			"address":"` + resourceType + `.this","type":"` + resourceType + `",
+			"change":{"actions":["update"],
+				"before":{"db_categorized_urls":["a.example","b.example","c.example"]},
+				"after":{"db_categorized_urls":["c.example","a.example","b.example"]}}
+		}],
+		"output_changes":{}
+	}`
+	executable := assessmentExecutable(t, workspace, "printf '%s' "+assessmentShellLiteral(planJSON))
+	reportPath := "-"
+	diagnostics := []string{}
+	var stdout strings.Builder
+	err = RunSavedPlanAssertion(RunSavedPlanAssertionOptions{
+		Workspace: workspace,
+		Mode:      AssertClean,
+		Tenant:    runnerTestString("tenant"),
+		Selectors: []string{resourceType},
+		Inputs: &SavedPlanAssertionInputs{
+			Deployment: deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}},
+			Root:       loadedAssessmentPack(t),
+		},
+		TerraformExecutable: executable,
+		ReportPath:          &reportPath,
+		OnDiagnostic: func(message string) {
+			diagnostics = append(diagnostics, message)
+		},
+		Stdout: func(text string) error {
+			stdout.WriteString(text)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunSavedPlanAssertion(pure set reorder) error = %v, want a clean run", err)
+	}
+	if !reflect.DeepEqual(diagnostics, []string{
+		"all 1 saved plan(s) clean (no-op/imports only)",
+	}) {
+		t.Errorf("RunSavedPlanAssertion(pure set reorder) diagnostics = %#v, want exactly the clean line", diagnostics)
+	}
+}
+
+// TestApplyExactSavedPlansCollapsesSetsFromTheInstalledSchema pins the apply
+// gate the same way. The apply and assertion gates read the same pack root; a
+// plan the assertion cleared must not be refused at apply because only one of
+// the two consulted the schema.
+func TestApplyExactSavedPlansCollapsesSetsFromTheInstalledSchema(t *testing.T) {
+	fixture := newExactApplyFixture(t)
+	planValue := mustParseDataJSON(t, `{
+		"format_version":"1.2","terraform_version":"1.15.4",
+		"complete":true,"errored":false,
+		"resource_changes":[],
+		"resource_drift":[{
+			"address":"zia_url_categories.this","type":"zia_url_categories",
+			"change":{"actions":["update"],
+				"before":{"db_categorized_urls":["a.example","b.example"]},
+				"after":{"db_categorized_urls":["b.example","a.example"]}}
+		}],
+		"output_changes":{}
+	}`)
+	fake := &fakeExactPlanApplyTerraform{currentPlan: planValue}
+	result, err := applyExactSavedPlans(exactApplyOptions(fixture, fake), exactApplyTestHooks(fixture))
+	if err != nil {
+		t.Fatalf("applyExactSavedPlans(pure set reorder) error = %v, want the plan applied", err)
+	}
+	if result.Applied != 1 || len(fake.applied) != 1 {
+		t.Errorf("applyExactSavedPlans(pure set reorder) applied = %d/%d calls, want 1/1",
+			result.Applied, len(fake.applied))
+	}
+}
+
+// TestAssessmentGuidanceJoinsSetCollapsedFindings pins that guidance is
+// collected under the same schema types the findings were classified under.
+// joinBlockedGuidance requires exact path equality, so if the classifier
+// names db_categorized_urls while guidance recomputes positional indexes, the
+// annotation detaches with no error anywhere -- the failure this test exists
+// to make loud.
+func TestAssessmentGuidanceJoinsSetCollapsedFindings(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	planJSON := `{
+		"format_version":"1.2","terraform_version":"1.15.4",
+		"complete":true,"errored":false,
+		"resource_changes":[{
+			"address":"zpa_sample.this","type":"zpa_sample",
+			"change":{"actions":["update"],
+				"before":{"members":["a.example","b.example"]},
+				"after":{"members":["a.example","c.example"]}}
+		}],
+		"output_changes":{}
+	}`
+	executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(planJSON))
+	pack := "sample"
+	guidanceSource := NewAssessmentGuidanceSource(metadata.LoadedPackRoot{
+		Packs: metadata.PackMetadata{
+			Manifests: []metadata.PackManifest{{
+				Name:             "sample",
+				Directory:        "/packs/sample",
+				Path:             "/packs/sample/pack.json",
+				ProviderPrefixes: map[string]string{"zpa_": "zpa"},
+				ProviderSources:  map[string]string{"zpa": "example/zpa"},
+				Data: map[string]any{
+					"provider_config": map[string]any{
+						"requirements": []any{map[string]any{
+							"id":         "zpa_member_management",
+							"setting":    "manage_members",
+							"value":      false,
+							"reason":     "membership is provider-managed",
+							"plan_paths": []any{"members"},
+							"remediation": map[string]any{
+								"kind":     "provider_argument",
+								"mode":     "required_external",
+								"evidence": "provider.md",
+							},
+						}},
+					},
+				},
+			}},
+			ProviderPrefixes: map[string]string{"zpa_": "zpa"},
+			ProviderSources:  map[string]string{"zpa": "example/zpa"},
+			ProviderOwners:   map[string]string{"zpa": "sample"},
+		},
+		Resources: map[string]metadata.LoadedResourceMetadata{
+			"zpa_sample": {
+				Type: "zpa_sample", Product: "zpa", Provider: "zpa",
+				Pack: &pack, Registry: map[string]any{"generate": true},
+			},
+		},
+	})
+	outcome, err := AssessSavedPlansReport(AssessSavedPlansReportOptions{
+		Assessment: SavedPlanAssessmentTransactionOptions{
+			Assessment: assessmentOptions(fixture, executable, nil),
+		},
+		Mode:           AssertAdoptable,
+		Request:        AssessmentReportRequest{Tenant: reportStringPointer("tenant")},
+		GuidanceSource: &guidanceSource,
+		SchemaTypes: PlanSchemaTypes{setAttributes: map[string]map[string]struct{}{
+			"zpa_sample": {"members": {}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("AssessSavedPlansReport(set membership guidance) error = %v, want a report", err)
+	}
+	if len(outcome.Report.Roots) != 1 {
+		t.Fatalf("AssessSavedPlansReport(set membership guidance) roots = %d, want 1", len(outcome.Report.Roots))
+	}
+	root := outcome.Report.Roots[0]
+	joined := false
+	for _, entry := range root.Guidance {
+		if entry["lane"] == "provider_config" &&
+			entry["matched_plan_path"] == "members" &&
+			entry["finding_path"] == "members" {
+			joined = true
+		}
+	}
+	if !joined {
+		t.Errorf("AssessSavedPlansReport(set membership guidance) guidance = %#v, "+
+			"want a provider_config entry joined on the collapsed path \"members\"", root.Guidance)
 	}
 }

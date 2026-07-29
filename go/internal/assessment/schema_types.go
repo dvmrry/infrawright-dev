@@ -1,6 +1,7 @@
 package assessment
 
 import (
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
@@ -72,7 +73,16 @@ func (types PlanSchemaTypes) Empty() bool {
 // discovering it from a report is far worse than discovering it here.
 func NewPlanSchemaTypes(root metadata.LoadedPackRoot) (PlanSchemaTypes, error) {
 	setAttributes := make(map[string]map[string]struct{}, len(root.Resources))
+	// Sorted, so the error a malformed pack produces is always the same one.
+	// Ranging the map directly returns whichever of several bad resource types
+	// Go's randomised iteration reached first, which makes the failure message
+	// -- and the report digest carrying it -- differ between identical runs.
+	resourceTypes := make([]string, 0, len(root.Resources))
 	for resourceType := range root.Resources {
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+	resourceTypes = canonjson.SortedStrings(resourceTypes)
+	for _, resourceType := range resourceTypes {
 		schema, err := root.LoadResourceSchema(resourceType)
 		if err != nil {
 			return PlanSchemaTypes{}, err

@@ -707,10 +707,6 @@ func applyExactSavedPlans(options ExactPlanApplyOptions, hooks exactPlanApplyHoo
 		Tenant:     cloneString(options.Tenant),
 		Selectors:  append([]string(nil), options.Selectors...),
 	})
-	schemaTypes, err := NewPlanSchemaTypes(inputs.Root)
-	if err != nil {
-		return result, err
-	}
 	selectedRoots, diagnostics, err := MaterializeLoadedSavedPlanAssessmentRoots(context)
 	if err != nil {
 		return result, err
@@ -724,6 +720,14 @@ func applyExactSavedPlans(options ExactPlanApplyOptions, hooks exactPlanApplyHoo
 			"no saved plans found - run make plan SAVE=1 first",
 			procerr.CategoryDomain,
 		)
+	}
+	// Loaded only once there is something to apply. Reading provider schemas
+	// before this point lets a schema failure replace NO_SAVED_PLANS, reporting
+	// a malformed pack to someone whose actual situation is that they have not
+	// run make plan yet.
+	schemaTypes, err := NewPlanSchemaTypes(inputs.Root)
+	if err != nil {
+		return result, err
 	}
 	for index, root := range selectedRoots {
 		applied, err := applyExactPlanRoot(

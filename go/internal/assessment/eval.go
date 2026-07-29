@@ -199,11 +199,32 @@ func setAttributePaths(before, after any, path PlanPath) []PlanPath {
 	if !beforeIsArray || !afterIsArray {
 		return diffPathsAt(before, after, path, nil)
 	}
-	added, removed := multisetDelta(beforeArray, afterArray)
-	if len(added) == 0 && len(removed) == 0 {
+	added, removed, determinate := setMembership(beforeArray, afterArray)
+	if determinate && len(added) == 0 && len(removed) == 0 {
 		return []PlanPath{}
 	}
 	return []PlanPath{clonePath(path)}
+}
+
+// setMembership returns what entered and left a set, and whether that answer
+// can be trusted.
+//
+// A Terraform set cannot hold a null, so a null in the serialized array is an
+// unknown-until-apply placeholder rather than a member. Counting one as an
+// addition reports a member named "null" entering the set, which is evidence
+// the plan does not contain. When a placeholder is present the membership is
+// indeterminate: the attribute is still reported, because equality cannot be
+// proven either, but no delta is claimed.
+func setMembership(before, after []any) (added, removed []any, determinate bool) {
+	for _, side := range [][]any{before, after} {
+		for _, member := range side {
+			if member == nil {
+				return []any{}, []any{}, false
+			}
+		}
+	}
+	added, removed = multisetDelta(before, after)
+	return added, removed, true
 }
 
 // multisetDelta returns the members present only in after and only in before,
@@ -211,17 +232,21 @@ func setAttributePaths(before, after any, path PlanPath) []PlanPath {
 // walk is fed whatever the plan actually contains rather than what the schema
 // promises, so a repeated member is counted rather than collapsed.
 //
-// Members compare under PythonJSONEqual, the same equality every other
-// comparison in this walk uses. Two members that the enclosing walk would call
-// equal must not be called distinct here, or an array the walk short-circuits
-// as unchanged could still report a membership delta.
+// Members compare under TerraformJSONExactlyEqual, not under the walk's
+// ordinary PythonJSONEqual. The looser comparison rounds a non-integer number
+// through binary64, so 9007199254740992.1 and 9007199254740992.2 -- two
+// distinct values Terraform preserves verbatim -- compare equal, and a set
+// whose membership really moved is then reported as unchanged. That answer
+// feeds the branch that clears a record outright, which makes this an
+// authorization boundary, and exact decimal comparison is what that
+// docstring reserves TerraformJSONExactlyEqual for.
 func multisetDelta(before, after []any) (added, removed []any) {
 	matched := make([]bool, len(before))
 	added = make([]any, 0)
 	for _, afterValue := range after {
 		found := false
 		for index, beforeValue := range before {
-			if !matched[index] && PythonJSONEqual(beforeValue, afterValue) {
+			if !matched[index] && canonjson.TerraformJSONExactlyEqual(beforeValue, afterValue) {
 				matched[index] = true
 				found = true
 				break
@@ -364,15 +389,52 @@ func setAttributeChanges(
 	if !beforeIsArray || !afterIsArray {
 		return diffChangesAt(before, after, beforeSensitive, afterSensitive, path, nil)
 	}
-	added, removed := multisetDelta(beforeArray, afterArray)
-	if len(added) == 0 && len(removed) == 0 {
+	added, removed, determinate := setMembership(beforeArray, afterArray)
+	if determinate && len(added) == 0 && len(removed) == 0 {
 		return []PlanChange{}
 	}
+	// Members are deep-copied out of the plan. A member that is itself a map or
+	// a slice would otherwise stay backed by the plan document, and any later
+	// stage mutating that document would rewrite evidence already reported.
 	return []PlanChange{redactedChange(
-		PlanChange{Path: clonePath(path), Kind: SetChange, Added: added, Removed: removed},
+		PlanChange{
+			Path:    clonePath(path),
+			Kind:    SetChange,
+			Added:   cloneMembers(added),
+			Removed: cloneMembers(removed),
+		},
 		beforeSensitive,
 		afterSensitive,
 	)}
+}
+
+// cloneMembers deep-copies set members so a reported delta cannot be rewritten
+// by a later mutation of the plan document it came from.
+func cloneMembers(members []any) []any {
+	cloned := make([]any, 0, len(members))
+	for _, member := range members {
+		cloned = append(cloned, cloneJSONValue(member))
+	}
+	return cloned
+}
+
+func cloneJSONValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, child := range typed {
+			cloned[key] = cloneJSONValue(child)
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, 0, len(typed))
+		for _, child := range typed {
+			cloned = append(cloned, cloneJSONValue(child))
+		}
+		return cloned
+	default:
+		return value
+	}
 }
 
 // redactedChange withholds content the plan marked sensitive while keeping the
@@ -692,7 +754,10 @@ func explainedBySetEquality(change map[string]any, setAttributes map[string]stru
 	}
 	explained := false
 	for key := range keys {
-		if PythonJSONEqual(beforeObject[key], afterObject[key]) {
+		// Exact comparison, for the same reason multisetDelta uses it: this
+		// decides whether a key is allowed to be ignored on the way to clearing
+		// a record, so a lossy "these are equal" is a lossy authorization.
+		if canonjson.TerraformJSONExactlyEqual(beforeObject[key], afterObject[key]) {
 			continue
 		}
 		if _, isSet := setAttributes[key]; !isSet {
@@ -703,8 +768,8 @@ func explainedBySetEquality(change map[string]any, setAttributes map[string]stru
 		if !beforeIsArray || !afterIsArray {
 			return false
 		}
-		added, removed := multisetDelta(beforeArray, afterArray)
-		if len(added) > 0 || len(removed) > 0 {
+		added, removed, determinate := setMembership(beforeArray, afterArray)
+		if !determinate || len(added) > 0 || len(removed) > 0 {
 			return false
 		}
 		explained = true
@@ -758,9 +823,16 @@ func classifyChange(
 			len(TruthyPaths(change["after_unknown"])) == 0 &&
 			explainedBySetEquality(change, setAttributes) {
 			// The record's whole difference is set attributes whose members
-			// match, so there is nothing here to tolerate or to block. Reported
-			// as an examined-and-clear finding rather than dropped, so the
-			// resource still appears in the report that cleared it.
+			// match, so there is nothing here to tolerate or to block.
+			//
+			// Emitted as a Clean finding for the same reason the importing case
+			// is, and with the same visibility: BuildSavedPlanAssessmentReport
+			// drops every Clean finding from a published root, so the address
+			// and the reason for clearing do not reach the report or the
+			// console. What the finding does is keep the record counted and
+			// classified inside the assessment rather than vanishing before the
+			// status is derived. Do not describe this as leaving the resource
+			// visible to a reader; it does not.
 			return []PlanFinding{{
 				Status:  Clean,
 				Source:  source,
