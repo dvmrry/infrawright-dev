@@ -385,6 +385,7 @@ func TestDiffChangesHonoursCollapsedAndArraySensitivityMasks(t *testing.T) {
 		name           string
 		before, after  string
 		beforeMask     string
+		afterMask      string
 		wantKind       PlanChangeKind
 		wantPathLength int
 	}{
@@ -395,6 +396,15 @@ func TestDiffChangesHonoursCollapsedAndArraySensitivityMasks(t *testing.T) {
 			wantKind:   ScalarChange, wantPathLength: 2,
 		},
 		{
+			// After-side only: a newly introduced secret has no before value
+			// to protect, and dropping the after-side check would leak it
+			// while every both-sides and before-side case stayed green.
+			name:   "after_only_mask_withholds_a_new_secret",
+			before: `{"token":null}`, after: `{"token":"freshly-minted"}`,
+			beforeMask: `{"token":false}`, afterMask: `{"token":true}`,
+			wantKind: ScalarChange, wantPathLength: 1,
+		},
+		{
 			name:   "sensitive_array_withholds_elements",
 			before: `{"urls":["a.example"]}`, after: `{"urls":["a.example","b.example"]}`,
 			beforeMask: `{"urls":true}`,
@@ -403,14 +413,23 @@ func TestDiffChangesHonoursCollapsedAndArraySensitivityMasks(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			var afterMask any
+			if test.afterMask != "" {
+				afterMask = mustParseDataJSON(t, test.afterMask)
+			}
 			got := DiffChanges(
 				mustParseDataJSON(t, test.before),
 				mustParseDataJSON(t, test.after),
 				mustParseDataJSON(t, test.beforeMask),
-				nil,
+				afterMask,
 			)
 			if len(got) != 1 {
 				t.Fatalf("DiffChanges(%s) = %#v, want one change", test.name, got)
+			}
+			// The content is the point: a redacted change must say it moved
+			// and carry nothing.
+			if got[0].Sensitive && (got[0].Before != nil || got[0].After != nil) {
+				t.Errorf("DiffChanges(%s) = %#v, want content withheld", test.name, got[0])
 			}
 			change := got[0]
 			if !change.Sensitive || change.Kind != test.wantKind ||

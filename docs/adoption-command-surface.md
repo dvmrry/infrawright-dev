@@ -200,8 +200,11 @@ assessment error remains the command result.
 
 The assessment schema is
 [`docs/schemas/saved-plan-assessment.schema.json`](schemas/saved-plan-assessment.schema.json).
-All published contracts carry `schema_version: 1`; consumers must reject unsupported
-versions rather than guessing at field meaning.
+The saved-plan assessment contract is at `schema_version: 2`; consumers must reject
+unsupported versions rather than guessing at field meaning. Version 2 adds `changes`
+to every finding, carrying the values behind its paths, and is otherwise identical to
+version 1. A consumer that only reads `paths` needs no change beyond accepting the new
+version.
 The assessment schema intentionally fixes the accepted `tfplan.sources` shape;
 a future fingerprint format change requires a coordinated assessment-schema
 version update.

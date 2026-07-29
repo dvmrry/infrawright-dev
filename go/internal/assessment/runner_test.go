@@ -1205,3 +1205,129 @@ func TestRunnerValueTextBoundsOneValue(t *testing.T) {
 		t.Errorf("runnerValueText(short) = %q, want %q unchanged", got, short)
 	}
 }
+
+func runnerArrayFinding(t *testing.T, before, after string) NormalizedAssessmentFinding {
+	t.Helper()
+	beforeValue := mustParseDataJSON(t, before)
+	afterValue := mustParseDataJSON(t, after)
+	paths := make([]string, 0)
+	for _, path := range DiffPaths(beforeValue, afterValue) {
+		paths = append(paths, FormatConcretePlanPath(path))
+	}
+	changes := make([]NormalizedPlanChange, 0)
+	for _, change := range DiffChanges(beforeValue, afterValue, nil, nil) {
+		changes = append(changes, NormalizedPlanChange{
+			Path: FormatConcretePlanPath(change.Path), Kind: string(change.Kind),
+			Sensitive: change.Sensitive, Before: change.Before, After: change.After,
+			Added: change.Added, Removed: change.Removed,
+		})
+	}
+	return NormalizedAssessmentFinding{
+		Status: Blocked, Address: "zia_url_categories.this", Actions: []string{"update"},
+		Paths: paths, Changes: changes,
+	}
+}
+
+// TestRunnerFindingLinesSummarisesArraysInsteadOfPairingPositions pins the
+// rendering that keeps a mass edit reviewable. Positionally, inserting one
+// member shifts every position after it, so each line pairs two unrelated
+// members and asserts one was retargeted to the other. A real edit produced
+// 7,643 such lines, every one of them making a claim that is not true.
+func TestRunnerFindingLinesSummarisesArraysInsteadOfPairingPositions(t *testing.T) {
+	// One member inserted at the front shifts all four positions.
+	finding := runnerArrayFinding(t,
+		`{"urls":["a.example","b.example","c.example","d.example"]}`,
+		`{"urls":["new.example","a.example","b.example","c.example","d.example"]}`,
+	)
+	if len(finding.Paths) < 4 {
+		t.Fatalf("fixture produced %d paths, want a shift across several positions", len(finding.Paths))
+	}
+
+	lines := runnerFindingLines(finding)
+	if len(lines) != 1 {
+		t.Fatalf("runnerFindingLines() = %#v, want one summary line for one attribute", lines)
+	}
+	if !strings.Contains(lines[0], "+1 (new.example)") {
+		t.Errorf("line = %q, want the added member named", lines[0])
+	}
+	// The critical property: nothing was removed, so nothing may be reported
+	// as removed. A positional rendering would claim four members changed.
+	if strings.Contains(lines[0], "-") && strings.Contains(lines[0], "example)") &&
+		strings.Contains(lines[0], "-1") {
+		t.Errorf("line = %q, want no removal reported for a pure insertion", lines[0])
+	}
+	for _, existing := range []string{"a.example", "b.example", "c.example", "d.example"} {
+		if strings.Contains(lines[0], existing+")") || strings.Contains(lines[0], existing+",") {
+			t.Errorf("line = %q, names unchanged member %q as having moved", lines[0], existing)
+		}
+	}
+}
+
+// A reorder with no membership change is reported, not suppressed: for an
+// ordered list it is a real change, and nothing here knows whether it is one.
+func TestRunnerFindingLinesReportsReorderWithoutInventingMembers(t *testing.T) {
+	lines := runnerFindingLines(runnerArrayFinding(t,
+		`{"urls":["a.example","b.example"]}`,
+		`{"urls":["b.example","a.example"]}`,
+	))
+	if len(lines) != 1 {
+		t.Fatalf("runnerFindingLines() = %#v, want one line", lines)
+	}
+	if !strings.Contains(lines[0], "same members reordered") {
+		t.Errorf("line = %q, want the reorder named", lines[0])
+	}
+	if strings.Contains(lines[0], "+") || strings.Contains(lines[0], "-") {
+		t.Errorf("line = %q, want no membership delta for a pure reorder", lines[0])
+	}
+}
+
+// Removals and additions together, which is the shape of a real allow-list edit.
+func TestRunnerFindingLinesNamesBothDirections(t *testing.T) {
+	lines := runnerFindingLines(runnerArrayFinding(t,
+		`{"urls":["keep.example","gone.example","also-gone.example"]}`,
+		`{"urls":["added.example","keep.example"]}`,
+	))
+	if len(lines) != 1 {
+		t.Fatalf("runnerFindingLines() = %#v, want one line", lines)
+	}
+	for _, want := range []string{"+1 (added.example)", "gone.example", "also-gone.example"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("line = %q, want it to contain %q", lines[0], want)
+		}
+	}
+	if strings.Contains(lines[0], "keep.example") {
+		t.Errorf("line = %q, names the unchanged member", lines[0])
+	}
+}
+
+// A path with no change data has nothing to summarise. Inventing a delta for
+// it would report "same members reordered" about a path we know nothing about.
+func TestRunnerFindingLinesLeavesValuelessPathsAlone(t *testing.T) {
+	lines := runnerFindingLines(NormalizedAssessmentFinding{
+		Status: Blocked, Actions: []string{"update"},
+		Paths:   []string{"status", "rules[0]", "<opaque_update>"},
+		Changes: []NormalizedPlanChange{},
+	})
+	want := []string{"status", "rules[0]", "<opaque_update>"}
+	if !reflect.DeepEqual(lines, want) {
+		t.Errorf("runnerFindingLines(no changes) = %#v, want %#v unchanged", lines, want)
+	}
+}
+
+// A sensitive array must not leak its members through the summary either.
+func TestRunnerFindingLinesWithholdsSensitiveArrayMembers(t *testing.T) {
+	lines := runnerFindingLines(NormalizedAssessmentFinding{
+		Status: Blocked, Actions: []string{"update"},
+		Paths: []string{"tokens[0]", "tokens[1]"},
+		Changes: []NormalizedPlanChange{
+			{Path: "tokens[0]", Kind: "scalar", Sensitive: true},
+			{Path: "tokens[1]", Kind: "scalar", Sensitive: true},
+		},
+	})
+	if len(lines) != 1 {
+		t.Fatalf("runnerFindingLines() = %#v, want one line", lines)
+	}
+	if !strings.Contains(lines[0], "sensitive") {
+		t.Errorf("line = %q, want the change reported as sensitive", lines[0])
+	}
+}

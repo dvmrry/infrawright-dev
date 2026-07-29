@@ -1,6 +1,7 @@
 package assessment
 
 import (
+	"encoding/json"
 	"errors"
 	"math/big"
 	"os"
@@ -580,16 +581,70 @@ func assessmentFindingMetadataBytes(finding AssessmentFinding) int {
 		bytes += len([]byte(action))
 	}
 	for _, path := range finding.Paths {
-		for _, segment := range path {
-			switch value := segment.(type) {
-			case string:
-				bytes += len([]byte(value))
-			case int:
-				bytes += len(strconv.Itoa(value))
-			}
+		bytes += assessmentPathBytes(path)
+	}
+	// Changes carry the values behind the paths, so they are the dominant
+	// contributor to report size -- a single leaf whose type changed can hold
+	// an entire prior subtree. Leaving them out would mean the fail-closed
+	// metadata budget no longer bounds the thing that actually grows: a plan
+	// with short paths and enormous values would sail under it.
+	for _, change := range finding.Changes {
+		bytes += assessmentPathBytes(change.Path)
+		bytes += len([]byte(change.Kind))
+		bytes += assessmentPlanValueBytes(change.Before)
+		bytes += assessmentPlanValueBytes(change.After)
+		for _, member := range change.Added {
+			bytes += assessmentPlanValueBytes(member)
+		}
+		for _, member := range change.Removed {
+			bytes += assessmentPlanValueBytes(member)
 		}
 	}
 	return bytes
+}
+
+func assessmentPathBytes(path PlanPath) int {
+	bytes := 0
+	for _, segment := range path {
+		switch value := segment.(type) {
+		case string:
+			bytes += len([]byte(value))
+		case int:
+			bytes += len(strconv.Itoa(value))
+		}
+	}
+	return bytes
+}
+
+// assessmentPlanValueBytes approximates a plan value's serialized size. It is
+// a budget input, not a serializer: the point is that every byte a value
+// contributes is counted, including inside a nested container, so no shape
+// escapes the bound.
+func assessmentPlanValueBytes(value any) int {
+	switch typed := value.(type) {
+	case nil:
+		return len("null")
+	case string:
+		return len([]byte(typed))
+	case bool:
+		return len("false")
+	case json.Number:
+		return len([]byte(typed))
+	case []any:
+		bytes := 0
+		for _, element := range typed {
+			bytes += assessmentPlanValueBytes(element)
+		}
+		return bytes
+	case map[string]any:
+		bytes := 0
+		for key, child := range typed {
+			bytes += len([]byte(key)) + assessmentPlanValueBytes(child)
+		}
+		return bytes
+	default:
+		return 0
+	}
 }
 
 func assessmentTotalStatus(clean, tolerated, blocked int) PlanStatus {

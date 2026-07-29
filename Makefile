@@ -104,7 +104,20 @@ demo-contract: dist/iw ## Credential-free demo artifact/module contract check
 	echo "demo-contract: committed demo config/imports and generated modules are in sync"
 	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"
 
-check-distribution: check-pack-set check-examples check-modules check-tfvars-fmt check-pack ## Active distribution without selecting its runtime test suite
+check-schema-parity: ## Published assessment schema matches the copy the engine tests assert against
+	@cmp -s docs/schemas/saved-plan-assessment.schema.json \
+		go/internal/assessment/testdata/published-assessment-schema.json \
+		|| { \
+			echo "docs/schemas/saved-plan-assessment.schema.json and its testdata copy differ."; \
+			echo "Go source may not read the documentation tree, so the engine asserts"; \
+			echo "against the testdata copy; they have to stay byte-identical."; \
+			diff -u docs/schemas/saved-plan-assessment.schema.json \
+				go/internal/assessment/testdata/published-assessment-schema.json; \
+			exit 1; \
+		}
+	@echo "published assessment schema matches its engine-side copy"
+
+check-distribution: check-pack-set check-examples check-modules check-tfvars-fmt check-pack check-schema-parity ## Active distribution without selecting its runtime test suite
 
 check: dist/iw check-distribution test-go ## Complete Go distribution and runtime gate
 

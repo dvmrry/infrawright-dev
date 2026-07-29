@@ -279,16 +279,8 @@ func emitRunnerFindings(
 			address = "None"
 		}
 		emit("  " + address + " " + strings.Join(finding.Actions, ",") + " " + string(finding.Status))
-		content := make(map[string]string, len(finding.Changes))
-		for _, change := range finding.Changes {
-			content[change.Path] = runnerChangeSummary(change)
-		}
-		for _, planPath := range finding.Paths {
-			if summary, ok := content[planPath]; ok {
-				emit("    - " + planPath + ": " + summary)
-				continue
-			}
-			emit("    - " + planPath)
+		for _, line := range runnerFindingLines(finding) {
+			emit("    - " + line)
 		}
 	}
 	if includeGuidance {
@@ -715,11 +707,200 @@ func runnerChangeSummary(change NormalizedPlanChange) string {
 	return runnerValueText(change.Before) + " -> " + runnerValueText(change.After)
 }
 
+// runnerArrayAttribute splits a plan path such as db_categorized_urls[100]
+// into its attribute and reports that it addressed an element. Paths that
+// name no index -- scalars, block-collection leaves, synthetic markers --
+// come back unchanged and are rendered as they always were.
+func runnerArrayAttribute(planPath string) (attribute string, indexed bool) {
+	if !strings.HasSuffix(planPath, "]") {
+		return planPath, false
+	}
+	open := strings.LastIndex(planPath, "[")
+	if open <= 0 {
+		return planPath, false
+	}
+	index := planPath[open+1 : len(planPath)-1]
+	if index == "" {
+		return planPath, false
+	}
+	for _, digit := range index {
+		if digit < '0' || digit > '9' {
+			return planPath, false
+		}
+	}
+	return planPath[:open], true
+}
+
+// runnerFindingLines renders a finding's paths, collapsing each array
+// attribute to one line that says what entered and left.
+//
+// Rendering array elements positionally is not merely verbose, it is wrong.
+// Terraform serializes a set-typed attribute in provider-chosen order, so
+// inserting one member shifts every position after it and a positional line
+// reads
+//
+//	db_categorized_urls[100]: .904-aladdin.com -> blackrocksinc.com
+//
+// which asserts that one domain was retargeted to the other. Nothing of the
+// sort happened: they are unrelated entries whose positions moved. A real
+// edit of two removals and three additions produced 7,643 such lines, each
+// making a claim that is not true.
+//
+// The multiset delta is true for both kinds of attribute, which is why it can
+// be computed without knowing which one this is. It is presentation only:
+// Paths keeps every index, so gating, policy matching, and the report are
+// untouched -- nothing is suppressed, only summarised.
+func runnerFindingLines(finding NormalizedAssessmentFinding) []string {
+	changes := make(map[string]NormalizedPlanChange, len(finding.Changes))
+	for _, change := range finding.Changes {
+		changes[change.Path] = change
+	}
+	// An attribute is only summarised when the finding actually carries values
+	// for it. A path with no change -- an older report, an unknown-until-apply
+	// entry, a synthetic marker -- has nothing to summarise, and inventing a
+	// delta for it would report "same members reordered" about a path we know
+	// nothing about.
+	summarisable := make(map[string]bool)
+	for _, planPath := range finding.Paths {
+		attribute, indexed := runnerArrayAttribute(planPath)
+		if !indexed {
+			continue
+		}
+		if _, ok := changes[planPath]; ok {
+			summarisable[attribute] = true
+		}
+	}
+	lines := make([]string, 0, len(finding.Paths))
+	grouped := make(map[string]bool)
+	for _, planPath := range finding.Paths {
+		attribute, indexed := runnerArrayAttribute(planPath)
+		if indexed && summarisable[attribute] {
+			if grouped[attribute] {
+				continue
+			}
+			grouped[attribute] = true
+			lines = append(lines, runnerArraySummary(attribute, finding.Paths, changes))
+			continue
+		}
+		if change, ok := changes[planPath]; ok {
+			lines = append(lines, planPath+": "+runnerChangeSummary(change))
+			continue
+		}
+		lines = append(lines, planPath)
+	}
+	return lines
+}
+
+// runnerArraySummary states what entered and left one array attribute.
+//
+// The delta is computed from the differing positions alone, which is exact
+// rather than approximate: positions that did not differ hold the same value
+// on both sides, so they contribute equally to both multisets and cancel.
+func runnerArraySummary(
+	attribute string,
+	paths []string,
+	changes map[string]NormalizedPlanChange,
+) string {
+	before := make([]any, 0)
+	after := make([]any, 0)
+	positions := 0
+	sensitive := false
+	for _, planPath := range paths {
+		owner, indexed := runnerArrayAttribute(planPath)
+		if !indexed || owner != attribute {
+			continue
+		}
+		positions++
+		change, ok := changes[planPath]
+		if !ok {
+			continue
+		}
+		if change.Sensitive {
+			sensitive = true
+			continue
+		}
+		// A padded side carries no member. Counting nil would report null as
+		// having been removed when the array simply got shorter.
+		if change.Before != nil {
+			before = append(before, change.Before)
+		}
+		if change.After != nil {
+			after = append(after, change.After)
+		}
+	}
+	if sensitive {
+		return fmt.Sprintf("%s: (sensitive values changed at %d position(s))", attribute, positions)
+	}
+	added, removed := runnerMultisetDelta(before, after)
+	parts := make([]string, 0, 2)
+	if len(added) > 0 {
+		parts = append(parts, fmt.Sprintf("+%d (%s)", len(added), runnerValueList(added)))
+	}
+	if len(removed) > 0 {
+		parts = append(parts, fmt.Sprintf("-%d (%s)", len(removed), runnerValueList(removed)))
+	}
+	if len(parts) == 0 {
+		// Same members, different order. Reported rather than suppressed:
+		// for an ordered list this is a real change, and nothing here knows
+		// whether it is one.
+		return fmt.Sprintf("%s: same members reordered (%d position(s) differ)", attribute, positions)
+	}
+	return fmt.Sprintf("%s: %s across %d differing position(s)", attribute, strings.Join(parts, ", "), positions)
+}
+
+// runnerMultisetDelta returns the members present only in after and only in
+// before, respecting multiplicity.
+func runnerMultisetDelta(before, after []any) (added, removed []any) {
+	matched := make([]bool, len(before))
+	added = make([]any, 0)
+	for _, afterValue := range after {
+		found := false
+		for index, beforeValue := range before {
+			if !matched[index] && canonjson.TerraformJSONEqual(beforeValue, afterValue) {
+				matched[index] = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			added = append(added, afterValue)
+		}
+	}
+	removed = make([]any, 0)
+	for index, beforeValue := range before {
+		if !matched[index] {
+			removed = append(removed, beforeValue)
+		}
+	}
+	return added, removed
+}
+
+// runnerValueList names as many members as fit a readable line and counts the
+// rest. A mass edit changes hundreds of members at once, and a line nobody
+// reads to the end carries no more than a line that says how many there were.
+func runnerValueList(values []any) string {
+	shown := len(values)
+	if shown > maxRenderedListMembers {
+		shown = maxRenderedListMembers
+	}
+	rendered := make([]string, 0, shown+1)
+	for _, value := range values[:shown] {
+		rendered = append(rendered, runnerValueText(value))
+	}
+	if elided := len(values) - shown; elided > 0 {
+		rendered = append(rendered, fmt.Sprintf("and %d more", elided))
+	}
+	return strings.Join(rendered, ", ")
+}
+
 // maxRenderedValueRunes bounds one value in the emitted text so a single long
 // value cannot blow out the line. It applies only to the console: the report
 // carries every value in full, so nothing observed is lost, only shortened in
 // one place.
-const maxRenderedValueRunes = 120
+const (
+	maxRenderedValueRunes  = 120
+	maxRenderedListMembers = 10
+)
 
 func runnerValueText(value any) string {
 	return runnerTruncate(runnerRenderValue(value))

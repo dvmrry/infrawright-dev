@@ -42,13 +42,12 @@ const (
 	// ScalarChange is one value that moved; Before and After carry it. Leaves
 	// inside ordered lists and block collections are scalar changes too, and
 	// keep their positional path, because there position is identity.
+	// ScalarChange is the only kind emitted today. Kind stays a field rather
+	// than being dropped so that reporting Terraform set membership as its own
+	// kind, once provider schema types reach this function, is an additive
+	// change a consumer can branch on without a schema version bump.
 	ScalarChange PlanChangeKind = "scalar"
 )
-
-// Kind is the only value emitted today. It stays a field rather than being
-// dropped so that reporting Terraform set membership as its own kind, once
-// provider schema types reach this function, is an additive change a consumer
-// can branch on without a schema version bump.
 
 // PlanChange is one differing value, carried with enough content that a
 // reviewer can name the change without opening the plan.
@@ -277,44 +276,6 @@ func sensitiveMaskChild(mask any, segment any) any {
 		}
 	}
 	return nil
-}
-
-func sortedPlanValues(values []any) []any {
-	tokens := make(map[int]string, len(values))
-	for index, value := range values {
-		rendered, err := canonjson.Render(value)
-		if err != nil {
-			// An unrenderable member cannot be ordered against the others;
-			// leaving the encounter order is deterministic for a given plan.
-			return values
-		}
-		tokens[index] = rendered
-	}
-	indexes := make([]int, len(values))
-	for index := range values {
-		indexes[index] = index
-	}
-	sort.SliceStable(indexes, func(left, right int) bool {
-		return canonjson.ComparePythonStrings(tokens[indexes[left]], tokens[indexes[right]]) < 0
-	})
-	sorted := make([]any, len(values))
-	for position, index := range indexes {
-		sorted[position] = values[index]
-	}
-	return sorted
-}
-
-// isPlanScalar reports whether a plan value is a leaf rather than a container.
-// Only arrays of leaves are eligible for order-insensitive comparison: a
-// container's own contents would need the same treatment recursively, and for
-// block collections that would be wrong.
-func isPlanScalar(value any) bool {
-	switch value.(type) {
-	case map[string]any, []any:
-		return false
-	default:
-		return true
-	}
 }
 
 // TruthyPaths returns Python-ordered paths whose recursive boolean mask leaf
