@@ -131,22 +131,46 @@ func configuredTenants(options CheckFetchableOptions) ([]string, error) {
 // written reason is required exactly where the registry is otherwise
 // ambiguous: a generate-only type with no derive block looks identical to one
 // whose fetch block was dropped.
-func fetchDeclaration(resource metadata.LoadedResourceMetadata) (fetchable bool, skipReason string, declared bool) {
-	if canonjson.IsJSONRecord(resource.Registry["derive"]) {
-		return false, "derived from another resource; no API object of its own", true
+// The derive exemption has to resolve, not merely be present. Runtime fetch
+// selection maps a derived type to derive.from and requires that source to
+// carry a fetch entry (collectors.SelectFetchResources); a derive block with no
+// from, or one naming a type that is absent or itself unfetchable, sends the
+// selector to unknown. Accepting the block unresolved would let the check pass
+// while make fetch fails -- recreating the blindness it exists to prevent, and
+// with a declaration standing where the gap used to be.
+func fetchDeclaration(
+	resource metadata.LoadedResourceMetadata,
+	resources map[string]metadata.LoadedResourceMetadata,
+) (fetchable bool, skipReason string, declared bool, detail string) {
+	if derive, isRecord := resource.Registry["derive"].(map[string]any); isRecord {
+		from, ok := derive["from"].(string)
+		if !ok || from == "" {
+			return false, "", true,
+				"derive block has no from; it cannot resolve to a fetchable source"
+		}
+		source, known := resources[from]
+		if !known {
+			return false, "", true,
+				"derives from " + from + ", which has no registry entry"
+		}
+		if !canonjson.IsJSONRecord(source.Registry["fetch"]) {
+			return false, "", true,
+				"derives from " + from + ", which has no fetch block of its own"
+		}
+		return false, "derived from " + from + "; no API object of its own", true, ""
 	}
 	value, present := resource.Registry["fetch"]
 	if !present {
-		return false, "", false
+		return false, "", false, ""
 	}
 	if canonjson.IsJSONRecord(value) {
-		return true, "", true
+		return true, "", true, ""
 	}
 	if allowed, isBool := value.(bool); isBool && !allowed {
 		reason, _ := resource.Registry["fetch_skip_reason"].(string)
-		return false, reason, true
+		return false, reason, true, ""
 	}
-	return false, "", false
+	return false, "", false, ""
 }
 
 // CheckFetchable asserts that every committed resource type can be fetched.
@@ -200,7 +224,9 @@ func CheckFetchable(options CheckFetchableOptions) (CheckFetchableResult, error)
 				})
 				continue
 			}
-			fetchable, skipReason, declared := fetchDeclaration(resource)
+			fetchable, skipReason, declared, detail := fetchDeclaration(
+				resource, options.Root.Resources,
+			)
 			if fetchable {
 				continue
 			}
@@ -208,10 +234,12 @@ func CheckFetchable(options CheckFetchableOptions) (CheckFetchableResult, error)
 				result.Skipped++
 				continue
 			}
+			if detail == "" {
+				detail = "registry entry has no fetch block; " +
+					"add one, or declare \"fetch\": false with a fetch_skip_reason"
+			}
 			result.Violations = append(result.Violations, FetchableViolation{
-				Tenant: tenant, Type: resourceType,
-				Detail: "registry entry has no fetch block; " +
-					"add one, or declare \"fetch\": false with a fetch_skip_reason",
+				Tenant: tenant, Type: resourceType, Detail: detail,
 			})
 		}
 	}

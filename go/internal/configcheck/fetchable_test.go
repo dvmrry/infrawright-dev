@@ -180,6 +180,13 @@ func TestCheckFetchableTreatsDeriveAsAStructuralDeclaration(t *testing.T) {
 			"generate": true,
 			"derive":   map[string]any{"from": "zpa_policy_access_rule"},
 		},
+		// The source has to be present and fetchable for the exemption to
+		// mean anything; without it the fixture proved only that a derive
+		// key was there.
+		"zpa_policy_access_rule": {
+			"product": "zpa",
+			"fetch":   map[string]any{"path": "/policySet"},
+		},
 		"zia_generate_only": {"product": "zia", "generate": true},
 	})
 
@@ -192,5 +199,85 @@ func TestCheckFetchableTreatsDeriveAsAStructuralDeclaration(t *testing.T) {
 			"CheckFetchable().Violations = %#v, want only the undeclared generate-only type",
 			result.Violations,
 		)
+	}
+}
+
+// TestCheckFetchableRequiresTheDeriveExemptionToResolve pins that a derive
+// block is a declaration only when it names a source the engine can actually
+// fetch. Runtime selection maps the derived type to derive.from and requires
+// that source to carry a fetch entry, so a block that does not resolve leaves
+// the check passing while make fetch fails.
+func TestCheckFetchableRequiresTheDeriveExemptionToResolve(t *testing.T) {
+	tests := []struct {
+		name   string
+		derive map[string]any
+		source map[string]any
+		detail string
+	}{
+		{
+			name:   "no_from",
+			derive: map[string]any{"policy_type": "ACCESS_POLICY"},
+			detail: "derive block has no from; it cannot resolve to a fetchable source",
+		},
+		{
+			name:   "from_is_not_a_string",
+			derive: map[string]any{"from": 7},
+			detail: "derive block has no from; it cannot resolve to a fetchable source",
+		},
+		{
+			// Falling through to the lookup would report "derives from ,
+			// which has no registry entry" -- accurate and useless.
+			name:   "from_is_empty",
+			derive: map[string]any{"from": ""},
+			detail: "derive block has no from; it cannot resolve to a fetchable source",
+		},
+		{
+			name:   "from_names_an_absent_type",
+			derive: map[string]any{"from": "zpa_policy_access_rule"},
+			detail: "derives from zpa_policy_access_rule, which has no registry entry",
+		},
+		{
+			name:   "from_names_an_unfetchable_type",
+			derive: map[string]any{"from": "zpa_policy_access_rule"},
+			source: map[string]any{"product": "zpa", "generate": true},
+			detail: "derives from zpa_policy_access_rule, which has no fetch block of its own",
+		},
+		{
+			name:   "source_declared_unfetchable_on_purpose",
+			derive: map[string]any{"from": "zpa_policy_access_rule"},
+			source: map[string]any{
+				"product": "zpa", "fetch": false,
+				"fetch_skip_reason": "no list endpoint",
+			},
+			detail: "derives from zpa_policy_access_rule, which has no fetch block of its own",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			writeConfig(t, workspace, "demo", "zpa_policy_access_rule_reorder.auto.tfvars.json")
+			entries := map[string]map[string]any{
+				"zpa_policy_access_rule_reorder": {
+					"product": "zpa", "generate": true, "derive": test.derive,
+				},
+			}
+			if test.source != nil {
+				entries["zpa_policy_access_rule"] = test.source
+			}
+
+			result := runCheck(t, workspace, fetchableRoot(entries))
+			if result.Skipped != 0 {
+				t.Errorf("CheckFetchable() skipped = %d, want 0 on an unresolved derive", result.Skipped)
+			}
+			if len(result.Violations) != 1 {
+				t.Fatalf("CheckFetchable().Violations = %#v, want exactly one", result.Violations)
+			}
+			// The detail has to name why it failed to resolve: the generic
+			// no-fetch-block message would send a consumer to add a fetch
+			// block to a type that must not have one.
+			if got := result.Violations[0].Detail; got != test.detail {
+				t.Errorf("violation detail = %q, want %q", got, test.detail)
+			}
+		})
 	}
 }
