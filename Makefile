@@ -27,6 +27,7 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
+.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env refresh transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 .PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/iw: $(GO_BUILD_INPUTS)
@@ -187,6 +188,9 @@ unstage-imports: dist/iw ## Remove staged import/moved blocks from env roots (TE
 
 plan: dist/iw ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=<type|provider>] [IMPORTS_ONLY=1] [SAVE=1] [BACKEND_CONFIG=<file>])
 	$(IW) plan --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --terraform "$(TF)" $(if $(IMPORTS_ONLY),--imports-only) $(if $(SAVE),--save) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
+
+refresh: dist/iw ## Reconcile recorded state with reality; changes nothing remote (TENANT=<label> [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>])
+	$(IW) refresh --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --terraform "$(TF)" $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 clean-plans: dist/iw ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
 	$(IW) clean-plans $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
