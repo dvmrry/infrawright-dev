@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
@@ -1119,5 +1120,88 @@ func TestEmitRunnerAssessmentExactDiagnostics(t *testing.T) {
 		"NOT CLEAN: tenant/blocked_root plan contains 1 change(s) beyond imports",
 	}) {
 		t.Errorf("emitRunnerAssessment(assert-clean) diagnostics = %#v, want exact NOT CLEAN line", diagnostics)
+	}
+}
+
+// TestRunnerChangeSummaryNamesTheChange is criterion 6 at the surface an
+// operator actually reads: the gate line should say what moved, not only
+// where. The sensitive case must name the field and nothing else.
+func TestRunnerChangeSummaryNamesTheChange(t *testing.T) {
+	tests := []struct {
+		name   string
+		change NormalizedPlanChange
+		want   string
+	}{
+		{
+			name: "scalar",
+			change: NormalizedPlanChange{
+				Path: "urls_retaining_parent_category_count", Kind: "scalar",
+				Before: json.Number("36"), After: json.Number("38"),
+			},
+			want: "36 -> 38",
+		},
+		{
+			name: "array_element_added",
+			change: NormalizedPlanChange{
+				Path: "db_categorized_urls[2]", Kind: "scalar",
+				Before: nil, After: "substrate.office.com",
+			},
+			want: "null -> substrate.office.com",
+		},
+		{
+			name: "array_element_removed",
+			change: NormalizedPlanChange{
+				Path: "db_categorized_urls[1]", Kind: "scalar",
+				Before: "old.example", After: nil,
+			},
+			want: "old.example -> null",
+		},
+		{
+			name: "sensitive",
+			change: NormalizedPlanChange{
+				Path: "token", Kind: "scalar", Sensitive: true,
+			},
+			want: "(sensitive value changed)",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := runnerChangeSummary(test.change); got != test.want {
+				t.Errorf("runnerChangeSummary(%s) = %q, want %q", test.name, got, test.want)
+			}
+		})
+	}
+}
+
+// TestRunnerValueTextBoundsOneValue pins that a single pathological value
+// cannot blow out the line on its own, and that the cut respects rune
+// boundaries -- splitting UTF-8 mid-rune emits replacement characters, which
+// reads as corrupted data in a report meant to be trusted.
+func TestRunnerValueTextBoundsOneValue(t *testing.T) {
+	long := strings.Repeat("a", maxRenderedValueRunes+50)
+	got := runnerValueText(long)
+	if !strings.HasSuffix(got, "... (truncated)") {
+		t.Errorf("runnerValueText(long) = %q, want a truncation marker", got)
+	}
+	if utf8.RuneCountInString(got) > maxRenderedValueRunes+len("... (truncated)") {
+		t.Errorf("runnerValueText(long) rendered %d runes, want bounded", utf8.RuneCountInString(got))
+	}
+
+	// The leading ASCII byte is load-bearing: without it a cut at byte
+	// maxRenderedValueRunes lands exactly on a 2-byte rune boundary and a
+	// byte-wise truncation looks correct. Offsetting by one puts the cut
+	// mid-rune, which is the case that distinguishes the two.
+	multibyte := "a" + strings.Repeat("é", maxRenderedValueRunes+50)
+	truncated := runnerValueText(multibyte)
+	if !utf8.ValidString(truncated) {
+		t.Errorf("runnerValueText(multibyte) = %q, want valid UTF-8", truncated)
+	}
+	if strings.ContainsRune(truncated, utf8.RuneError) {
+		t.Errorf("runnerValueText(multibyte) = %q, want no replacement characters", truncated)
+	}
+
+	short := "keeps.short.values.intact"
+	if got := runnerValueText(short); got != short {
+		t.Errorf("runnerValueText(short) = %q, want %q unchanged", got, short)
 	}
 }

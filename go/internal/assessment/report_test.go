@@ -385,7 +385,7 @@ func TestErrorReportExactBytes(t *testing.T) {
       "tenant": "tenant"
     }
   ],
-  "schema_version": 1,
+  "schema_version": 2,
   "stale_policy": [
     {
       "mode": "plan_tolerate",
@@ -422,7 +422,7 @@ func TestSchemaDiagnosticsRemainProcessFailureBytesNotReportBytes(t *testing.T) 
 		t.Fatalf("BuildSavedPlanAssessmentReport(invalid schema) error = %v, want ProcessFailure", err)
 	}
 	if failure.Code != "INVALID_ASSESSMENT_REPORT" || failure.Category != procerr.CategoryInternal ||
-		failure.Message != "saved-plan assessment report is outside schema version 1" {
+		failure.Message != "saved-plan assessment report is outside schema version 2" {
 		t.Fatalf("BuildSavedPlanAssessmentReport(invalid schema) failure = %+v, want internal INVALID_ASSESSMENT_REPORT", failure)
 	}
 	wantDetails := []procerr.ErrorDetail{

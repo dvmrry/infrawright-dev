@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/controlevidence"
@@ -278,7 +279,15 @@ func emitRunnerFindings(
 			address = "None"
 		}
 		emit("  " + address + " " + strings.Join(finding.Actions, ",") + " " + string(finding.Status))
+		content := make(map[string]string, len(finding.Changes))
+		for _, change := range finding.Changes {
+			content[change.Path] = runnerChangeSummary(change)
+		}
 		for _, planPath := range finding.Paths {
+			if summary, ok := content[planPath]; ok {
+				emit("    - " + planPath + ": " + summary)
+				continue
+			}
 			emit("    - " + planPath)
 		}
 	}
@@ -455,7 +464,7 @@ func buildRunnerPreflightErrorReport(
 	// this narrow error-only fallback outside the published schema validation.
 	report = SavedPlanAssessmentReport{
 		Kind:          "infrawright.saved_plan_assessment",
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Mode:          mode,
 		Summary: AssessmentReportSummary{
 			Status: "error",
@@ -695,4 +704,49 @@ func runSavedPlanAssertion(
 // assessment primitives.
 func RunSavedPlanAssertion(options RunSavedPlanAssertionOptions) error {
 	return runSavedPlanAssertion(options, productionSavedPlanAssertionHooks())
+}
+
+// runnerChangeSummary renders one change so a reviewer can name it without
+// opening the plan. A redacted change says that it moved and nothing more.
+func runnerChangeSummary(change NormalizedPlanChange) string {
+	if change.Sensitive {
+		return "(sensitive value changed)"
+	}
+	return runnerValueText(change.Before) + " -> " + runnerValueText(change.After)
+}
+
+// maxRenderedValueRunes bounds one value in the emitted text so a single long
+// value cannot blow out the line. It applies only to the console: the report
+// carries every value in full, so nothing observed is lost, only shortened in
+// one place.
+const maxRenderedValueRunes = 120
+
+func runnerValueText(value any) string {
+	return runnerTruncate(runnerRenderValue(value))
+}
+
+func runnerRenderValue(value any) string {
+	if value == nil {
+		return "null"
+	}
+	if text, ok := value.(string); ok {
+		return text
+	}
+	rendered, err := canonjson.Render(value)
+	if err != nil {
+		return "?"
+	}
+	return strings.TrimSuffix(rendered, "\n")
+}
+
+// runnerTruncate bounds one value so a single pathological member cannot blow
+// out the line on its own. It counts runes rather than bytes: cutting a UTF-8
+// value mid-rune emits replacement characters, which reads as corrupted data
+// in a report whose purpose is letting a reviewer trust what they see.
+func runnerTruncate(text string) string {
+	if utf8.RuneCountInString(text) <= maxRenderedValueRunes {
+		return text
+	}
+	runes := []rune(text)
+	return string(runes[:maxRenderedValueRunes]) + "... (truncated)"
 }

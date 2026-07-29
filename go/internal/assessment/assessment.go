@@ -565,6 +565,7 @@ func attachAssessmentResourceTypes(
 			ResourceType: resourceType,
 			Actions:      append([]string{}, finding.Actions...),
 			Paths:        clonePaths(finding.Paths),
+			Changes:      clonePlanChanges(finding.Changes),
 		}
 	}
 	return result
@@ -656,6 +657,7 @@ func cloneAssessmentFindings(values []AssessmentFinding) []AssessmentFinding {
 			ResourceType: cloneString(finding.ResourceType),
 			Actions:      append([]string{}, finding.Actions...),
 			Paths:        clonePaths(finding.Paths),
+			Changes:      clonePlanChanges(finding.Changes),
 		}
 	}
 	return result
