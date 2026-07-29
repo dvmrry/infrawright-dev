@@ -150,6 +150,117 @@ func TestClassifyPlanRejectsIncompleteBeforePolicyMatching(t *testing.T) {
 	}
 }
 
+// assertRefreshDriftStance compares what this test is about -- the status a
+// finding receives and which section it came from -- rather than deep-equalling
+// whole findings. A finding grows fields for reasons unrelated to the demotion
+// stance, and pinning the entire struct here makes this test fail for those
+// reasons instead, in a file whose author is not looking at this behaviour.
+func assertRefreshDriftStance(
+	t *testing.T,
+	label string,
+	got, want PlanClassification,
+) {
+	t.Helper()
+	if got.Status != want.Status {
+		t.Errorf("%s status = %q, want %q", label, got.Status, want.Status)
+	}
+	if len(got.Findings) != len(want.Findings) {
+		t.Fatalf("%s findings = %#v, want %d findings", label, got.Findings, len(want.Findings))
+	}
+	for index, wantFinding := range want.Findings {
+		gotFinding := got.Findings[index]
+		if gotFinding.Status != wantFinding.Status ||
+			gotFinding.Source != wantFinding.Source ||
+			gotFinding.Address != wantFinding.Address {
+			t.Errorf("%s findings[%d] = %+v, want status %q source %q address %q",
+				label, index, gotFinding,
+				wantFinding.Status, wantFinding.Source, wantFinding.Address)
+		}
+		if !reflect.DeepEqual(gotFinding.Actions, wantFinding.Actions) {
+			t.Errorf("%s findings[%d].Actions = %#v, want %#v",
+				label, index, gotFinding.Actions, wantFinding.Actions)
+		}
+		if !reflect.DeepEqual(gotFinding.Paths, wantFinding.Paths) {
+			t.Errorf("%s findings[%d].Paths = %#v, want %#v",
+				label, index, gotFinding.Paths, wantFinding.Paths)
+		}
+	}
+}
+
+func TestClassifyPlanRefreshDriftStanceIsExplicitAndScoped(t *testing.T) {
+	// An import-only plan whose refresh found the recorded values stale. This
+	// is the adoption deadlock: resource_drift carries a change that only the
+	// guarded apply can settle.
+	adoptionPlan := mustParseDataJSON(t, `{
+		"format_version":"1.2","complete":true,"errored":false,
+		"resource_changes":[{"address":"sample_resource.this","type":"sample_resource",
+		"change":{"actions":["create"],"importing":{"id":"existing"}}}],
+		"resource_drift":[{"address":"sample_resource.this","type":"sample_resource",
+		"change":{"actions":["update"],"before":{"status":"recorded"},"after":{"status":"remote"}}},
+		{"address":"sample_resource.other","type":"sample_resource",
+		"change":{"actions":["create"],"importing":{"id":"existing"}}}]
+	}`)
+
+	strict, err := ClassifyPlan(adoptionPlan, nil, nil)
+	if err != nil {
+		t.Fatalf("ClassifyPlan(refresh drift) error = %v, want nil", err)
+	}
+	wantStrict := PlanClassification{
+		Status: Blocked,
+		Findings: []PlanFinding{
+			{Status: Clean, Source: "resource_changes", Address: "sample_resource.this",
+				Actions: []string{"create"}, Paths: []PlanPath{}},
+			{Status: Blocked, Source: "resource_drift", Address: "sample_resource.this",
+				Actions: []string{"update"}, Paths: []PlanPath{{"status"}}},
+			{Status: Clean, Source: "resource_drift", Address: "sample_resource.other",
+				Actions: []string{"create"}, Paths: []PlanPath{}},
+		},
+	}
+	assertRefreshDriftStance(t, "ClassifyPlan(refresh drift)", strict, wantStrict)
+
+	adopting, err := ClassifyPlanWithOptions(
+		adoptionPlan, nil, nil, ClassifyPlanOptions{TolerateRefreshDrift: true},
+	)
+	if err != nil {
+		t.Fatalf("ClassifyPlanWithOptions(tolerate refresh drift) error = %v, want nil", err)
+	}
+	wantAdopting := PlanClassification{
+		Status: Tolerated,
+		Findings: []PlanFinding{
+			{Status: Clean, Source: "resource_changes", Address: "sample_resource.this",
+				Actions: []string{"create"}, Paths: []PlanPath{}},
+			{Status: Tolerated, Source: "resource_drift", Address: "sample_resource.this",
+				Actions: []string{"update"}, Paths: []PlanPath{{"status"}}},
+			// The stance only relaxes what blocks. A drift record that
+			// classified clean stays clean rather than being inflated into
+			// tolerated drift.
+			{Status: Clean, Source: "resource_drift", Address: "sample_resource.other",
+				Actions: []string{"create"}, Paths: []PlanPath{}},
+		},
+	}
+	assertRefreshDriftStance(
+		t, "ClassifyPlanWithOptions(tolerate refresh drift)", adopting, wantAdopting,
+	)
+
+	// The same change reported by resource_changes is a real pending write,
+	// not a stale record, and stays blocked under the adoption stance.
+	changesPlan := mustParseDataJSON(t, `{
+		"format_version":"1.2","complete":true,"errored":false,
+		"resource_changes":[{"address":"sample_resource.this","type":"sample_resource",
+		"change":{"actions":["update"],"before":{"status":"recorded"},"after":{"status":"remote"}}}]
+	}`)
+	scoped, err := ClassifyPlanWithOptions(
+		changesPlan, nil, nil, ClassifyPlanOptions{TolerateRefreshDrift: true},
+	)
+	if err != nil {
+		t.Fatalf("ClassifyPlanWithOptions(pending change) error = %v, want nil", err)
+	}
+	if scoped.Status != Blocked || len(scoped.Findings) != 1 ||
+		scoped.Findings[0].Status != Blocked {
+		t.Errorf("ClassifyPlanWithOptions(pending change) = %#v, want blocked resource_changes finding", scoped)
+	}
+}
+
 func TestClassifyPlanDetectsIdentityAndSensitivityChanges(t *testing.T) {
 	policyValue := mustParseDataJSON(t, `{
 		"version":1,"resource_types":{"sample_resource":{"plan_tolerate":[{

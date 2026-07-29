@@ -31,7 +31,7 @@ Command responsibilities:
 | `make gen-env` | Generate isolated Terraform/OpenTofu env roots that source the deployment-selected module set. |
 | `make stage-imports` | Copy generated `import {}` and `moved {}` blocks into env roots. |
 | `make plan SAVE=1` | Run Terraform/OpenTofu plans and save plan artifacts for later gates. |
-| `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Guidance annotations never make a blocked plan clean. |
+| `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Refresh drift (`resource_drift`) is reported as tolerated rather than blocking, because only the guarded apply can settle it. Guidance annotations never make a blocked plan clean. |
 | `make apply` | Reclassify saved plans and apply only when they are clean/import-only or fully tolerated by explicit policy; destructive or non-main workflows still require explicit safety flags. |
 
 Adopt's provider Oracle may execute a mechanically verified import-only plan
@@ -46,14 +46,19 @@ Supporting adoption commands:
 |---|---|
 | `make unstage-imports` | Remove staged import/move blocks from env roots. |
 | `make clean-plans` | Remove saved plan artifacts. |
+| `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Blocks on refresh drift, which is the out-of-band change this gate exists to catch. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
 | `make check-config` | Require every resource type with committed config to be fetchable. Runs in the credential-free lane with the other validators and reads only files already in your tree. |
-| `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
 | `make roots` | Emit the configured root topology as versioned JSON for downstream path-to-root scoping. |
 | `make scope-paths` | Map a caller-supplied JSON list of changed paths to affected resources and complete logical roots without invoking a VCS. |
 | `make plan-roots` | Enumerate materialized env roots and the exact `tfplan`/`tfplan.sources` artifact locations used for save/restore. |
 
 `make apply` uses the same saved-plan classification semantics as
-`make assert-adoptable`. If `assert-adoptable` used `POLICY=<file>` to classify
+`make assert-adoptable` with one deliberate exception: apply stays strict about
+refresh drift. A plan that `assert-adoptable` reported as tolerated only because
+of `resource_drift` is still refused by `make apply`, which reads a
+drift-sourced `delete` as a destroy and would otherwise disarm `ALLOW_DESTROY=1`
+for it. Give those paths explicit drift policy before applying. If
+`assert-adoptable` used `POLICY=<file>` to classify
 intentional drift as tolerated, pass the same `POLICY=<file>` to `make apply`.
 The legacy `ALLOW_PLAN_CHANGES=1` path is a broad override for intentionally
 applying blocked saved plans; it is noisy, should not replace explicit drift
