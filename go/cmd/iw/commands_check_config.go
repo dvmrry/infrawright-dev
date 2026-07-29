@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/configcheck"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
@@ -118,5 +119,16 @@ func checkConfigInput(parsed commandInput, dependencies checkConfigCommandDepend
 		len(result.Tenants),
 		result.Skipped,
 	)
+	// Named, not just counted: under the full profile an out-of-profile type
+	// is an orphaned config file worth looking at, and a bare number would
+	// read as routine under every profile.
+	if len(result.OutOfProfile) > 0 {
+		fmt.Fprintf(
+			dependencies.stderr,
+			"%d committed type(s) are outside the active pack profile, so nothing here checks them: %s\n",
+			len(result.OutOfProfile),
+			strings.Join(result.OutOfProfile, ", "),
+		)
+	}
 	return 0, nil
 }

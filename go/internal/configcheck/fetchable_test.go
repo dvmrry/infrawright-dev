@@ -253,17 +253,44 @@ func TestCheckFetchableRangesOverEveryTenantAndConfigSpelling(t *testing.T) {
 	if !reflect.DeepEqual(result.Tenants, []string{"zs2", "zs3"}) {
 		t.Errorf("CheckFetchable().Tenants = %#v, want [zs2 zs3]", result.Tenants)
 	}
-	if result.Checked != 2 {
-		t.Errorf("CheckFetchable() checked = %d, want 2 (the sidecar and README are not config)", result.Checked)
+	if result.Checked != 1 {
+		t.Errorf("CheckFetchable() checked = %d, want 1 in-profile type", result.Checked)
 	}
-	// The HCL-spelled config names a type with no registry entry at all,
-	// which is the same blindness by a different route.
-	wantViolations := []FetchableViolation{{
-		Tenant: "zs3", Type: "zia_orphan",
-		Detail: "committed config has no registry entry",
-	}}
-	if !reflect.DeepEqual(result.Violations, wantViolations) {
-		t.Errorf("CheckFetchable().Violations = %#v, want %#v", result.Violations, wantViolations)
+	// The HCL-spelled config names a type the active profile does not claim.
+	// It is reported, not refused: consumers run reduced profiles on purpose,
+	// and there is no fetch declaration to hold an absent entry to.
+	if !reflect.DeepEqual(result.OutOfProfile, []string{"zia_orphan"}) {
+		t.Errorf("CheckFetchable().OutOfProfile = %#v, want [zia_orphan]", result.OutOfProfile)
+	}
+	if len(result.Violations) != 0 {
+		t.Errorf("CheckFetchable().Violations = %#v, want none", result.Violations)
+	}
+	// The HCL spelling still has to be recognised as config; being
+	// out-of-profile rather than a violation must not come from failing to
+	// see the file at all.
+	if !reflect.DeepEqual(result.Tenants, []string{"zs2", "zs3"}) {
+		t.Errorf("CheckFetchable().Tenants = %#v, want both tenants ranged over", result.Tenants)
+	}
+}
+
+// TestCheckFetchableStillCatchesADroppedFetchBlockInProfile pins the incident
+// this check exists for against the profile-scoping change. A vendor refresh
+// that drops a fetch block leaves the registry entry in place, so the type
+// stays in profile and stays checked -- the narrowing must not reach it.
+func TestCheckFetchableStillCatchesADroppedFetchBlockInProfile(t *testing.T) {
+	workspace := t.TempDir()
+	writeConfig(t, workspace, "zs2", "zia_tenant_restriction_profile.auto.tfvars.json")
+	root := fetchableRoot(map[string]map[string]any{
+		// The entry survives the refresh; only its fetch block is gone.
+		"zia_tenant_restriction_profile": {"product": "zia"},
+	})
+
+	result := runCheck(t, workspace, root)
+	if len(result.OutOfProfile) != 0 {
+		t.Errorf("CheckFetchable().OutOfProfile = %#v, want none; the entry is in profile", result.OutOfProfile)
+	}
+	if len(result.Violations) != 1 || result.Violations[0].Type != "zia_tenant_restriction_profile" {
+		t.Fatalf("CheckFetchable().Violations = %#v, want the dropped fetch block refused", result.Violations)
 	}
 }
 
