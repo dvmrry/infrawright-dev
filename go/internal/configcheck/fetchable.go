@@ -50,10 +50,15 @@ type FetchableViolation struct {
 // CheckFetchableResult reports what the check ranged over. Skipped counts
 // types that declared themselves unfetchable on purpose.
 type CheckFetchableResult struct {
-	Tenants    []string
-	Checked    int
-	Skipped    int
-	Violations []FetchableViolation
+	Tenants []string
+	Checked int
+	Skipped int
+	// OutOfProfile names committed types the active pack profile does not
+	// claim. They are reported rather than counted silently: under the full
+	// profile a type here is a genuinely orphaned config file worth looking
+	// at, and under a reduced profile it is expected.
+	OutOfProfile []string
+	Violations   []FetchableViolation
 }
 
 func checkFailure(code, message string, category procerr.Category) *procerr.ProcessFailure {
@@ -252,8 +257,9 @@ func CheckFetchable(options CheckFetchableOptions) (CheckFetchableResult, error)
 		return CheckFetchableResult{}, err
 	}
 	result := CheckFetchableResult{
-		Tenants:    tenants,
-		Violations: make([]FetchableViolation, 0),
+		Tenants:      tenants,
+		OutOfProfile: make([]string, 0),
+		Violations:   make([]FetchableViolation, 0),
 	}
 	for _, tenant := range tenants {
 		configDir, err := deployment.DeploymentConfigDir(options.Deployment, tenant)
@@ -283,15 +289,22 @@ func CheckFetchable(options CheckFetchableOptions) (CheckFetchableResult, error)
 			if !ok {
 				continue
 			}
-			result.Checked++
 			resource, known := options.Root.Resources[resourceType]
 			if !known {
-				result.Violations = append(result.Violations, FetchableViolation{
-					Tenant: tenant, Type: resourceType,
-					Detail: "committed config has no registry entry",
-				})
+				// The active pack profile does not claim this type, so there
+				// is no fetch declaration to hold it to. Consumers run reduced
+				// profiles deliberately, and CI runs every profile against the
+				// same committed tree; treating out-of-profile as blindness
+				// made this check fail wherever the profile was narrower than
+				// the config, which is most of them.
+				//
+				// The incident this exists for is unaffected: a dropped fetch
+				// block leaves the entry in place, so the type is still in
+				// profile and still checked.
+				result.OutOfProfile = append(result.OutOfProfile, resourceType)
 				continue
 			}
+			result.Checked++
 			fetchable, skipReason, declared, detail := fetchDeclaration(
 				resource, options.Root.Resources,
 			)
