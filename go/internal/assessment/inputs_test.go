@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -98,6 +99,15 @@ func assessmentRepoRoot(t *testing.T) string {
 	}
 }
 
+func sortedRegistryTypes(registry metadata.JsonObject) []string {
+	types := make([]string, 0, len(registry))
+	for resourceType := range registry {
+		types = append(types, resourceType)
+	}
+	sort.Strings(types)
+	return types
+}
+
 func loadedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
 	directory := t.TempDir()
@@ -133,6 +143,47 @@ func loadedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
 		registry[resourceType] = metadata.JsonObject{"generate": true, "product": product}
 	}
 	write(filepath.Join(pack, "registry.json"), registry)
+	// Every registered resource type gets a provider schema, because in a
+	// materialised pack it has one. A registry entry without a schema is not a
+	// thinner version of production, it is a shape production cannot take, and
+	// a fixture built that way hides every consumer that reads attribute types
+	// -- the assessment classifier among them.
+	//
+	// zia_url_categories carries the pair the set-typed walk turns on:
+	// db_categorized_urls is a set and urls is an ordered list, on one
+	// resource. Anything that decides set-ness from the values rather than the
+	// schema gets one of the two wrong.
+	stringAttribute := metadata.JsonObject{"type": "string", "optional": true}
+	collection := func(kind string) metadata.JsonObject {
+		return metadata.JsonObject{"type": []any{kind, "string"}, "optional": true}
+	}
+	resourceSchemas := map[string]metadata.JsonObject{
+		"zia_url_categories": {"block": metadata.JsonObject{"attributes": metadata.JsonObject{
+			"configured_name":     stringAttribute,
+			"db_categorized_urls": collection("set"),
+			"keywords":            collection("set"),
+			"urls":                collection("list"),
+		}}},
+	}
+	providerSchemas := map[string]metadata.JsonObject{}
+	for _, resourceType := range sortedRegistryTypes(registry) {
+		provider, _, _ := strings.Cut(resourceType, "_")
+		schema, ok := resourceSchemas[resourceType]
+		if !ok {
+			schema = metadata.JsonObject{"block": metadata.JsonObject{"attributes": metadata.JsonObject{
+				"name": stringAttribute,
+			}}}
+		}
+		if _, seen := providerSchemas[provider]; !seen {
+			providerSchemas[provider] = metadata.JsonObject{}
+		}
+		providerSchemas[provider][resourceType] = schema
+	}
+	for provider, schemas := range providerSchemas {
+		write(filepath.Join(pack, "schemas", "provider", provider+".json"), metadata.JsonObject{
+			"resource_schemas": schemas,
+		})
+	}
 	profile := filepath.Join(directory, "profile.json")
 	write(profile, metadata.JsonObject{
 		"kind": metadata.PackSetKind, "version": 1, "packs": []string{"sample"}, "shared": []string{},

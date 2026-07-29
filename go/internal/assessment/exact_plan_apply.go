@@ -456,6 +456,7 @@ func applyExactPlanRoot(
 	expectedRoots []SavedPlanAssessmentRootInput,
 	policy BoundDriftPolicy,
 	root SavedPlanAssessmentRootInput,
+	schemaTypes PlanSchemaTypes,
 	hooks exactPlanApplyHooks,
 ) (applied bool, returnedErr error) {
 	temporary, err := hooks.makeTemporary()
@@ -563,7 +564,15 @@ func applyExactPlanRoot(
 	if err := requireExactApplyTypedComplete(shownPlan); err != nil {
 		return false, err
 	}
-	classification, err := ClassifyPlan(shownPlan.Raw, policy.Policy, exactApplyContract(root))
+	// The same schema types the assert gate classified under. Apply refusing a
+	// plan assert-clean passed, or the reverse, would make the two gates
+	// disagree about the same saved plan for no reason a reader could see.
+	classification, err := ClassifyPlanWithOptions(
+		shownPlan.Raw,
+		policy.Policy,
+		exactApplyContract(root),
+		ClassifyPlanOptions{SchemaTypes: schemaTypes},
+	)
 	if err != nil {
 		return false, err
 	}
@@ -698,6 +707,10 @@ func applyExactSavedPlans(options ExactPlanApplyOptions, hooks exactPlanApplyHoo
 		Tenant:     cloneString(options.Tenant),
 		Selectors:  append([]string(nil), options.Selectors...),
 	})
+	schemaTypes, err := NewPlanSchemaTypes(inputs.Root)
+	if err != nil {
+		return result, err
+	}
 	selectedRoots, diagnostics, err := MaterializeLoadedSavedPlanAssessmentRoots(context)
 	if err != nil {
 		return result, err
@@ -720,6 +733,7 @@ func applyExactSavedPlans(options ExactPlanApplyOptions, hooks exactPlanApplyHoo
 			append([]SavedPlanAssessmentRootInput(nil), selectedRoots[index:]...),
 			policy,
 			root,
+			schemaTypes,
 			hooks,
 		)
 		if applied {

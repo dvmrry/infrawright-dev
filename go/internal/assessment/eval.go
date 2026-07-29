@@ -42,11 +42,14 @@ const (
 	// ScalarChange is one value that moved; Before and After carry it. Leaves
 	// inside ordered lists and block collections are scalar changes too, and
 	// keep their positional path, because there position is identity.
-	// ScalarChange is the only kind emitted today. Kind stays a field rather
-	// than being dropped so that reporting Terraform set membership as its own
-	// kind, once provider schema types reach this function, is an additive
-	// change a consumer can branch on without a schema version bump.
 	ScalarChange PlanChangeKind = "scalar"
+	// SetChange is one Terraform set attribute whose membership moved; Added
+	// and Removed carry what entered and left, and Before and After are unset
+	// because no single pair of values describes the change. It is emitted only
+	// where the provider schema declares the attribute a set (see
+	// PlanSchemaTypes); without that evidence the array is compared by
+	// position and reported as scalar leaves.
+	SetChange PlanChangeKind = "set"
 )
 
 // PlanChange is one differing value, carried with enough content that a
@@ -96,10 +99,21 @@ func PythonJSONEqual(left, right any) bool {
 // DiffPaths returns Python-ordered leaf paths whose values differ. Missing
 // object keys and array elements compare as JSON null, matching plan-eval.ts.
 func DiffPaths(before, after any) []PlanPath {
-	return diffPathsAt(before, after, nil)
+	return DiffPathsWithSets(before, after, nil)
 }
 
-func diffPathsAt(before, after any, path PlanPath) []PlanPath {
+// DiffPathsWithSets is DiffPaths with the top-level attributes named in
+// setAttributes compared by membership instead of by position. A set that
+// differs contributes its own path once; a set whose members match contributes
+// nothing, because for a Terraform set that is not a difference at all.
+//
+// setAttributes applies at the resource's own attributes only, so it is
+// consulted in the top-level object walk and never handed to the recursion.
+func DiffPathsWithSets(before, after any, setAttributes map[string]struct{}) []PlanPath {
+	return diffPathsAt(before, after, nil, setAttributes)
+}
+
+func diffPathsAt(before, after any, path PlanPath, setAttributes map[string]struct{}) []PlanPath {
 	if PythonJSONEqual(before, after) {
 		return []PlanPath{}
 	}
@@ -122,10 +136,19 @@ func diffPathsAt(before, after any, path PlanPath) []PlanPath {
 		for _, key := range keys {
 			beforeValue := beforeObject[key]
 			afterValue := afterObject[key]
+			if _, isSet := setAttributes[key]; isSet {
+				paths = append(paths, setAttributePaths(
+					beforeValue,
+					afterValue,
+					appendPath(path, key),
+				)...)
+				continue
+			}
 			paths = append(paths, diffPathsAt(
 				beforeValue,
 				afterValue,
 				appendPath(path, key),
+				nil,
 			)...)
 		}
 		return paths
@@ -133,15 +156,13 @@ func diffPathsAt(before, after any, path PlanPath) []PlanPath {
 	beforeArray, beforeIsArray := before.([]any)
 	afterArray, afterIsArray := after.([]any)
 	if beforeIsArray && afterIsArray {
-		// Every array is compared by position, including one holding a
-		// Terraform set. Terraform compares sets by element hash and
-		// serializes them in provider-chosen order, so a pure reorder is
-		// reported here as a change the plan does not contain. That is a
-		// known false positive, and it is deliberately kept: distinguishing a
-		// set from an ordered list needs provider schema types, which this
-		// function does not have, and suppressing every all-scalar array
-		// instead silently drops real reorders of list(string) attributes.
-		// Over-reporting is recoverable by a reader; under-reporting is not.
+		// An array reached here is positional: either the provider schema
+		// declares it a list, or no schema was supplied. Distinguishing a set
+		// from an ordered list needs provider schema types (see
+		// PlanSchemaTypes); guessing from the values instead -- treating every
+		// all-scalar array as a set -- silently drops real reorders of
+		// list(string) attributes. Over-reporting is recoverable by a reader;
+		// under-reporting is not.
 		length := max(len(beforeArray), len(afterArray))
 		paths := make([]PlanPath, 0)
 		for index := range length {
@@ -157,6 +178,7 @@ func diffPathsAt(before, after any, path PlanPath) []PlanPath {
 				beforeValue,
 				afterValue,
 				appendPath(path, index),
+				nil,
 			)...)
 		}
 		return paths
@@ -164,15 +186,83 @@ func diffPathsAt(before, after any, path PlanPath) []PlanPath {
 	return []PlanPath{clonePath(path)}
 }
 
+// setAttributePaths reports a schema-declared set attribute as one path when
+// its membership moved and as nothing when it did not.
+//
+// A side that is not an array -- null on a resource being created, or a value
+// the provider did not render as a collection -- falls back to the ordinary
+// walk, which reports the attribute itself as a leaf. Nothing is skipped for
+// want of the expected shape.
+func setAttributePaths(before, after any, path PlanPath) []PlanPath {
+	beforeArray, beforeIsArray := before.([]any)
+	afterArray, afterIsArray := after.([]any)
+	if !beforeIsArray || !afterIsArray {
+		return diffPathsAt(before, after, path, nil)
+	}
+	added, removed := multisetDelta(beforeArray, afterArray)
+	if len(added) == 0 && len(removed) == 0 {
+		return []PlanPath{}
+	}
+	return []PlanPath{clonePath(path)}
+}
+
+// multisetDelta returns the members present only in after and only in before,
+// respecting multiplicity. A Terraform set cannot hold a duplicate, but this
+// walk is fed whatever the plan actually contains rather than what the schema
+// promises, so a repeated member is counted rather than collapsed.
+//
+// Members compare under PythonJSONEqual, the same equality every other
+// comparison in this walk uses. Two members that the enclosing walk would call
+// equal must not be called distinct here, or an array the walk short-circuits
+// as unchanged could still report a membership delta.
+func multisetDelta(before, after []any) (added, removed []any) {
+	matched := make([]bool, len(before))
+	added = make([]any, 0)
+	for _, afterValue := range after {
+		found := false
+		for index, beforeValue := range before {
+			if !matched[index] && PythonJSONEqual(beforeValue, afterValue) {
+				matched[index] = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			added = append(added, afterValue)
+		}
+	}
+	removed = make([]any, 0)
+	for index, beforeValue := range before {
+		if !matched[index] {
+			removed = append(removed, beforeValue)
+		}
+	}
+	return added, removed
+}
+
 // DiffChanges returns the differing values in the same Python order DiffPaths
 // uses, carrying the content of each difference. The sensitivity arguments are
 // the plan's before_sensitive and after_sensitive masks; a nil mask means
 // nothing under it is sensitive.
 func DiffChanges(before, after, beforeSensitive, afterSensitive any) []PlanChange {
-	return diffChangesAt(before, after, beforeSensitive, afterSensitive, nil)
+	return DiffChangesWithSets(before, after, beforeSensitive, afterSensitive, nil)
 }
 
-func diffChangesAt(before, after, beforeSensitive, afterSensitive any, path PlanPath) []PlanChange {
+// DiffChangesWithSets is DiffChanges under the same set-attribute treatment
+// DiffPathsWithSets applies, so the two walks keep agreeing on paths. A set
+// whose membership moved yields one SetChange carrying what entered and left.
+func DiffChangesWithSets(
+	before, after, beforeSensitive, afterSensitive any,
+	setAttributes map[string]struct{},
+) []PlanChange {
+	return diffChangesAt(before, after, beforeSensitive, afterSensitive, nil, setAttributes)
+}
+
+func diffChangesAt(
+	before, after, beforeSensitive, afterSensitive any,
+	path PlanPath,
+	setAttributes map[string]struct{},
+) []PlanChange {
 	if PythonJSONEqual(before, after) {
 		return []PlanChange{}
 	}
@@ -193,12 +283,23 @@ func diffChangesAt(before, after, beforeSensitive, afterSensitive any, path Plan
 		keys = canonjson.SortedStrings(keys)
 		changes := make([]PlanChange, 0)
 		for _, key := range keys {
+			if _, isSet := setAttributes[key]; isSet {
+				changes = append(changes, setAttributeChanges(
+					beforeObject[key],
+					afterObject[key],
+					sensitiveMaskChild(beforeSensitive, key),
+					sensitiveMaskChild(afterSensitive, key),
+					appendPath(path, key),
+				)...)
+				continue
+			}
 			changes = append(changes, diffChangesAt(
 				beforeObject[key],
 				afterObject[key],
 				sensitiveMaskChild(beforeSensitive, key),
 				sensitiveMaskChild(afterSensitive, key),
 				appendPath(path, key),
+				nil,
 			)...)
 		}
 		return changes
@@ -206,11 +307,10 @@ func diffChangesAt(before, after, beforeSensitive, afterSensitive any, path Plan
 	beforeArray, beforeIsArray := before.([]any)
 	afterArray, afterIsArray := after.([]any)
 	if beforeIsArray && afterIsArray {
-		// Positional, matching DiffPaths. Collapsing an all-scalar array to a
-		// membership delta reads far better for a genuine set, but the same
-		// resource can carry a set and an ordered list side by side
-		// (zia_url_categories has db_categorized_urls as set(string) and urls
-		// as list(string)), and nothing here can tell them apart.
+		// Positional, matching DiffPaths. The same resource can carry a set and
+		// an ordered list side by side -- zia_url_categories has
+		// db_categorized_urls as set(string) and urls as list(string) -- so
+		// only the schema decides, never the shape of the values.
 		length := max(len(beforeArray), len(afterArray))
 		changes := make([]PlanChange, 0)
 		for index := range length {
@@ -228,12 +328,38 @@ func diffChangesAt(before, after, beforeSensitive, afterSensitive any, path Plan
 				sensitiveMaskChild(beforeSensitive, index),
 				sensitiveMaskChild(afterSensitive, index),
 				appendPath(path, index),
+				nil,
 			)...)
 		}
 		return changes
 	}
 	return []PlanChange{redactedChange(
 		PlanChange{Path: clonePath(path), Kind: ScalarChange, Before: before, After: after},
+		beforeSensitive,
+		afterSensitive,
+	)}
+}
+
+// setAttributeChanges mirrors setAttributePaths, carrying the membership delta
+// behind the single path that walk emits. Redaction is applied to the whole
+// attribute: a sensitivity mask anywhere under a set withholds the delta rather
+// than the members it happens to cover, because naming what entered a set is
+// naming its contents.
+func setAttributeChanges(
+	before, after, beforeSensitive, afterSensitive any,
+	path PlanPath,
+) []PlanChange {
+	beforeArray, beforeIsArray := before.([]any)
+	afterArray, afterIsArray := after.([]any)
+	if !beforeIsArray || !afterIsArray {
+		return diffChangesAt(before, after, beforeSensitive, afterSensitive, path, nil)
+	}
+	added, removed := multisetDelta(beforeArray, afterArray)
+	if len(added) == 0 && len(removed) == 0 {
+		return []PlanChange{}
+	}
+	return []PlanChange{redactedChange(
+		PlanChange{Path: clonePath(path), Kind: SetChange, Added: added, Removed: removed},
 		beforeSensitive,
 		afterSensitive,
 	)}
@@ -439,18 +565,19 @@ func sortedActions(actions map[string]struct{}) []string {
 // have content to show, the values behind them. Synthetic markers and
 // unknown-until-apply paths appear in the path list alone: there is no value
 // to carry for them.
-func updateContent(change map[string]any) ([]PlanPath, []PlanChange) {
-	changes := DiffChanges(
+func updateContent(change map[string]any, setAttributes map[string]struct{}) ([]PlanPath, []PlanChange) {
+	changes := DiffChangesWithSets(
 		change["before"],
 		change["after"],
 		change["before_sensitive"],
 		change["after_sensitive"],
+		setAttributes,
 	)
 	valuePaths := make([]PlanPath, 0, len(changes))
 	for _, valueChange := range changes {
 		valuePaths = append(valuePaths, valueChange.Path)
 	}
-	return updatePathsFrom(change, valuePaths), sortedPlanChanges(changes)
+	return updatePathsFrom(change, valuePaths, setAttributes), sortedPlanChanges(changes)
 }
 
 func sortedPlanChanges(changes []PlanChange) []PlanChange {
@@ -461,12 +588,16 @@ func sortedPlanChanges(changes []PlanChange) []PlanChange {
 	return sorted
 }
 
-func updatePathsFrom(change map[string]any, valuePaths []PlanPath) []PlanPath {
+func updatePathsFrom(
+	change map[string]any,
+	valuePaths []PlanPath,
+	setAttributes map[string]struct{},
+) []PlanPath {
 	unique := make(map[string]PlanPath)
 	opaque := false
 	candidates := append(
 		append([]PlanPath(nil), valuePaths...),
-		TruthyPaths(change["after_unknown"])...,
+		collapseSetPaths(TruthyPaths(change["after_unknown"]), setAttributes)...,
 	)
 	for _, path := range candidates {
 		if len(path) == 0 {
@@ -495,6 +626,82 @@ func updatePathsFrom(change map[string]any, valuePaths []PlanPath) []PlanPath {
 	return paths
 }
 
+// collapseSetPaths truncates any path that descends into a schema-declared set
+// attribute to the attribute itself.
+//
+// after_unknown is walked separately from the values, so without this an
+// unknown member of a set would arrive as db_categorized_urls[3] while the
+// value walk emits db_categorized_urls -- two spellings of one attribute, only
+// one of which a drift-policy entry can match. Truncation coarsens a path and
+// never removes one, so nothing stops being reported.
+func collapseSetPaths(paths []PlanPath, setAttributes map[string]struct{}) []PlanPath {
+	if len(setAttributes) == 0 {
+		return paths
+	}
+	collapsed := make([]PlanPath, 0, len(paths))
+	for _, path := range paths {
+		attribute, isString := "", false
+		if len(path) > 1 {
+			attribute, isString = path[0].(string)
+		}
+		if _, isSet := setAttributes[attribute]; isString && isSet {
+			collapsed = append(collapsed, PlanPath{attribute})
+			continue
+		}
+		collapsed = append(collapsed, path)
+	}
+	return collapsed
+}
+
+// explainedBySetEquality reports whether every serialized difference between
+// this record's before and after is confined to schema-declared set attributes
+// whose members match.
+//
+// It answers a question <opaque_update> otherwise gets wrong. An update whose
+// values diff to nothing normally means "something moved that this walk cannot
+// see", and blocking on it is the fail-closed default. But a set attribute
+// serialized two different ways with the same members has not moved at all --
+// that is what "set" means to Terraform -- and calling that opaque asserts
+// ignorance where there is none. Only a record whose entire difference is
+// accounted for this way qualifies; anything else keeps the marker.
+func explainedBySetEquality(change map[string]any, setAttributes map[string]struct{}) bool {
+	if len(setAttributes) == 0 {
+		return false
+	}
+	beforeObject, beforeIsObject := change["before"].(map[string]any)
+	afterObject, afterIsObject := change["after"].(map[string]any)
+	if !beforeIsObject || !afterIsObject {
+		return false
+	}
+	keys := make(map[string]struct{}, len(beforeObject)+len(afterObject))
+	for key := range beforeObject {
+		keys[key] = struct{}{}
+	}
+	for key := range afterObject {
+		keys[key] = struct{}{}
+	}
+	explained := false
+	for key := range keys {
+		if PythonJSONEqual(beforeObject[key], afterObject[key]) {
+			continue
+		}
+		if _, isSet := setAttributes[key]; !isSet {
+			return false
+		}
+		beforeArray, beforeIsArray := beforeObject[key].([]any)
+		afterArray, afterIsArray := afterObject[key].([]any)
+		if !beforeIsArray || !afterIsArray {
+			return false
+		}
+		added, removed := multisetDelta(beforeArray, afterArray)
+		if len(added) > 0 || len(removed) > 0 {
+			return false
+		}
+		explained = true
+	}
+	return explained
+}
+
 func sortPlanPaths(paths []PlanPath) {
 	sort.SliceStable(paths, func(left, right int) bool {
 		return comparePaths(paths[left], paths[right]) < 0
@@ -505,6 +712,7 @@ func classifyChange(
 	record map[string]any,
 	source string,
 	policy *metadata.DriftPolicy,
+	schemaTypes PlanSchemaTypes,
 ) []PlanFinding {
 	change, _ := record["change"].(map[string]any)
 	rawActions, _ := change["actions"].([]any)
@@ -534,7 +742,23 @@ func classifyChange(
 		return []PlanFinding{blockedFinding(source, address, actions, []PlanPath{{"<create>"}})}
 	}
 	if hasAction(actions, "update") {
-		paths, changes := updateContent(change)
+		setAttributes := schemaTypes.SetAttributes(resourceType)
+		paths, changes := updateContent(change, setAttributes)
+		if onlyOpaqueUpdate(paths) &&
+			len(TruthyPaths(change["after_unknown"])) == 0 &&
+			explainedBySetEquality(change, setAttributes) {
+			// The record's whole difference is set attributes whose members
+			// match, so there is nothing here to tolerate or to block. Reported
+			// as an examined-and-clear finding rather than dropped, so the
+			// resource still appears in the report that cleared it.
+			return []PlanFinding{{
+				Status:  Clean,
+				Source:  source,
+				Address: address,
+				Actions: sortedActions(actions),
+				Paths:   []PlanPath{},
+			}}
+		}
 		unmatched := make([]PlanPath, 0, len(paths))
 		for _, candidate := range paths {
 			if policy == nil || !policy.ToleratesPlanPath(resourceType, []any(candidate), "update") {
@@ -556,6 +780,12 @@ func classifyChange(
 		}}
 	}
 	return []PlanFinding{blockedFinding(source, address, actions, []PlanPath{{"<unsupported_action>"}})}
+}
+
+// onlyOpaqueUpdate reports whether the update produced no path but the
+// synthetic marker, which is the only shape set equality can explain away.
+func onlyOpaqueUpdate(paths []PlanPath) bool {
+	return len(paths) == 1 && len(paths[0]) == 1 && paths[0][0] == OpaqueUpdate
 }
 
 func onlyNoOp(actions map[string]struct{}) bool {
@@ -589,6 +819,18 @@ type ClassifyPlanOptions struct {
 	// Steady-state assertion leaves this false, where the same records are
 	// the out-of-band change the gate exists to catch.
 	TolerateRefreshDrift bool
+
+	// SchemaTypes supplies the provider's set-typed attributes, letting the
+	// walk compare those by membership instead of by position. The zero value
+	// declares nothing a set, which is the positional stance every caller had
+	// before this field existed.
+	//
+	// This is not a relaxation. A set whose membership moved is still one
+	// reported path, still matched against drift policy, and still blocking;
+	// what changes is that it is one path naming the attribute rather than one
+	// path per shifted index, and that it carries what entered and left instead
+	// of pairing unrelated members by position.
+	SchemaTypes PlanSchemaTypes
 }
 
 // ClassifyPlan is the fail-closed assessment entry point. It validates the
@@ -618,7 +860,7 @@ func ClassifyPlanWithOptions(
 		records, _ := planObject[source].([]any)
 		demote := options.TolerateRefreshDrift && source == "resource_drift"
 		for _, rawRecord := range records {
-			for _, finding := range classifyChange(rawRecord.(map[string]any), source, policy) {
+			for _, finding := range classifyChange(rawRecord.(map[string]any), source, policy, options.SchemaTypes) {
 				if demote && finding.Status == Blocked {
 					finding.Status = Tolerated
 				}
