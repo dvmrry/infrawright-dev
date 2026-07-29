@@ -176,6 +176,26 @@ func TestRunQualifiedRejectsEmptyNullAndUnknownLegacySectionsBeforeRootsOrHost(t
 	}
 }
 
+// TestRecipeWithoutProvenanceIsRejected pins the retirement contract: a recipe
+// that omits source_provenance never falls back to the retired LegacyV1 lane.
+func TestRecipeWithoutProvenanceIsRejected(t *testing.T) {
+	root := t.TempDir()
+	recipePath := filepath.Join(root, "recipe.json")
+	writeQualifiedRecipe(t, recipePath, map[string]any{
+		"name":            "example",
+		"provider_source": "registry.terraform.io/example/example",
+		"openapi":         map[string]any{"format": "json", "path": "openapi.json"},
+		"source":          map[string]any{"path": "provider"},
+	})
+	const want = "recipe requires a source_provenance manifest; the legacy v1 probe contract is retired"
+	if _, err := InspectRecipeMode(recipePath); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("InspectRecipeMode(no provenance) error = %v, want %q", err, want)
+	}
+	if _, err := Run(context.Background(), RunOptions{RecipePath: recipePath}); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("Run(no provenance) error = %v, want %q", err, want)
+	}
+}
+
 func TestRunRejectsNilAndCancelledContextBeforeRecipeLoad(t *testing.T) {
 	if _, err := Run(nil, RunOptions{RecipePath: "does-not-exist"}); err == nil {
 		t.Fatal("Run(nil) error = nil, want rejection")

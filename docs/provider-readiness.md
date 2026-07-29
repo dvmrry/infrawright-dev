@@ -80,7 +80,7 @@ make openapi-map \
   OPENAPI=tmp/openapi.json \
   PROVIDER_SOURCE=registry.terraform.io/example/example \
   RESOURCE_PREFIX=example \
-  REGISTRY=reports/readiness/example-read-registry.json \
+  REGISTRY=reports/readiness/example-source-evidence/source-registry.json \
   OUT=reports/readiness/example-openapi-map.json
 ```
 
