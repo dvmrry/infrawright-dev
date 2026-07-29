@@ -528,6 +528,34 @@ func TestPreflightAcceptsLargePlanShapedJSON(t *testing.T) {
 	}
 }
 
+// TestStructuralCapStaysReachableWithinTheByteBound pins the relation the
+// raise is justified by. Every structural character costs at least one byte,
+// so a cap at or above MaxStdoutBytes can never be reached: the byte bound
+// refuses first and the structural guard becomes dead code that no test
+// notices, because the degenerate fixture is sized from the constant and
+// scales with it.
+//
+// This is the assertion that makes the "an eighth of what the byte bound
+// allows" claim in show.go load-bearing rather than a comment.
+func TestStructuralCapStaysReachableWithinTheByteBound(t *testing.T) {
+	byteBound := DefaultTerraformCommandLimits().MaxStdoutBytes
+	if int64(maxTerraformJSONStructureTokens) >= byteBound {
+		t.Fatalf(
+			"maxTerraformJSONStructureTokens = %d, want below MaxStdoutBytes %d so the guard stays reachable",
+			maxTerraformJSONStructureTokens, byteBound,
+		)
+	}
+	// The recorded basis is an eighth. Allow retuning, but not so far that
+	// the guard only fires on payloads the byte bound would have caught.
+	if int64(maxTerraformJSONStructureTokens) > byteBound/2 {
+		t.Errorf(
+			"maxTerraformJSONStructureTokens = %d, want at most half of MaxStdoutBytes %d; "+
+				"above that the structural guard adds little the byte bound does not already do",
+			maxTerraformJSONStructureTokens, byteBound,
+		)
+	}
+}
+
 // TestPreflightStillRefusesDegenerateStructure pins the other half: raising the
 // cap must not stop it being a guard. Degenerate input is nearly all
 // structural, so it exceeds the cap on a payload far smaller than the byte
