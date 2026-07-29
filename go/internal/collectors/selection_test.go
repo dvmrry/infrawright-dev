@@ -7,6 +7,7 @@ package collectors
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -92,4 +93,132 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func skipDeclarationRoot() metadata.LoadedPackRoot {
+	return metadata.LoadedPackRoot{Resources: map[string]metadata.LoadedResourceMetadata{
+		"zia_url_categories": {Type: "zia_url_categories", Product: "zia",
+			Registry: metadata.JsonObject{
+				"product": "zia", "fetch": map[string]any{"path": "/urlCategories"},
+			}},
+		"zia_gen_only": {Type: "zia_gen_only", Product: "zia",
+			Registry: metadata.JsonObject{
+				"product": "zia", "generate": true,
+				"fetch":             false,
+				"fetch_skip_reason": "generate-only; no list endpoint",
+			}},
+		"zia_silent_gap": {Type: "zia_silent_gap", Product: "zia",
+			Registry: metadata.JsonObject{"product": "zia", "generate": true}},
+		// A reason with no "fetch": false is not a declaration. Metadata
+		// validation refuses the pair, but this predicate must not depend on
+		// validation having run to reach it.
+		"zia_stale_reason": {Type: "zia_stale_reason", Product: "zia",
+			Registry: metadata.JsonObject{
+				"product": "zia", "generate": true,
+				"fetch_skip_reason": "left behind when the fetch block returned",
+			}},
+		// A working fetch block wins; a stray reason beside it changes nothing.
+		"zia_fetch_and_reason": {Type: "zia_fetch_and_reason", Product: "zia",
+			Registry: metadata.JsonObject{
+				"product": "zia", "fetch": map[string]any{"path": "/both"},
+				"fetch_skip_reason": "stale",
+			}},
+	}}
+}
+
+// TestSelectFetchHonoursADeclaredSkip pins that a type the registry declares
+// unfetchable on purpose is skipped with its reason rather than refused as
+// unknown. Selection previously routed it to the unknown-selector error, so
+// the registry could state "fetch": false with a reason and the fetcher still
+// answered "unknown resource type" -- untrue, and it discarded the reason.
+func TestSelectFetchHonoursADeclaredSkip(t *testing.T) {
+	selected, skipped, err := SelectFetchResourcesWithSkips(SelectFetchResourcesOptions{
+		Root:      skipDeclarationRoot(),
+		Selectors: []string{"zia_url_categories", "zia_gen_only"},
+	})
+	if err != nil {
+		t.Fatalf("SelectFetchResourcesWithSkips(declared skip) error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(selected, []string{"zia_url_categories"}) {
+		t.Errorf("selected = %#v, want only the fetchable type", selected)
+	}
+	want := []SkippedFetchSelector{
+		{Type: "zia_gen_only", Reason: "generate-only; no list endpoint"},
+	}
+	if !reflect.DeepEqual(skipped, want) {
+		t.Errorf("skipped = %#v, want %#v", skipped, want)
+	}
+}
+
+// A missing fetch block is the silent gap check-config exists to refuse. It
+// must keep reaching the unknown-selector error rather than being quietly
+// skipped here, or this change would turn the gap into a supported state.
+func TestSelectFetchStillRefusesAnUndeclaredGap(t *testing.T) {
+	tests := []struct {
+		name     string
+		selector string
+	}{
+		{"no_fetch_block_at_all", "zia_silent_gap"},
+		{"reason_without_the_skip", "zia_stale_reason"},
+		{"not_in_the_registry", "zia_invented"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := SelectFetchResourcesWithSkips(SelectFetchResourcesOptions{
+				Root: skipDeclarationRoot(), Selectors: []string{test.selector},
+			})
+			if err == nil {
+				t.Fatalf("SelectFetchResourcesWithSkips(%s) error = nil, want a refusal", test.name)
+			}
+			if !strings.Contains(err.Error(), "unknown resource type") {
+				t.Errorf("error = %v, want the unknown-selector refusal", err)
+			}
+		})
+	}
+}
+
+// A skip declaration with no reason is not a declaration. Accepting it would
+// let the reason-less form -- which metadata validation already refuses -- act
+// as a silent opt-out through this path instead.
+func TestSelectFetchRequiresAReasonToSkip(t *testing.T) {
+	root := metadata.LoadedPackRoot{Resources: map[string]metadata.LoadedResourceMetadata{
+		"zia_no_reason": {Type: "zia_no_reason", Product: "zia",
+			Registry: metadata.JsonObject{"product": "zia", "fetch": false}},
+	}}
+	if _, _, err := SelectFetchResourcesWithSkips(SelectFetchResourcesOptions{
+		Root: root, Selectors: []string{"zia_no_reason"},
+	}); err == nil {
+		t.Error("SelectFetchResourcesWithSkips(skip without a reason) error = nil, want a refusal")
+	}
+}
+
+// A type with a real fetch block is fetched, not skipped, whatever else its
+// entry carries.
+func TestSelectFetchPrefersARealFetchBlockOverAStrayReason(t *testing.T) {
+	selected, skipped, err := SelectFetchResourcesWithSkips(SelectFetchResourcesOptions{
+		Root: skipDeclarationRoot(), Selectors: []string{"zia_fetch_and_reason"},
+	})
+	if err != nil {
+		t.Fatalf("SelectFetchResourcesWithSkips() error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(selected, []string{"zia_fetch_and_reason"}) {
+		t.Errorf("selected = %#v, want the type fetched", selected)
+	}
+	if len(skipped) != 0 {
+		t.Errorf("skipped = %#v, want none", skipped)
+	}
+}
+
+// The narrow wrapper keeps its signature for callers that do not report skips.
+func TestSelectFetchResourcesWrapperDropsOnlyTheSkipList(t *testing.T) {
+	selected, err := SelectFetchResources(SelectFetchResourcesOptions{
+		Root:      skipDeclarationRoot(),
+		Selectors: []string{"zia_url_categories", "zia_gen_only"},
+	})
+	if err != nil {
+		t.Fatalf("SelectFetchResources(declared skip) error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(selected, []string{"zia_url_categories"}) {
+		t.Errorf("selected = %#v, want only the fetchable type", selected)
+	}
 }
