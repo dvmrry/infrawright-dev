@@ -33,6 +33,7 @@ Available Commands:
   plan-roots             Enumerate plan roots and artifacts
   provider-probe         Run the provider-readiness probe
   reconcile              Compare API JSON with a Terraform schema
+  refresh                Reconcile recorded state with reality without changing anything remote
   resources              List generated resources
   roots                  Emit root topology
   scope-paths            Map changed paths to affected roots
@@ -523,6 +524,25 @@ Flags:
       --override string          reconciliation override path
       --provider-source string   Terraform provider source address
       --schema string            Terraform provider schema path
+```
+
+## `iw refresh`
+
+```text
+Reconcile recorded state with reality without changing anything remote
+
+Usage:
+  iw refresh [flags]
+
+Flags:
+      --backend-config string   Terraform backend configuration path
+      --deployment string       deployment overlay path
+  -h, --help                    help for refresh
+      --profile string          pack profile path
+      --resource string         resource selector (repeatable)
+      --root string             pack root directory
+      --tenant string           deployment tenant label
+      --terraform string        Terraform executable path
 ```
 
 ## `iw resources`

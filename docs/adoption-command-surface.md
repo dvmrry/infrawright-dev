@@ -16,6 +16,7 @@ fetch
   -> gen-modules
   -> gen-env
   -> stage-imports
+  -> refresh            (when state predates the tenant's current contents)
   -> plan SAVE=1
   -> assert-adoptable
   -> apply
@@ -30,6 +31,7 @@ Command responsibilities:
 | `make gen-modules` | Generate the deployment-selected reusable Terraform/OpenTofu modules. |
 | `make gen-env` | Generate isolated Terraform/OpenTofu env roots that source the deployment-selected module set. |
 | `make stage-imports` | Copy generated `import {}` and `moved {}` blocks into env roots. |
+| `make refresh` | Reconcile recorded state with reality. Writes refreshed values into state and touches no remote object, so it needs no `ALLOW_*` override; the refresh-only plan is read back and refused unless every resource change in it is a no-op. |
 | `make plan SAVE=1` | Run Terraform/OpenTofu plans and save plan artifacts for later gates. |
 | `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Refresh drift (`resource_drift`) is reported as tolerated rather than blocking, because only the guarded apply can settle it. Guidance annotations never make a blocked plan clean. |
 | `make apply` | Reclassify saved plans and apply only when they are clean/import-only or fully tolerated by explicit policy; destructive or non-main workflows still require explicit safety flags. |
@@ -56,7 +58,8 @@ Supporting adoption commands:
 refresh drift. A plan that `assert-adoptable` reported as tolerated only because
 of `resource_drift` is still refused by `make apply`, which reads a
 drift-sourced `delete` as a destroy and would otherwise disarm `ALLOW_DESTROY=1`
-for it. Give those paths explicit drift policy before applying. If
+for it. Run `make refresh` to reconcile that drift, then plan again; reach for
+explicit drift policy only for values you intend to keep diverging. If
 `assert-adoptable` used `POLICY=<file>` to classify
 intentional drift as tolerated, pass the same `POLICY=<file>` to `make apply`.
 The legacy `ALLOW_PLAN_CHANGES=1` path is a broad override for intentionally

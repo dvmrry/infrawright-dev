@@ -303,6 +303,7 @@ func newCobraRootWithTerraformPreflight(preflight func() error) *cobra.Command {
 		newRootQueryCobraCommand("plan-roots", "Enumerate plan roots and artifacts", planRootsInput),
 		newPlanCobraCommand(defaultPlanCommandDependencies()),
 		newCleanPlansCobraCommand(defaultPlanCommandDependencies()),
+		newRefreshCobraCommand(defaultRefreshCommandDependencies()),
 		newAssessmentCobraCommand(assessment.AssertClean),
 		newAssessmentCobraCommand(assessment.AssertAdoptable),
 		newApplyCobraCommand(defaultBlockDCommandDependencies()),
@@ -325,7 +326,7 @@ func newCobraRootWithTerraformPreflight(preflight func() error) *cobra.Command {
 // on every platform without a second, divergent argv parser.
 func cobraCommandRequiresTerraformExecution(command *cobra.Command) (bool, error) {
 	switch command.CommandPath() {
-	case "iw adopt", "iw gen-env", "iw plan", "iw assert-clean", "iw assert-adoptable", "iw apply", "iw modules generate":
+	case "iw adopt", "iw gen-env", "iw plan", "iw refresh", "iw assert-clean", "iw assert-adoptable", "iw apply", "iw modules generate":
 		return true, nil
 	case "iw stage-imports":
 		enabled, err := command.Flags().GetBool("state-aware")
