@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -144,6 +145,10 @@ func refreshRecordImports(record any) bool {
 	return ok && len(importing) > 0
 }
 
+// refreshPlanFormatVersion matches assessmentFormatVersion in contract.go: the
+// section names this guard relies on are 1.x plan-format names.
+var refreshPlanFormatVersion = regexp.MustCompile(`^1\.[0-9]+$`)
+
 // refreshExecutableSections are the plan sections other than resource_changes
 // that carry remote intent. Terraform executes action invocations on apply and
 // resumes deferred work, so a plan carrying either is not state-only however
@@ -161,6 +166,19 @@ var refreshExecutableSections = [...]string{
 // what it would do, and a resource_changes that is present but not an array
 // would otherwise read as zero changes rather than as an unreadable plan.
 func requireRefreshPlanEnvelope(planObject map[string]any, label string) error {
+	// The section checks below name the keys a 1.x plan uses to carry remote
+	// intent. Under a format that renamed them, every one of those lookups
+	// reads as absent and the guard allows -- so the format itself has to be
+	// one this code was written against. ValidateAssessmentPlan pins the same
+	// 1.x range for the classifier.
+	formatVersion, ok := planObject["format_version"].(string)
+	if !ok || !refreshPlanFormatVersion.MatchString(formatVersion) {
+		return refreshFailure(
+			"INVALID_REFRESH_PLAN",
+			label+" refresh-only plan format_version must be a supported 1.x version",
+			procerr.CategoryDomain,
+		)
+	}
 	if planObject["complete"] != true {
 		return refreshFailure(
 			"INVALID_REFRESH_PLAN",

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
 type refreshFakeTerraform struct {
@@ -16,6 +17,7 @@ type refreshFakeTerraform struct {
 	shown        []RefreshShowRequest
 	applied      []RefreshApplyRequest
 	planJSON     string
+	planSequence []string
 	snapshotPath string
 }
 
@@ -32,6 +34,15 @@ func (fake *refreshFakeTerraform) PlanRefreshOnly(request RefreshPlanRequest) er
 
 func (fake *refreshFakeTerraform) Show(request RefreshShowRequest) (canonjson.Value, error) {
 	fake.shown = append(fake.shown, request)
+	// planSequence lets a test give each root a different plan, so a refusal
+	// can be placed on a root other than the first.
+	if len(fake.planSequence) > 0 {
+		index := len(fake.shown) - 1
+		if index >= len(fake.planSequence) {
+			index = len(fake.planSequence) - 1
+		}
+		return canonjson.ParseDataJSONLosslessly(fake.planSequence[index])
+	}
 	return canonjson.ParseDataJSONLosslessly(fake.planJSON)
 }
 
@@ -52,6 +63,78 @@ func refreshPlanJSON(changes, drift string) string {
 func refreshPlanJSONWith(envelope, changes, drift string) string {
 	return `{"format_version":"1.2","terraform_version":"1.15.4",` + envelope +
 		`"resource_changes":[` + changes + `],"resource_drift":[` + drift + `]}`
+}
+
+// TestRefreshEnvironmentRootsRefusesOnALaterRoot pins that the guard runs per
+// root rather than once. With the refusal on the second root, the first root's
+// apply is allowed to have happened -- what must not happen is the second's.
+// A guard that checked only the first plan would apply both.
+func TestRefreshEnvironmentRootsRefusesOnALaterRoot(t *testing.T) {
+	const second = "zia_url_filtering_rules"
+	workspace := t.TempDir()
+	for _, label := range []string{lifecycleTestResource, second} {
+		writeLifecycleRoot(t, workspace, "tenant", label, []string{label}, nil, false)
+		writeLifecycleText(t,
+			lifecycleTestConfigPath(workspace, "tenant", label, ".auto.tfvars.json"),
+			`{"`+label+`_items":{}}`+"\n")
+	}
+	root := lifecycleTestRoot(map[string]metadata.JsonObject{
+		lifecycleTestResource: {"generate": true, "product": "zia"},
+		second:                {"generate": true, "product": "zia"},
+	})
+
+	clean := refreshPlanJSON(refreshRecord("zia_url_categories.this", `"no-op"`), "")
+	offending := refreshPlanJSON(refreshRecord("zia_url_filtering_rules.this", `"delete"`), "")
+	fake := &refreshFakeTerraform{planSequence: []string{clean, offending}}
+
+	_, err := RefreshEnvironmentRoots(RefreshEnvironmentRootsOptions{
+		Deployment:   lifecycleTestDeployment(),
+		OnDiagnostic: func(string) {},
+		Root:         root,
+		Selectors:    []string{lifecycleTestResource, second},
+		Tenant:       "tenant",
+		Terraform:    fake,
+		Workspace:    workspace,
+	})
+
+	requireLifecycleFailure(t, err, "REFRESH_PLAN_NOT_STATE_ONLY")
+	if len(fake.shown) != 2 {
+		t.Errorf("Terraform show calls = %d, want both roots verified", len(fake.shown))
+	}
+	if len(fake.applied) != 1 {
+		t.Errorf("Terraform apply calls = %d, want only the clean root applied", len(fake.applied))
+	}
+}
+
+// TestRefreshEnvironmentRootsRequiresASupportedPlanFormat pins that the guard
+// only vouches for a format it was written against. Every section check below
+// it names a 1.x key; under a format that renamed them each lookup reads as
+// absent and the guard would allow.
+func TestRefreshEnvironmentRootsRequiresASupportedPlanFormat(t *testing.T) {
+	tests := []struct {
+		name   string
+		format string
+	}{
+		{"absent", ``},
+		{"future_major", `"format_version":"2.0",`},
+		{"not_a_string", `"format_version":2,`},
+		{"empty", `"format_version":"",`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			workspace, _ := newRefreshWorkspace(t)
+			fake := &refreshFakeTerraform{planJSON: `{` + test.format +
+				`"terraform_version":"1.15.4","complete":true,"errored":false,` +
+				`"resource_changes":[` + refreshRecord("zia_url_categories.this", `"no-op"`) + `],` +
+				`"resource_drift":[]}`}
+
+			_, _, err := runRefresh(t, workspace, fake)
+			requireLifecycleFailure(t, err, "INVALID_REFRESH_PLAN")
+			if len(fake.applied) != 0 {
+				t.Errorf("Terraform apply calls = %d, want 0 on a refused plan", len(fake.applied))
+			}
+		})
+	}
 }
 
 func refreshRecord(address, actions string) string {
