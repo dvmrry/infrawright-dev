@@ -150,6 +150,73 @@ func TestClassifyPlanRejectsIncompleteBeforePolicyMatching(t *testing.T) {
 	}
 }
 
+func TestClassifyPlanRefreshDriftStanceIsExplicitAndScoped(t *testing.T) {
+	// An import-only plan whose refresh found the recorded values stale. This
+	// is the adoption deadlock: resource_drift carries a change that only the
+	// guarded apply can settle.
+	adoptionPlan := mustParseDataJSON(t, `{
+		"format_version":"1.2","complete":true,"errored":false,
+		"resource_changes":[{"address":"sample_resource.this","type":"sample_resource",
+		"change":{"actions":["create"],"importing":{"id":"existing"}}}],
+		"resource_drift":[{"address":"sample_resource.this","type":"sample_resource",
+		"change":{"actions":["update"],"before":{"status":"recorded"},"after":{"status":"remote"}}}]
+	}`)
+
+	strict, err := ClassifyPlan(adoptionPlan, nil, nil)
+	if err != nil {
+		t.Fatalf("ClassifyPlan(refresh drift) error = %v, want nil", err)
+	}
+	wantStrict := PlanClassification{
+		Status: Blocked,
+		Findings: []PlanFinding{
+			{Status: Clean, Source: "resource_changes", Address: "sample_resource.this",
+				Actions: []string{"create"}, Paths: []PlanPath{}},
+			{Status: Blocked, Source: "resource_drift", Address: "sample_resource.this",
+				Actions: []string{"update"}, Paths: []PlanPath{{"status"}}},
+		},
+	}
+	if !reflect.DeepEqual(strict, wantStrict) {
+		t.Errorf("ClassifyPlan(refresh drift) = %#v, want %#v", strict, wantStrict)
+	}
+
+	adopting, err := ClassifyPlanWithOptions(
+		adoptionPlan, nil, nil, ClassifyPlanOptions{TolerateRefreshDrift: true},
+	)
+	if err != nil {
+		t.Fatalf("ClassifyPlanWithOptions(tolerate refresh drift) error = %v, want nil", err)
+	}
+	wantAdopting := PlanClassification{
+		Status: Tolerated,
+		Findings: []PlanFinding{
+			{Status: Clean, Source: "resource_changes", Address: "sample_resource.this",
+				Actions: []string{"create"}, Paths: []PlanPath{}},
+			{Status: Tolerated, Source: "resource_drift", Address: "sample_resource.this",
+				Actions: []string{"update"}, Paths: []PlanPath{{"status"}}},
+		},
+	}
+	if !reflect.DeepEqual(adopting, wantAdopting) {
+		t.Errorf("ClassifyPlanWithOptions(tolerate refresh drift) = %#v, want %#v", adopting, wantAdopting)
+	}
+
+	// The same change reported by resource_changes is a real pending write,
+	// not a stale record, and stays blocked under the adoption stance.
+	changesPlan := mustParseDataJSON(t, `{
+		"format_version":"1.2","complete":true,"errored":false,
+		"resource_changes":[{"address":"sample_resource.this","type":"sample_resource",
+		"change":{"actions":["update"],"before":{"status":"recorded"},"after":{"status":"remote"}}}]
+	}`)
+	scoped, err := ClassifyPlanWithOptions(
+		changesPlan, nil, nil, ClassifyPlanOptions{TolerateRefreshDrift: true},
+	)
+	if err != nil {
+		t.Fatalf("ClassifyPlanWithOptions(pending change) error = %v, want nil", err)
+	}
+	if scoped.Status != Blocked || len(scoped.Findings) != 1 ||
+		scoped.Findings[0].Status != Blocked {
+		t.Errorf("ClassifyPlanWithOptions(pending change) = %#v, want blocked resource_changes finding", scoped)
+	}
+}
+
 func TestClassifyPlanDetectsIdentityAndSensitivityChanges(t *testing.T) {
 	policyValue := mustParseDataJSON(t, `{
 		"version":1,"resource_types":{"sample_resource":{"plan_tolerate":[{

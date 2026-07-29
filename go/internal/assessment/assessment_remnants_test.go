@@ -198,6 +198,7 @@ func runRemnantAssessment(
 ) (SavedPlanAssessmentCore, error) {
 	return runSavedPlanAssessment(
 		SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
+		ClassifyPlanOptions{},
 		func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
 			return core, nil
 		},
