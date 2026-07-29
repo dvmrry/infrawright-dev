@@ -65,6 +65,35 @@ func refreshPlanJSONWith(envelope, changes, drift string) string {
 		`"resource_changes":[` + changes + `],"resource_drift":[` + drift + `]}`
 }
 
+// TestRefreshEnvironmentRootsRefusesUnreadableDrift pins that drift is checked
+// before the apply. It is read afterwards, to report what moved, so a
+// malformed section previously yielded nil there: the plan applied and the run
+// reported zero resources reconciled. Reporting less than was done is its own
+// failure, and it is invisible precisely because it looks like a clean run.
+func TestRefreshEnvironmentRootsRefusesUnreadableDrift(t *testing.T) {
+	tests := []struct {
+		name  string
+		drift string
+	}{
+		{"not_an_array", `"resource_drift":{"not":"an array"},`},
+		{"unreadable_record", `"resource_drift":[{"address":"zia_url_categories.this"}],`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			workspace, _ := newRefreshWorkspace(t)
+			fake := &refreshFakeTerraform{planJSON: `{"format_version":"1.2",` +
+				`"terraform_version":"1.15.4","complete":true,"errored":false,` + test.drift +
+				`"resource_changes":[` + refreshRecord("zia_url_categories.this", `"no-op"`) + `]}`}
+
+			_, _, err := runRefresh(t, workspace, fake)
+			requireLifecycleFailure(t, err, "INVALID_REFRESH_PLAN")
+			if len(fake.applied) != 0 {
+				t.Errorf("Terraform apply calls = %d, want 0 on a refused plan", len(fake.applied))
+			}
+		})
+	}
+}
+
 // TestRefreshEnvironmentRootsRefusesOnALaterRoot pins that the guard runs per
 // root rather than once. With the refusal on the second root, the first root's
 // apply is allowed to have happened -- what must not happen is the second's.

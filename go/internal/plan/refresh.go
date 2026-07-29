@@ -193,13 +193,31 @@ func requireRefreshPlanEnvelope(planObject map[string]any, label string) error {
 			procerr.CategoryDomain,
 		)
 	}
-	if value, present := planObject["resource_changes"]; present {
-		if _, ok := value.([]any); !ok {
+	// resource_drift is validated here rather than where it is read, because
+	// it is read after the apply: a non-array silently yielded nil and the
+	// run reported zero resources reconciled on a plan that had just been
+	// applied. Reporting less than was done is its own failure.
+	for _, section := range [...]string{"resource_changes", "resource_drift"} {
+		value, present := planObject[section]
+		if !present {
+			continue
+		}
+		records, ok := value.([]any)
+		if !ok {
 			return refreshFailure(
 				"INVALID_REFRESH_PLAN",
-				label+" refresh-only plan resource_changes must be an array",
+				label+" refresh-only plan "+section+" must be an array",
 				procerr.CategoryDomain,
 			)
+		}
+		for _, record := range records {
+			if _, readable := refreshRecordActions(record); !readable {
+				return refreshFailure(
+					"INVALID_REFRESH_PLAN",
+					label+" refresh-only plan contains an unreadable "+section+" record",
+					procerr.CategoryDomain,
+				)
+			}
 		}
 	}
 	for _, section := range refreshExecutableSections {
