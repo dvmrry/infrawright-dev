@@ -738,6 +738,7 @@ func TestAssessmentValidatorRejectsSemanticContradictions(t *testing.T) {
 				value["roots"].([]any)[0].(map[string]any)["findings"] = []any{map[string]any{
 					"status": "blocked", "source": "resource_changes", "address": "zpa_sample.this",
 					"resource_type": "zpa_sample", "actions": []any{"update"}, "paths": []any{"name"},
+					"changes": []any{},
 				}}
 			},
 		},
@@ -811,4 +812,84 @@ func TestAssessmentSemanticErrorOrderIsSourceOrder(t *testing.T) {
 	if !reflect.DeepEqual(semantic, want) {
 		t.Errorf("ValidateSavedPlanAssessment(source-order vector) semantic details = %#v, want %#v", semantic, want)
 	}
+}
+
+// TestReportValidationRefusesSensitiveChangesCarryingContent pins the one
+// change rule that protects something rather than describing it. Redaction
+// only the emitter honours is not redaction: a hand-built or tampered report
+// that marks a change sensitive and still ships the value must be refused by
+// the same validator every consumer runs.
+func TestReportValidationRefusesSensitiveChangesCarryingContent(t *testing.T) {
+	sensitiveChange := func(mutate func(map[string]any)) map[string]any {
+		change := map[string]any{
+			"path": "token", "kind": "scalar", "sensitive": true,
+			"before": nil, "after": nil, "added": []any{}, "removed": []any{},
+		}
+		mutate(change)
+		return change
+	}
+	tests := []struct {
+		name     string
+		change   map[string]any
+		wantPath string
+	}{
+		{
+			name:     "before",
+			change:   sensitiveChange(func(c map[string]any) { c["before"] = "leaked-secret" }),
+			wantPath: "/roots/0/findings/0/changes/0/before",
+		},
+		{
+			name:     "after",
+			change:   sensitiveChange(func(c map[string]any) { c["after"] = "leaked-secret" }),
+			wantPath: "/roots/0/findings/0/changes/0/after",
+		},
+		{
+			name: "added_members",
+			change: sensitiveChange(func(c map[string]any) {
+				c["kind"] = "set"
+				c["added"] = []any{"leaked.example"}
+			}),
+			wantPath: "/roots/0/findings/0/changes/0/added",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value := blockedAssessmentValueWithChange(t, test.change)
+			_, details := ValidateSavedPlanAssessment(value)
+			found := false
+			for _, detail := range details {
+				if detail.Path == test.wantPath {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf(
+					"ValidateSavedPlanAssessment(sensitive change carrying %s) details = %#v, want a refusal at %s",
+					test.name, details, test.wantPath,
+				)
+			}
+		})
+	}
+
+	// The same report without the leaked content must validate, so the rule
+	// above is refusing the content and not the shape.
+	value := blockedAssessmentValueWithChange(t, map[string]any{
+		"path": "token", "kind": "scalar", "sensitive": true,
+		"before": nil, "after": nil, "added": []any{}, "removed": []any{},
+	})
+	if _, details := ValidateSavedPlanAssessment(value); len(details) != 0 {
+		t.Errorf("ValidateSavedPlanAssessment(redacted change) details = %#v, want none", details)
+	}
+}
+
+func blockedAssessmentValueWithChange(t *testing.T, change map[string]any) map[string]any {
+	t.Helper()
+	value := assessmentReportJSONValue(buildReportForTest(t, Blocked))
+	root := value["roots"].([]any)[0].(map[string]any)
+	findings := root["findings"].([]any)
+	if len(findings) == 0 {
+		t.Fatalf("blocked report fixture has no findings to attach a change to")
+	}
+	findings[0].(map[string]any)["changes"] = []any{change}
+	return value
 }

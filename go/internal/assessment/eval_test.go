@@ -1,6 +1,7 @@
 package assessment
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -278,5 +279,147 @@ func TestDiffPathsSetComparisonIsScopedToTheAttribute(t *testing.T) {
 	}
 	if len(got[0]) != 1 || got[0][0] != "description" {
 		t.Errorf("DiffPaths() = %v, want [[description]]", got)
+	}
+}
+
+// TestDiffChangesReportsContentByAttributeKind pins the shape a reviewer
+// receives for each kind of difference. The set case is the reason this
+// exists: reported positionally, a two-member addition reads as a contiguous
+// run of unrelated indices that names neither what moved nor which way.
+func TestDiffChangesReportsContentByAttributeKind(t *testing.T) {
+	tests := []struct {
+		name   string
+		before string
+		after  string
+		want   []PlanChange
+	}{
+		{
+			name:   "scalar_reports_before_and_after",
+			before: `{"count":36}`,
+			after:  `{"count":38}`,
+			want: []PlanChange{{
+				Path: PlanPath{"count"}, Kind: ScalarChange,
+				Before: json.Number("36"), After: json.Number("38"),
+			}},
+		},
+		{
+			name:   "set_reports_members_not_indices",
+			before: `{"urls":["a.example","b.example"]}`,
+			after:  `{"urls":["b.example","a.example","substrate.office.com","support.devrev.ai"]}`,
+			want: []PlanChange{{
+				Path: PlanPath{"urls"}, Kind: SetChange,
+				Added:   []any{"substrate.office.com", "support.devrev.ai"},
+				Removed: []any{},
+			}},
+		},
+		{
+			name:   "set_reports_removals",
+			before: `{"urls":["a.example","gone.example"]}`,
+			after:  `{"urls":["a.example"]}`,
+			want: []PlanChange{{
+				Path: PlanPath{"urls"}, Kind: SetChange,
+				Added: []any{}, Removed: []any{"gone.example"},
+			}},
+		},
+		{
+			name:   "block_collection_keeps_positional_paths",
+			before: `{"rules":[{"id":"1"},{"id":"2"}]}`,
+			after:  `{"rules":[{"id":"1"},{"id":"9"}]}`,
+			want: []PlanChange{{
+				Path: PlanPath{"rules", 1, "id"}, Kind: ScalarChange,
+				Before: "2", After: "9",
+			}},
+		},
+		{
+			name:   "reordered_set_reports_nothing",
+			before: `{"urls":["a.example","b.example"]}`,
+			after:  `{"urls":["b.example","a.example"]}`,
+			want:   []PlanChange{},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := DiffChanges(
+				mustParseDataJSON(t, test.before),
+				mustParseDataJSON(t, test.after),
+				nil,
+				nil,
+			)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Errorf("DiffChanges(%s, %s) = %#v, want %#v", test.before, test.after, got, test.want)
+			}
+		})
+	}
+}
+
+// TestDiffChangesRedactsSensitiveContentWithoutHidingTheChange is the rule
+// that has a real downside if it is got wrong in either direction: emitting
+// the value puts a credential in whatever log reads the report, and dropping
+// the entry hides that a secret moved at all.
+func TestDiffChangesRedactsSensitiveContentWithoutHidingTheChange(t *testing.T) {
+	before := mustParseDataJSON(t, `{"token":"old-secret","name":"visible-before"}`)
+	after := mustParseDataJSON(t, `{"token":"new-secret","name":"visible-after"}`)
+	got := DiffChanges(
+		before,
+		after,
+		mustParseDataJSON(t, `{"token":true}`),
+		mustParseDataJSON(t, `{"token":true}`),
+	)
+	want := []PlanChange{
+		{Path: PlanPath{"name"}, Kind: ScalarChange, Before: "visible-before", After: "visible-after"},
+		{Path: PlanPath{"token"}, Kind: ScalarChange, Sensitive: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("DiffChanges(sensitive token) = %#v, want %#v", got, want)
+	}
+	for _, change := range got {
+		if change.Sensitive && (change.Before != nil || change.After != nil) {
+			t.Errorf("sensitive change %#v carries content, want it withheld", change)
+		}
+	}
+}
+
+// A mask may collapse a whole subtree to true, and a sensitive set must not
+// leak its members either.
+func TestDiffChangesHonoursCollapsedAndSetSensitivityMasks(t *testing.T) {
+	tests := []struct {
+		name           string
+		before, after  string
+		beforeMask     string
+		wantKind       PlanChangeKind
+		wantPathLength int
+	}{
+		{
+			name:   "collapsed_subtree_mask",
+			before: `{"block":{"secret":"old"}}`, after: `{"block":{"secret":"new"}}`,
+			beforeMask: `{"block":true}`,
+			wantKind:   ScalarChange, wantPathLength: 2,
+		},
+		{
+			name:   "sensitive_set_withholds_members",
+			before: `{"urls":["a.example"]}`, after: `{"urls":["a.example","b.example"]}`,
+			beforeMask: `{"urls":true}`,
+			wantKind:   SetChange, wantPathLength: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := DiffChanges(
+				mustParseDataJSON(t, test.before),
+				mustParseDataJSON(t, test.after),
+				mustParseDataJSON(t, test.beforeMask),
+				nil,
+			)
+			if len(got) != 1 {
+				t.Fatalf("DiffChanges(%s) = %#v, want one change", test.name, got)
+			}
+			change := got[0]
+			if !change.Sensitive || change.Kind != test.wantKind ||
+				len(change.Path) != test.wantPathLength ||
+				change.Before != nil || change.After != nil ||
+				len(change.Added) != 0 || len(change.Removed) != 0 {
+				t.Errorf("DiffChanges(%s) = %#v, want a redacted %s change", test.name, change, test.wantKind)
+			}
+		})
 	}
 }
