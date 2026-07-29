@@ -572,12 +572,42 @@ func hasAction(actions map[string]struct{}, action string) bool {
 	return ok
 }
 
+// ClassifyPlanOptions selects the classification stance for one plan. The
+// zero value is the strict stance: every actionable change blocks, whichever
+// plan section reported it. New call sites therefore fail closed by default.
+type ClassifyPlanOptions struct {
+	// TolerateRefreshDrift demotes resource_drift findings from Blocked to
+	// Tolerated, leaving resource_changes strict.
+	//
+	// Refresh records a resource whose remote values have moved since the
+	// last apply in resource_drift, not in resource_changes. Adoption cannot
+	// clear such a record before the gate runs, because persisting the
+	// refreshed values is the apply the gate is guarding: an import-only
+	// plan is refused for drift that only the import can settle. Adoption
+	// therefore reports the drift and proceeds.
+	//
+	// Steady-state assertion leaves this false, where the same records are
+	// the out-of-band change the gate exists to catch.
+	TolerateRefreshDrift bool
+}
+
 // ClassifyPlan is the fail-closed assessment entry point. It validates the
-// complete plan contract before applying any drift-policy matches.
+// complete plan contract before applying any drift-policy matches, and blocks
+// on every actionable change in either plan section.
 func ClassifyPlan(
 	planValue any,
 	policy *metadata.DriftPolicy,
 	contract *plan.AssessmentPlanContract,
+) (PlanClassification, error) {
+	return ClassifyPlanWithOptions(planValue, policy, contract, ClassifyPlanOptions{})
+}
+
+// ClassifyPlanWithOptions is ClassifyPlan under an explicit stance.
+func ClassifyPlanWithOptions(
+	planValue any,
+	policy *metadata.DriftPolicy,
+	contract *plan.AssessmentPlanContract,
+	options ClassifyPlanOptions,
 ) (PlanClassification, error) {
 	if err := plan.ValidateAssessmentPlan(planValue, contract); err != nil {
 		return PlanClassification{}, err
@@ -586,8 +616,14 @@ func ClassifyPlan(
 	findings := make([]PlanFinding, 0)
 	for _, source := range []string{"resource_changes", "resource_drift"} {
 		records, _ := planObject[source].([]any)
+		demote := options.TolerateRefreshDrift && source == "resource_drift"
 		for _, rawRecord := range records {
-			findings = append(findings, classifyChange(rawRecord.(map[string]any), source, policy)...)
+			for _, finding := range classifyChange(rawRecord.(map[string]any), source, policy) {
+				if demote && finding.Status == Blocked {
+					finding.Status = Tolerated
+				}
+				findings = append(findings, finding)
+			}
 		}
 	}
 	status := Clean

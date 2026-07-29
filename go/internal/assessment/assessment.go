@@ -823,6 +823,7 @@ func asyncAssessmentFinalizerValue(value any) bool {
 
 func runSavedPlanAssessment[T any](
 	options SavedPlanAssessmentTransactionOptions,
+	classifyOptions ClassifyPlanOptions,
 	finalize func(SavedPlanAssessmentCore, []AssessmentGuidanceGroup) (T, error),
 	guidanceSource *AssessmentGuidanceSource,
 	hooks assessmentHooks,
@@ -1103,7 +1104,12 @@ func runSavedPlanAssessment[T any](
 				ReferenceOutputTypes: append([]string{}, root.ReferenceOutputTypes...),
 			}
 		}
-		classification, err := ClassifyPlan(planValue, boundPolicy.Policy, contract)
+		classification, err := ClassifyPlanWithOptions(
+			planValue,
+			boundPolicy.Policy,
+			contract,
+			classifyOptions,
+		)
 		if err != nil {
 			primaryFailure = safeAssessmentFailure(err)
 			return completed, nil
@@ -1272,6 +1278,7 @@ func AssessSavedPlansWithOptions(
 ) (SavedPlanAssessmentCore, error) {
 	return runSavedPlanAssessment(
 		options,
+		ClassifyPlanOptions{},
 		func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
 			return core, nil
 		},
@@ -1316,6 +1323,10 @@ func AssessSavedPlansReport(
 	}
 	report, err := runSavedPlanAssessment(
 		options.Assessment,
+		// Adoption is the one caller that can neither clear refresh drift
+		// before the gate nor be helped by refusing on it. Every other
+		// entry point keeps the strict zero value.
+		ClassifyPlanOptions{TolerateRefreshDrift: mode == AssertAdoptable},
 		func(core SavedPlanAssessmentCore, guidance []AssessmentGuidanceGroup) (SavedPlanAssessmentReport, error) {
 			return buildReportWithIsolatedGuidance(
 				func(isolated []AssessmentGuidanceGroup) (SavedPlanAssessmentReport, error) {
