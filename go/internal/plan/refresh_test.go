@@ -192,7 +192,11 @@ func TestRefreshEnvironmentRootsRefusesRemoteIntentOutsideResourceChanges(t *tes
 		{"deferred_changes", clean + `"deferred_changes":[{"reason":"provider_config_unknown"}],`, "REFRESH_PLAN_NOT_STATE_ONLY"},
 		{"incomplete_plan", `"complete":false,"errored":false,`, "INVALID_REFRESH_PLAN"},
 		{"errored_plan", `"complete":true,"errored":true,`, "INVALID_REFRESH_PLAN"},
-		{"missing_envelope", ``, "INVALID_REFRESH_PLAN"},
+		// Absent is not the same as false, and each key needs its own case:
+		// omitting both lets either check alone carry the refusal, which
+		// leaves the other unproven.
+		{"absent_complete", `"errored":false,`, "INVALID_REFRESH_PLAN"},
+		{"absent_errored", `"complete":true,`, "INVALID_REFRESH_PLAN"},
 		{"action_invocations_not_an_array", clean + `"action_invocations":{},`, "INVALID_REFRESH_PLAN"},
 	}
 	for _, test := range tests {
