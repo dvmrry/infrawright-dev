@@ -1177,3 +1177,49 @@ func TestAssessmentContextDeadlineBoundsExactMaximumControlRecheck(t *testing.T)
 		t.Errorf("recheckAssessmentContext(exact 64-MiB set) elapsed = %v, want bounded completion within 30s", elapsed)
 	}
 }
+
+// TestFindingMetadataBudgetCountsChangeValues pins that the fail-closed
+// metadata budget bounds the thing that actually grows. Changes carry the
+// values behind the paths, so a single leaf whose type changed can hold an
+// entire prior subtree; counting only paths would let a plan with short paths
+// and enormous values sail under an 8 MiB limit that exists to stop exactly
+// that.
+func TestFindingMetadataBudgetCountsChangeValues(t *testing.T) {
+	pathsOnly := AssessmentFinding{
+		Status: Blocked, Source: "resource_changes", Address: "a.b",
+		Actions: []string{"update"}, Paths: []PlanPath{{"body"}},
+	}
+	baseline := assessmentFindingMetadataBytes(pathsOnly)
+
+	secret := strings.Repeat("x", 100_000)
+	withValues := pathsOnly
+	withValues.Changes = []PlanChange{{
+		Path: PlanPath{"body"}, Kind: ScalarChange,
+		Before: map[string]any{"nested": []any{secret}}, After: "small",
+	}}
+	got := assessmentFindingMetadataBytes(withValues)
+
+	if got <= baseline+len(secret) {
+		t.Errorf(
+			"assessmentFindingMetadataBytes(with a %d-byte nested value) = %d, baseline %d; "+
+				"want the value counted, or the budget no longer bounds report size",
+			len(secret), got, baseline,
+		)
+	}
+}
+
+// A sensitive change carries no content, so it must not be charged for any.
+func TestFindingMetadataBudgetChargesNothingForRedactedContent(t *testing.T) {
+	finding := AssessmentFinding{
+		Status: Blocked, Source: "resource_changes", Address: "a.b",
+		Actions: []string{"update"}, Paths: []PlanPath{{"token"}},
+		Changes: []PlanChange{{Path: PlanPath{"token"}, Kind: ScalarChange, Sensitive: true}},
+	}
+	bare := finding
+	bare.Changes = nil
+	// The redacted change adds its path, its kind, and two null literals --
+	// nothing that scales with what was withheld.
+	if delta := assessmentFindingMetadataBytes(finding) - assessmentFindingMetadataBytes(bare); delta > 32 {
+		t.Errorf("a redacted change cost %d bytes of budget, want a nominal fixed cost", delta)
+	}
+}

@@ -52,6 +52,7 @@ type AssessmentFinding struct {
 	ResourceType *string
 	Actions      []string
 	Paths        []PlanPath
+	Changes      []PlanChange
 }
 
 // AssessedPlanEvidence is the reportable identity of one saved plan.
@@ -92,6 +93,21 @@ type NormalizedAssessmentFinding struct {
 	ResourceType *string
 	Actions      []string
 	Paths        []string
+	Changes      []NormalizedPlanChange
+}
+
+// NormalizedPlanChange is the report form of one differing value. Every field
+// is always emitted: Kind says which pair to read, so a set change carries
+// null before/after and a scalar change carries empty added/removed. A change
+// the plan marked sensitive carries neither, with Sensitive set.
+type NormalizedPlanChange struct {
+	Path      string
+	Kind      string
+	Sensitive bool
+	Before    any
+	After     any
+	Added     []any
+	Removed   []any
 }
 
 // AssessmentReportRoot is one root in a saved-plan assessment report.
@@ -183,7 +199,7 @@ func validatedAssessmentReport(report SavedPlanAssessmentReport) (SavedPlanAsses
 	return SavedPlanAssessmentReport{}, procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
 		Code:     "INVALID_ASSESSMENT_REPORT",
 		Category: procerr.CategoryInternal,
-		Message:  "saved-plan assessment report is outside schema version 1",
+		Message:  "saved-plan assessment report is outside schema version 2",
 		Details:  details,
 	})
 }
@@ -380,7 +396,24 @@ func normalizedAssessmentFinding(finding AssessmentFinding) NormalizedAssessment
 		ResourceType: cloneStringPointer(finding.ResourceType),
 		Actions:      append([]string(nil), finding.Actions...),
 		Paths:        paths,
+		Changes:      normalizedPlanChanges(finding.Changes),
 	}
+}
+
+func normalizedPlanChanges(changes []PlanChange) []NormalizedPlanChange {
+	normalized := make([]NormalizedPlanChange, len(changes))
+	for index, change := range changes {
+		normalized[index] = NormalizedPlanChange{
+			Path:      FormatConcretePlanPath(change.Path),
+			Kind:      string(change.Kind),
+			Sensitive: change.Sensitive,
+			Before:    change.Before,
+			After:     change.After,
+			Added:     append([]any{}, change.Added...),
+			Removed:   append([]any{}, change.Removed...),
+		}
+	}
+	return normalized
 }
 
 func rootIdentity(tenant, label string) string {
@@ -825,7 +858,7 @@ func newAssessmentReport(
 ) SavedPlanAssessmentReport {
 	report := SavedPlanAssessmentReport{
 		Kind:          "infrawright.saved_plan_assessment",
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Mode:          mode,
 		Summary:       summary,
 		Roots:         roots,
@@ -873,6 +906,18 @@ func assessmentReportJSONValue(report SavedPlanAssessmentReport) map[string]any 
 			for pathIndex, path := range finding.Paths {
 				paths[pathIndex] = path
 			}
+			changes := make([]any, len(finding.Changes))
+			for changeIndex, change := range finding.Changes {
+				changes[changeIndex] = map[string]any{
+					"path":      change.Path,
+					"kind":      change.Kind,
+					"sensitive": change.Sensitive,
+					"before":    change.Before,
+					"after":     change.After,
+					"added":     append([]any{}, change.Added...),
+					"removed":   append([]any{}, change.Removed...),
+				}
+			}
 			findings[findingIndex] = map[string]any{
 				"status":        string(finding.Status),
 				"source":        finding.Source,
@@ -880,6 +925,7 @@ func assessmentReportJSONValue(report SavedPlanAssessmentReport) map[string]any 
 				"resource_type": stringPointerJSONValue(finding.ResourceType),
 				"actions":       actions,
 				"paths":         paths,
+				"changes":       changes,
 			}
 		}
 		guidance := make([]any, len(root.Guidance))

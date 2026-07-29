@@ -738,6 +738,7 @@ func TestAssessmentValidatorRejectsSemanticContradictions(t *testing.T) {
 				value["roots"].([]any)[0].(map[string]any)["findings"] = []any{map[string]any{
 					"status": "blocked", "source": "resource_changes", "address": "zpa_sample.this",
 					"resource_type": "zpa_sample", "actions": []any{"update"}, "paths": []any{"name"},
+					"changes": []any{},
 				}}
 			},
 		},
@@ -810,5 +811,235 @@ func TestAssessmentSemanticErrorOrderIsSourceOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(semantic, want) {
 		t.Errorf("ValidateSavedPlanAssessment(source-order vector) semantic details = %#v, want %#v", semantic, want)
+	}
+}
+
+// TestReportValidationRefusesSensitiveChangesCarryingContent pins the one
+// change rule that protects something rather than describing it. Redaction
+// only the serialiser honours is not redaction: a hand-built or tampered
+// report that marks a change sensitive and still ships the value is refused
+// on the way out. The guarantee is emitter-side -- validateReportFinding has
+// one in-repo call chain and it sits in the emit path -- so this bounds what
+// we will write, not what an out-of-repo reader is protected from.
+func TestReportValidationRefusesSensitiveChangesCarryingContent(t *testing.T) {
+	sensitiveChange := func(mutate func(map[string]any)) map[string]any {
+		change := map[string]any{
+			"path": "token", "kind": "scalar", "sensitive": true,
+			"before": nil, "after": nil, "added": []any{}, "removed": []any{},
+		}
+		mutate(change)
+		return change
+	}
+	tests := []struct {
+		name     string
+		change   map[string]any
+		wantPath string
+	}{
+		{
+			name:     "before",
+			change:   sensitiveChange(func(c map[string]any) { c["before"] = "leaked-secret" }),
+			wantPath: "/roots/0/findings/0/changes/0/before",
+		},
+		{
+			name:     "after",
+			change:   sensitiveChange(func(c map[string]any) { c["after"] = "leaked-secret" }),
+			wantPath: "/roots/0/findings/0/changes/0/after",
+		},
+		{
+			name: "added_members",
+			change: sensitiveChange(func(c map[string]any) {
+				c["added"] = []any{"leaked.example"}
+			}),
+			wantPath: "/roots/0/findings/0/changes/0/added",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value := blockedAssessmentValueWithChange(t, test.change)
+			_, details := ValidateSavedPlanAssessment(value)
+			found := false
+			for _, detail := range details {
+				if detail.Path == test.wantPath {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf(
+					"ValidateSavedPlanAssessment(sensitive change carrying %s) details = %#v, want a refusal at %s",
+					test.name, details, test.wantPath,
+				)
+			}
+		})
+	}
+
+	// The same report without the leaked content must validate, so the rule
+	// above is refusing the content and not the shape.
+	value := blockedAssessmentValueWithChange(t, map[string]any{
+		"path": "token", "kind": "scalar", "sensitive": true,
+		"before": nil, "after": nil, "added": []any{}, "removed": []any{},
+	})
+	if _, details := ValidateSavedPlanAssessment(value); len(details) != 0 {
+		t.Errorf("ValidateSavedPlanAssessment(redacted change) details = %#v, want none", details)
+	}
+}
+
+// TestReportValidationRefusesContradictoryChangeShapes pins that kind decides
+// which value pair a change carries. Kind alone is meant to tell a reader
+// which pair to read, so a record carrying both is one where a reader
+// honouring kind silently ignores half the evidence.
+func TestReportValidationRefusesContradictoryChangeShapes(t *testing.T) {
+	tests := []struct {
+		name     string
+		change   map[string]any
+		wantPath string
+	}{
+		{
+			name: "scalar_carrying_added",
+			change: map[string]any{
+				"path": "name", "kind": "scalar", "sensitive": false,
+				"before": "a", "after": "b",
+				"added": []any{"invalid-for-scalar"}, "removed": []any{},
+			},
+			wantPath: "/roots/0/findings/0/changes/0/added",
+		},
+		{
+			name: "scalar_carrying_removed",
+			change: map[string]any{
+				"path": "name", "kind": "scalar", "sensitive": false,
+				"before": "a", "after": "b",
+				"added": []any{}, "removed": []any{"invalid-for-scalar"},
+			},
+			wantPath: "/roots/0/findings/0/changes/0/removed",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, details := ValidateSavedPlanAssessment(
+				blockedAssessmentValueWithChange(t, test.change),
+			)
+			found := false
+			for _, detail := range details {
+				if detail.Path == test.wantPath {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf(
+					"ValidateSavedPlanAssessment(%s) details = %#v, want a refusal at %s",
+					test.name, details, test.wantPath,
+				)
+			}
+		})
+	}
+}
+
+// TestReportValidationRequiresChangePathsToBelongToTheFinding pins that a
+// change describes one of its finding's own paths. Evidence about a path the
+// finding does not claim is evidence a reader has no way to place.
+func TestReportValidationRequiresChangePathsToBelongToTheFinding(t *testing.T) {
+	value := blockedAssessmentValueWithChange(t, map[string]any{
+		"path": "name", "kind": "scalar", "sensitive": false,
+		"before": "a", "after": "b", "added": []any{}, "removed": []any{},
+	})
+	// Undo the fixture's consistency fix-up: point the change somewhere the
+	// finding does not declare.
+	root := value["roots"].([]any)[0].(map[string]any)
+	finding := root["findings"].([]any)[0].(map[string]any)
+	finding["changes"].([]any)[0].(map[string]any)["path"] = "not-a-finding-path"
+
+	_, details := ValidateSavedPlanAssessment(value)
+	found := false
+	for _, detail := range details {
+		if detail.Path == "/roots/0/findings/0/changes/0/path" && detail.Code == "enum" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf(
+			"ValidateSavedPlanAssessment(change outside the finding's paths) details = %#v, want a refusal",
+			details,
+		)
+	}
+}
+
+func blockedAssessmentValueWithChange(t *testing.T, change map[string]any) map[string]any {
+	t.Helper()
+	value := assessmentReportJSONValue(buildReportForTest(t, Blocked))
+	root := value["roots"].([]any)[0].(map[string]any)
+	findings := root["findings"].([]any)
+	if len(findings) == 0 {
+		t.Fatalf("blocked report fixture has no findings to attach a change to")
+	}
+	finding := findings[0].(map[string]any)
+	finding["changes"] = []any{change}
+	// A real report only ever carries changes for paths the finding declares,
+	// so the fixture has to as well -- otherwise every case here would also be
+	// refused for an unrelated reason and prove nothing about its own rule.
+	if changePath, ok := change["path"].(string); ok {
+		declared, _ := finding["paths"].([]any)
+		found := false
+		for _, existing := range declared {
+			if existing == changePath {
+				found = true
+			}
+		}
+		if !found {
+			finding["paths"] = append(declared, changePath)
+		}
+	}
+	return value
+}
+
+// The report's strictness is what lets a consumer trust the key list: an
+// unknown key anywhere hard-fails rather than being ignored. The change object
+// is new, so it needs that property proven for itself.
+func TestReportValidationRefusesUnknownAndMalformedChangeKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		change   map[string]any
+		wantPath string
+	}{
+		{
+			name: "unknown key",
+			change: map[string]any{
+				"path": "name", "kind": "scalar", "sensitive": false,
+				"before": "a", "after": "b", "added": []any{}, "removed": []any{},
+				"provenance": "invented",
+			},
+			wantPath: "/roots/0/findings/0/changes/0",
+		},
+		{
+			name: "missing key",
+			change: map[string]any{
+				"path": "name", "kind": "scalar", "sensitive": false,
+				"before": "a", "after": "b", "added": []any{},
+			},
+			wantPath: "/roots/0/findings/0/changes/0",
+		},
+		{
+			name: "unknown kind",
+			change: map[string]any{
+				"path": "name", "kind": "list", "sensitive": false,
+				"before": "a", "after": "b", "added": []any{}, "removed": []any{},
+			},
+			wantPath: "/roots/0/findings/0/changes/0/kind",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, details := ValidateSavedPlanAssessment(blockedAssessmentValueWithChange(t, test.change))
+			found := false
+			for _, detail := range details {
+				if detail.Path == test.wantPath {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf(
+					"ValidateSavedPlanAssessment(%s) details = %#v, want a refusal at %s",
+					test.name, details, test.wantPath,
+				)
+			}
+		})
 	}
 }

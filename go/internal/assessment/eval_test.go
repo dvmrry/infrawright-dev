@@ -1,6 +1,7 @@
 package assessment
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -93,6 +94,12 @@ func TestClassifyPlanPreservesCoreAndPartialToleranceSemantics(t *testing.T) {
 		Findings: []PlanFinding{{
 			Status: Blocked, Source: "resource_changes", Address: "sample_resource.this",
 			Actions: []string{"update"}, Paths: []PlanPath{{"rules", 10, "status"}},
+			// A leaf inside a block collection keeps its positional path and
+			// gains the values behind it.
+			Changes: []PlanChange{{
+				Path: PlanPath{"rules", 10, "status"}, Kind: ScalarChange,
+				Before: "before", After: "after",
+			}},
 		}},
 	}
 	if !reflect.DeepEqual(classification, want) {
@@ -299,6 +306,283 @@ func TestClassifyPlanDetectsIdentityAndSensitivityChanges(t *testing.T) {
 			}
 			if got, want := classification.Findings[0].Paths, []PlanPath{{test.wantMarker}}; !reflect.DeepEqual(got, want) {
 				t.Errorf("ClassifyPlan(%s change).Paths = %#v, want %#v", test.name, got, want)
+			}
+		})
+	}
+}
+
+// TestDiffPathsComparesEveryArrayPositionally pins that no array is treated as
+// a set. A Terraform set really is order-insensitive, so a reorder reported
+// here is a false positive -- kept deliberately, because the alternative
+// suppresses real reorders of ordered lists. The reorder case is listed first
+// so the cost of that choice stays visible rather than implied.
+func TestDiffPathsComparesEveryArrayPositionally(t *testing.T) {
+	tests := []struct {
+		name      string
+		before    any
+		after     any
+		wantPaths int
+	}{
+		{
+			// The known false positive. A set(string) reorder is not a change
+			// Terraform would apply, and it is reported anyway: telling it
+			// apart from a list(string) reorder needs provider schema types.
+			name:      "reordered scalars are reported positionally",
+			before:    []any{"a", "b", "c"},
+			after:     []any{"c", "a", "b"},
+			wantPaths: 3,
+		},
+		{
+			// The reason the case above is tolerated: for list(string) this
+			// is a real change, and suppressing all-scalar arrays would drop
+			// it silently.
+			name:      "ordered list reorder is a real change",
+			before:    []any{"first", "second"},
+			after:     []any{"second", "first"},
+			wantPaths: 2,
+		},
+		{
+			name:      "membership change is reported",
+			before:    []any{"a", "b", "c"},
+			after:     []any{"a", "b", "d"},
+			wantPaths: 1,
+		},
+		{
+			name:      "length change is reported",
+			before:    []any{"a", "b"},
+			after:     []any{"a", "b", "c"},
+			wantPaths: 1,
+		},
+		{
+			name:      "identical arrays report nothing",
+			before:    []any{"a", "b"},
+			after:     []any{"a", "b"},
+			wantPaths: 0,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := DiffPaths(test.before, test.after)
+			if len(got) != test.wantPaths {
+				t.Errorf("DiffPaths(%s) = %#v (%d paths), want %d",
+					test.name, got, len(got), test.wantPaths)
+			}
+		})
+	}
+}
+
+// TestDiffChangesReportsContentByAttributeKind pins the shape a reviewer
+// receives for each kind of difference. Arrays keep positional paths, so the
+// value carried at each index is what makes the finding readable: an index on
+// its own names neither what moved nor which way.
+func TestDiffChangesReportsContentByAttributeKind(t *testing.T) {
+	tests := []struct {
+		name   string
+		before string
+		after  string
+		want   []PlanChange
+	}{
+		{
+			name:   "scalar_reports_before_and_after",
+			before: `{"count":36}`,
+			after:  `{"count":38}`,
+			want: []PlanChange{{
+				Path: PlanPath{"count"}, Kind: ScalarChange,
+				Before: json.Number("36"), After: json.Number("38"),
+			}},
+		},
+		{
+			// The values are the point. Positionally this is indices 2 and 3,
+			// which name nothing; with the values a reviewer can read the
+			// domains being allowed.
+			name:   "array_addition_names_the_values",
+			before: `{"urls":["a.example","b.example"]}`,
+			after:  `{"urls":["a.example","b.example","substrate.office.com","support.devrev.ai"]}`,
+			want: []PlanChange{
+				{
+					Path: PlanPath{"urls", 2}, Kind: ScalarChange,
+					Before: nil, After: "substrate.office.com",
+				},
+				{
+					Path: PlanPath{"urls", 3}, Kind: ScalarChange,
+					Before: nil, After: "support.devrev.ai",
+				},
+			},
+		},
+		{
+			name:   "array_removal_names_the_value",
+			before: `{"urls":["a.example","gone.example"]}`,
+			after:  `{"urls":["a.example"]}`,
+			want: []PlanChange{{
+				Path: PlanPath{"urls", 1}, Kind: ScalarChange,
+				Before: "gone.example", After: nil,
+			}},
+		},
+		{
+			name:   "block_collection_keeps_positional_paths",
+			before: `{"rules":[{"id":"1"},{"id":"2"}]}`,
+			after:  `{"rules":[{"id":"1"},{"id":"9"}]}`,
+			want: []PlanChange{{
+				Path: PlanPath{"rules", 1, "id"}, Kind: ScalarChange,
+				Before: "2", After: "9",
+			}},
+		},
+		{
+			// The known false positive, pinned rather than hidden: for a
+			// set(string) this is not a change Terraform would apply, and it
+			// is reported anyway because nothing here can tell a set from an
+			// ordered list.
+			name:   "reorder_is_reported_positionally",
+			before: `{"urls":["a.example","b.example"]}`,
+			after:  `{"urls":["b.example","a.example"]}`,
+			want: []PlanChange{
+				{
+					Path: PlanPath{"urls", 0}, Kind: ScalarChange,
+					Before: "a.example", After: "b.example",
+				},
+				{
+					Path: PlanPath{"urls", 1}, Kind: ScalarChange,
+					Before: "b.example", After: "a.example",
+				},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := DiffChanges(
+				mustParseDataJSON(t, test.before),
+				mustParseDataJSON(t, test.after),
+				nil,
+				nil,
+			)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Errorf("DiffChanges(%s, %s) = %#v, want %#v", test.before, test.after, got, test.want)
+			}
+		})
+	}
+}
+
+// TestDiffChangesRedactsSensitiveContentWithoutHidingTheChange is the rule
+// that has a real downside if it is got wrong in either direction: emitting
+// the value puts a credential in whatever log reads the report, and dropping
+// the entry hides that a secret moved at all.
+func TestDiffChangesRedactsSensitiveContentWithoutHidingTheChange(t *testing.T) {
+	before := mustParseDataJSON(t, `{"token":"old-secret","name":"visible-before"}`)
+	after := mustParseDataJSON(t, `{"token":"new-secret","name":"visible-after"}`)
+	got := DiffChanges(
+		before,
+		after,
+		mustParseDataJSON(t, `{"token":true}`),
+		mustParseDataJSON(t, `{"token":true}`),
+	)
+	want := []PlanChange{
+		{Path: PlanPath{"name"}, Kind: ScalarChange, Before: "visible-before", After: "visible-after"},
+		{Path: PlanPath{"token"}, Kind: ScalarChange, Sensitive: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("DiffChanges(sensitive token) = %#v, want %#v", got, want)
+	}
+	for _, change := range got {
+		if change.Sensitive && (change.Before != nil || change.After != nil) {
+			t.Errorf("sensitive change %#v carries content, want it withheld", change)
+		}
+	}
+}
+
+// A mask may collapse a whole subtree to true, and a masked array must not
+// leak its elements either.
+func TestDiffChangesHonoursCollapsedAndArraySensitivityMasks(t *testing.T) {
+	tests := []struct {
+		name           string
+		before, after  string
+		beforeMask     string
+		afterMask      string
+		wantKind       PlanChangeKind
+		wantPathLength int
+	}{
+		{
+			name:   "collapsed_subtree_mask",
+			before: `{"block":{"secret":"old"}}`, after: `{"block":{"secret":"new"}}`,
+			beforeMask: `{"block":true}`,
+			wantKind:   ScalarChange, wantPathLength: 2,
+		},
+		{
+			// After-side only: a newly introduced secret has no before value
+			// to protect, and dropping the after-side check would leak it
+			// while every both-sides and before-side case stayed green.
+			name:   "after_only_mask_withholds_a_new_secret",
+			before: `{"token":null}`, after: `{"token":"freshly-minted"}`,
+			beforeMask: `{"token":false}`, afterMask: `{"token":true}`,
+			wantKind: ScalarChange, wantPathLength: 1,
+		},
+		{
+			name:   "sensitive_array_withholds_elements",
+			before: `{"urls":["a.example"]}`, after: `{"urls":["a.example","b.example"]}`,
+			beforeMask: `{"urls":true}`,
+			wantKind:   ScalarChange, wantPathLength: 2,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var afterMask any
+			if test.afterMask != "" {
+				afterMask = mustParseDataJSON(t, test.afterMask)
+			}
+			got := DiffChanges(
+				mustParseDataJSON(t, test.before),
+				mustParseDataJSON(t, test.after),
+				mustParseDataJSON(t, test.beforeMask),
+				afterMask,
+			)
+			if len(got) != 1 {
+				t.Fatalf("DiffChanges(%s) = %#v, want one change", test.name, got)
+			}
+			// The content is the point: a redacted change must say it moved
+			// and carry nothing.
+			if got[0].Sensitive && (got[0].Before != nil || got[0].After != nil) {
+				t.Errorf("DiffChanges(%s) = %#v, want content withheld", test.name, got[0])
+			}
+			change := got[0]
+			if !change.Sensitive || change.Kind != test.wantKind ||
+				len(change.Path) != test.wantPathLength ||
+				change.Before != nil || change.After != nil ||
+				len(change.Added) != 0 || len(change.Removed) != 0 {
+				t.Errorf("DiffChanges(%s) = %#v, want a redacted %s change", test.name, change, test.wantKind)
+			}
+		})
+	}
+}
+
+// TestDiffChangesPathsAgreeWithDiffPaths pins the invariant that keeps a
+// finding's guidance attached to it. planGuidanceRecords matches guidance by
+// recomputing DiffPaths, while findings carry values from DiffChanges, and
+// joinBlockedGuidance requires exact path equality. If the two walks ever
+// disagree -- as they would if one collapsed arrays and the other did not --
+// the finding survives and its guidance silently disappears.
+func TestDiffChangesPathsAgreeWithDiffPaths(t *testing.T) {
+	tests := []struct{ name, before, after string }{
+		{"scalar", `{"count":36}`, `{"count":38}`},
+		{"array_addition", `{"urls":["a"]}`, `{"urls":["a","b","c"]}`},
+		{"array_removal", `{"urls":["a","b"]}`, `{"urls":["a"]}`},
+		{"array_reorder", `{"urls":["a","b"]}`, `{"urls":["b","a"]}`},
+		{"block_collection", `{"rules":[{"id":"1"}]}`, `{"rules":[{"id":"9"}]}`},
+		{"nested_object", `{"a":{"b":{"c":1}}}`, `{"a":{"b":{"c":2}}}`},
+		{"mixed_siblings", `{"n":1,"urls":["a"]}`, `{"n":2,"urls":["a","b"]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			before := mustParseDataJSON(t, test.before)
+			after := mustParseDataJSON(t, test.after)
+			paths := DiffPaths(before, after)
+			changes := DiffChanges(before, after, nil, nil)
+			if len(paths) != len(changes) {
+				t.Fatalf("DiffPaths = %#v (%d), DiffChanges = %#v (%d), want the same walk",
+					paths, len(paths), changes, len(changes))
+			}
+			for index, path := range paths {
+				if !reflect.DeepEqual(path, changes[index].Path) {
+					t.Errorf("path %d: DiffPaths = %#v, DiffChanges = %#v", index, path, changes[index].Path)
+				}
 			}
 		})
 	}
