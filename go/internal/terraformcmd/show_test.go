@@ -465,3 +465,79 @@ func TestPreflightTerraformJSONComplexity(t *testing.T) {
 	err := preflightTerraformJSON("{}", time.Now().Add(-time.Second).UnixMilli())
 	requireProcessFailure(t, err, "TERRAFORM_SHOW_TIMEOUT")
 }
+
+// planShapedJSON builds a payload shaped like Terraform plan output rather
+// than like degenerate nesting: a list of resources, each carrying a list of
+// short string values. Structural characters come from the commas and
+// brackets that any real multi-resource plan produces, not from pathological
+// depth.
+func planShapedJSON(resources, valuesPerResource int) string {
+	var builder strings.Builder
+	builder.WriteByte('[')
+	for resource := range resources {
+		if resource > 0 {
+			builder.WriteByte(',')
+		}
+		builder.WriteString(`{"address":"example.item","values":[`)
+		for value := range valuesPerResource {
+			if value > 0 {
+				builder.WriteByte(',')
+			}
+			builder.WriteString(`"category"`)
+		}
+		builder.WriteString(`]}`)
+	}
+	builder.WriteByte(']')
+	return builder.String()
+}
+
+// TestPreflightAcceptsLargePlanShapedJSON pins that the structural cap is a
+// pathology guard and not a size guard. A plan touching a few hundred
+// resources, each with a few hundred set members, produces well over 100,000
+// structural characters while remaining ordinary plan output; the previous cap
+// refused exactly that and blocked adoption of real tenants.
+//
+// The boundary cases above use the constant symbolically, so they stay green
+// whatever its value. This test fails against the previous 100,000 and is the
+// one that pins the change.
+func TestPreflightAcceptsLargePlanShapedJSON(t *testing.T) {
+	deadline := time.Now().Add(30 * time.Second).UnixMilli()
+	text := planShapedJSON(400, 400)
+
+	structural := 0
+	for _, character := range text {
+		if isTerraformJSONStructure(uint16(character)) {
+			structural++
+		}
+	}
+	// Guard the fixture against the historical value, written as a literal so
+	// it keeps meaning if the constant moves again.
+	if structural <= 100_000 {
+		t.Fatalf("fixture structural characters = %d, want more than the previous 100,000 cap", structural)
+	}
+
+	// The refusal, not the fixture arithmetic, is what this test is for: run
+	// preflight before the upper-bound guard so reverting the cap reports the
+	// rejected plan rather than a fixture-sizing complaint.
+	if err := preflightTerraformJSON(text, deadline); err != nil {
+		t.Errorf("preflightTerraformJSON(plan-shaped, %d structural characters) error = %v, want nil", structural, err)
+	}
+
+	if structural >= maxTerraformJSONStructureTokens {
+		t.Errorf("fixture structural characters = %d, want fewer than the current cap %d so this stays a positive case", structural, maxTerraformJSONStructureTokens)
+	}
+}
+
+// TestPreflightStillRefusesDegenerateStructure pins the other half: raising the
+// cap must not stop it being a guard. Degenerate input is nearly all
+// structural, so it exceeds the cap on a payload far smaller than the byte
+// bound would allow.
+func TestPreflightStillRefusesDegenerateStructure(t *testing.T) {
+	deadline := time.Now().Add(30 * time.Second).UnixMilli()
+	degenerate := strings.Repeat("[", maxTerraformJSONStructureTokens+1)
+	err := preflightTerraformJSON(degenerate, deadline)
+	if err == nil {
+		t.Fatalf("preflightTerraformJSON(degenerate) error = nil, want a complexity refusal")
+	}
+	requireProcessFailure(t, err, "TERRAFORM_SHOW_COMPLEXITY_LIMIT")
+}
