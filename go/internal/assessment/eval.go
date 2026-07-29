@@ -94,6 +94,21 @@ func diffPathsAt(before, after any, path PlanPath) []PlanPath {
 	beforeArray, beforeIsArray := before.([]any)
 	afterArray, afterIsArray := after.([]any)
 	if beforeIsArray && afterIsArray {
+		// Terraform serializes set-typed attributes as JSON arrays, and a
+		// provider may return the same members in any order. Comparing those
+		// by position reports one finding per element for a pure reorder,
+		// which is not merely noisy: Terraform's own plan for the same state
+		// reports nothing to add, change, or destroy, because Terraform
+		// compares sets by element hash. A positional comparison therefore
+		// invents changes the plan does not contain, and the gate blocks on
+		// them.
+		//
+		// Arrays holding objects or nested arrays fall through unchanged.
+		// Those are block collections and ordered lists, where position is
+		// identity and a reorder is a real difference.
+		if scalarMultisetEqual(beforeArray, afterArray) {
+			return []PlanPath{}
+		}
 		length := max(len(beforeArray), len(afterArray))
 		paths := make([]PlanPath, 0)
 		for index := range length {
@@ -114,6 +129,61 @@ func diffPathsAt(before, after any, path PlanPath) []PlanPath {
 		return paths
 	}
 	return []PlanPath{clonePath(path)}
+}
+
+// isPlanScalar reports whether a plan value is a leaf rather than a container.
+// Only arrays of leaves are eligible for order-insensitive comparison: a
+// container's own contents would need the same treatment recursively, and for
+// block collections that would be wrong.
+func isPlanScalar(value any) bool {
+	switch value.(type) {
+	case map[string]any, []any:
+		return false
+	default:
+		return true
+	}
+}
+
+// scalarMultisetEqual reports whether two arrays hold the same scalar members
+// in any order, counting duplicates.
+//
+// Membership is decided with PythonJSONEqual rather than by hashing a
+// canonical encoding, so this agrees exactly with the equality the rest of
+// this file uses -- including booleans participating in the numeric tower,
+// where an encoding-keyed comparison would disagree. That costs a pairwise
+// scan, which is bounded by the size of one attribute's value.
+func scalarMultisetEqual(before, after []any) bool {
+	if len(before) != len(after) {
+		return false
+	}
+	for _, value := range before {
+		if !isPlanScalar(value) {
+			return false
+		}
+	}
+	for _, value := range after {
+		if !isPlanScalar(value) {
+			return false
+		}
+	}
+	matched := make([]bool, len(after))
+	for _, beforeValue := range before {
+		found := false
+		for index, afterValue := range after {
+			if matched[index] {
+				continue
+			}
+			if PythonJSONEqual(beforeValue, afterValue) {
+				matched[index] = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // TruthyPaths returns Python-ordered paths whose recursive boolean mask leaf

@@ -192,3 +192,85 @@ func TestClassifyPlanDetectsIdentityAndSensitivityChanges(t *testing.T) {
 		})
 	}
 }
+
+// TestDiffPathsTreatsScalarArraysAsSets pins the four cases that separate a
+// set reorder from a real change. The last one is the guard against fixing
+// this too broadly: block collections and ordered lists keep positional
+// comparison, because for those a reorder is a genuine difference.
+func TestDiffPathsTreatsScalarArraysAsSets(t *testing.T) {
+	tests := []struct {
+		name      string
+		before    any
+		after     any
+		wantPaths int
+	}{
+		{
+			name:      "reordered scalar set is clean",
+			before:    []any{"a", "b", "c"},
+			after:     []any{"c", "a", "b"},
+			wantPaths: 0,
+		},
+		{
+			name:      "membership change is reported",
+			before:    []any{"a", "b", "c"},
+			after:     []any{"a", "b", "d"},
+			wantPaths: 1,
+		},
+		{
+			name:      "length change is reported",
+			before:    []any{"a", "b"},
+			after:     []any{"a", "b", "c"},
+			wantPaths: 1,
+		},
+		{
+			// Same members, different multiplicities: not a reorder, so the
+			// multiset check declines and positional comparison reports the
+			// one index that differs.
+			name:      "duplicate counts are respected",
+			before:    []any{"a", "a", "b"},
+			after:     []any{"a", "b", "b"},
+			wantPaths: 1,
+		},
+		{
+			name:      "object list stays positional",
+			before:    []any{map[string]any{"name": "a"}, map[string]any{"name": "b"}},
+			after:     []any{map[string]any{"name": "b"}, map[string]any{"name": "a"}},
+			wantPaths: 2,
+		},
+		{
+			name:      "nested array list stays positional",
+			before:    []any{[]any{"a"}, []any{"b"}},
+			after:     []any{[]any{"b"}, []any{"a"}},
+			wantPaths: 2,
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := DiffPaths(testCase.before, testCase.after)
+			if len(got) != testCase.wantPaths {
+				t.Errorf("DiffPaths() = %v (%d paths), want %d", got, len(got), testCase.wantPaths)
+			}
+		})
+	}
+}
+
+// TestDiffPathsSetComparisonIsScopedToTheAttribute pins that the reorder
+// suppression applies where the set actually lives, not to its whole parent:
+// a sibling attribute changing alongside a reordered set is still reported.
+func TestDiffPathsSetComparisonIsScopedToTheAttribute(t *testing.T) {
+	before := map[string]any{
+		"db_categorized_urls": []any{"a.example", "b.example", "c.example"},
+		"description":         "before",
+	}
+	after := map[string]any{
+		"db_categorized_urls": []any{"c.example", "a.example", "b.example"},
+		"description":         "after",
+	}
+	got := DiffPaths(before, after)
+	if len(got) != 1 {
+		t.Fatalf("DiffPaths() = %v, want exactly the description path", got)
+	}
+	if len(got[0]) != 1 || got[0][0] != "description" {
+		t.Errorf("DiffPaths() = %v, want [[description]]", got)
+	}
+}
