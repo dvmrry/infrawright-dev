@@ -550,6 +550,25 @@ func TestAssessSavedPlansReportEmitsSingletonTopologyV2Roots(t *testing.T) {
 	}
 }
 
+func TestAssessSavedPlansKernelBlocksRefreshDriftWithoutAModeToRelaxIt(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	executable := assessmentExecutable(
+		t,
+		fixture.root,
+		"printf '%s' "+assessmentShellLiteral(refreshDriftAssessmentPlanJSON(t)),
+	)
+	core, err := AssessSavedPlans(assessmentOptions(fixture, executable, nil))
+	if err != nil {
+		t.Fatalf("AssessSavedPlans(refresh drift) error = %v, want nil", err)
+	}
+	if core.Status != Blocked || core.Blocked != 1 || core.Tolerated != 0 {
+		t.Errorf(
+			"AssessSavedPlans(refresh drift) status/blocked/tolerated = %s/%d/%d, want blocked/1/0",
+			core.Status, core.Blocked, core.Tolerated,
+		)
+	}
+}
+
 func TestAssessSavedPlansReportDemotesRefreshDriftOnlyForAdoption(t *testing.T) {
 	tests := []struct {
 		name          string

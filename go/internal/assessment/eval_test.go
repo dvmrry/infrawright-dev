@@ -159,7 +159,9 @@ func TestClassifyPlanRefreshDriftStanceIsExplicitAndScoped(t *testing.T) {
 		"resource_changes":[{"address":"sample_resource.this","type":"sample_resource",
 		"change":{"actions":["create"],"importing":{"id":"existing"}}}],
 		"resource_drift":[{"address":"sample_resource.this","type":"sample_resource",
-		"change":{"actions":["update"],"before":{"status":"recorded"},"after":{"status":"remote"}}}]
+		"change":{"actions":["update"],"before":{"status":"recorded"},"after":{"status":"remote"}}},
+		{"address":"sample_resource.other","type":"sample_resource",
+		"change":{"actions":["create"],"importing":{"id":"existing"}}}]
 	}`)
 
 	strict, err := ClassifyPlan(adoptionPlan, nil, nil)
@@ -173,6 +175,8 @@ func TestClassifyPlanRefreshDriftStanceIsExplicitAndScoped(t *testing.T) {
 				Actions: []string{"create"}, Paths: []PlanPath{}},
 			{Status: Blocked, Source: "resource_drift", Address: "sample_resource.this",
 				Actions: []string{"update"}, Paths: []PlanPath{{"status"}}},
+			{Status: Clean, Source: "resource_drift", Address: "sample_resource.other",
+				Actions: []string{"create"}, Paths: []PlanPath{}},
 		},
 	}
 	if !reflect.DeepEqual(strict, wantStrict) {
@@ -192,6 +196,11 @@ func TestClassifyPlanRefreshDriftStanceIsExplicitAndScoped(t *testing.T) {
 				Actions: []string{"create"}, Paths: []PlanPath{}},
 			{Status: Tolerated, Source: "resource_drift", Address: "sample_resource.this",
 				Actions: []string{"update"}, Paths: []PlanPath{{"status"}}},
+			// The stance only relaxes what blocks. A drift record that
+			// classified clean stays clean rather than being inflated into
+			// tolerated drift.
+			{Status: Clean, Source: "resource_drift", Address: "sample_resource.other",
+				Actions: []string{"create"}, Paths: []PlanPath{}},
 		},
 	}
 	if !reflect.DeepEqual(adopting, wantAdopting) {
