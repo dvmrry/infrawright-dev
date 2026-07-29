@@ -162,9 +162,9 @@ openapi-map: dist/iw ## Map provider resources to OpenAPI CRUD endpoints (SCHEMA
 	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" || { echo "usage: make openapi-map SCHEMA=<schema.json> OPENAPI=<spec.json> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [API_PREFIX=/api/] [REGISTRY=<registry.json>] [OUT=<report.json>]"; exit 2; }
 	$(IW) openapi-map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(API_PREFIX),--api-prefix "$(API_PREFIX)") $(if $(REGISTRY),--registry "$(REGISTRY)") $(if $(OUT),--out "$(OUT)")
 
-source-operation-map: dist/iw ## Derive source-operation evidence (SCHEMA=<schema.json> SOURCE_ROOT=<dir>; legacy: OPENAPI=<spec.json>; v2: SOURCE_MANIFEST=<file> ARTIFACT_DIR=<dir>)
-	@test -n "$(SCHEMA)" -a -n "$(SOURCE_ROOT)" || { echo "usage: make source-operation-map SCHEMA=<schema.json> SOURCE_ROOT=<dir> [OPENAPI=<spec.json>] [SOURCE_MANIFEST=<manifest.json>|ALLOW_UNVERIFIED_SOURCE=1] [ARTIFACT_DIR=<dir>]"; exit 2; }
-	$(IW) source-operation-map --schema "$(SCHEMA)" --source-root "$(SOURCE_ROOT)" $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(foreach root,$(SDK_ROOT),--sdk-root "$(root)") $(if $(SOURCE_MANIFEST),--source-manifest "$(SOURCE_MANIFEST)") $(if $(ALLOW_UNVERIFIED_SOURCE),--allow-unverified-source) $(if $(PROVIDER_MODULE),--provider-module "$(PROVIDER_MODULE)") $(foreach file,$(PROVIDER_FILE),--provider-file "$(file)") $(foreach file,$(SDK_FILE),--sdk-file "$(file)") $(if $(ARTIFACT_DIR),--artifact-dir "$(ARTIFACT_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(DIAGNOSTICS),--diagnostics "$(DIAGNOSTICS)")
+source-operation-map: dist/iw ## Derive source-operation evidence (SCHEMA=<schema.json> SOURCE_ROOT=<dir> ARTIFACT_DIR=<dir> SOURCE_MANIFEST=<manifest.json>|ALLOW_UNVERIFIED_SOURCE=1)
+	@test -n "$(SCHEMA)" -a -n "$(SOURCE_ROOT)" -a -n "$(ARTIFACT_DIR)" || { echo "usage: make source-operation-map SCHEMA=<schema.json> SOURCE_ROOT=<dir> ARTIFACT_DIR=<dir> SOURCE_MANIFEST=<manifest.json>|ALLOW_UNVERIFIED_SOURCE=1 [OPENAPI=<spec.json>]"; exit 2; }
+	$(IW) source-operation-map --schema "$(SCHEMA)" --source-root "$(SOURCE_ROOT)" --artifact-dir "$(ARTIFACT_DIR)" $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(foreach root,$(SDK_ROOT),--sdk-root "$(root)") $(if $(SOURCE_MANIFEST),--source-manifest "$(SOURCE_MANIFEST)") $(if $(ALLOW_UNVERIFIED_SOURCE),--allow-unverified-source) $(if $(PROVIDER_MODULE),--provider-module "$(PROVIDER_MODULE)") $(foreach file,$(PROVIDER_FILE),--provider-file "$(file)") $(foreach file,$(SDK_FILE),--sdk-file "$(file)")
 
 source-evidence-eval: dist/iw ## Evaluate source evidence (SCHEMA=<schema.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> SOURCE_MANIFEST=<manifest.json>|ALLOW_UNVERIFIED_SOURCE=1)
 	@test -n "$(SCHEMA)" -a -n "$(SOURCE_ROOT)" -a -n "$(OUT_DIR)" || { echo "usage: make source-evidence-eval SCHEMA=<schema.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> SOURCE_MANIFEST=<manifest.json>|ALLOW_UNVERIFIED_SOURCE=1 [OPENAPI=<spec.json>]"; exit 2; }
@@ -174,9 +174,9 @@ adopt: dist/iw ## Transform pulled JSON using Terraform/OpenTofu import oracle (
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make adopt IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"] [POLICY=<file>]"; exit 2; }
 	$(IW) adopt --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(POLICY),--policy "$(POLICY)")
 
-provider-probe: dist/iw ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>])
-	@test -n "$(RECIPE)" || { echo "usage: make provider-probe RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
-	$(IW) provider-probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
+provider-probe: dist/iw ## Run provider readiness probe (RECIPE=<recipe.json> WORK_DIR=<dir> [OUT=<summary.json>] [MARKDOWN=<summary.md>])
+	@test -n "$(RECIPE)" -a -n "$(WORK_DIR)" || { echo "usage: make provider-probe RECIPE=<recipe.json> WORK_DIR=<dir> [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
+	$(IW) provider-probe "$(RECIPE)" --work-dir "$(WORK_DIR)" $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
 
 transform-adopt-parity: dist/iw ## Compare Transform/Adopt fixtures (FIXTURES="<fixture.json> ...")
 	@test -n "$(FIXTURES)" || { echo "usage: make transform-adopt-parity FIXTURES=\"<fixture.json> ...\""; exit 2; }

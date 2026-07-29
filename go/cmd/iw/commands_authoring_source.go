@@ -1,9 +1,9 @@
 package main
 
 // commands_authoring_source.go composes the accepted A1-A3 source-analysis
-// capabilities into the retained legacy CLI and the source-first v2 bundle
-// modes. It owns no evidence inference: qualified and unverified inputs stay
-// separated through sourcebind, sourceanalysis, and sourceoperation.
+// capabilities into the source-first v2 bundle modes. It owns no evidence
+// inference: qualified and unverified inputs stay separated through
+// sourcebind, sourceanalysis, and sourceoperation.
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/artifactpublish"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/contracts"
-	"github.com/dvmrry/infrawright-dev/go/internal/authoring/providerprobe"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceanalysis"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourcebind"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceoperation"
@@ -34,8 +33,6 @@ var sourceBundleVocabulary = artifactpublish.Vocabulary{Required: []string{
 type authoringSourceDependencies struct {
 	core              authoringCoreDependencies
 	absolutePath      func(string) (string, error)
-	deriveLegacy      func(sourceoperation.LegacyOptions) (map[string]any, error)
-	validateLegacyAPI func(map[string]any) error
 	loadVerified      func(context.Context, sourcebind.LocalRoots) (sourcebind.VerifiedInputs, error)
 	requireQualified  func(sourcebind.VerifiedInputs) (sourcebind.QualifiedInputs, error)
 	analyzeQualified  func(context.Context, sourcebind.QualifiedInputs) (sourceanalysis.QualifiedEvidence, error)
@@ -51,8 +48,6 @@ func defaultAuthoringSourceDependencies() authoringSourceDependencies {
 	return authoringSourceDependencies{
 		core:              defaultAuthoringCoreDependencies(),
 		absolutePath:      filepath.Abs,
-		deriveLegacy:      sourceoperation.DeriveLegacySourceOperationRegistry,
-		validateLegacyAPI: providerprobe.ValidateLegacyOpenAPI,
 		loadVerified:      sourcebind.LoadVerified,
 		requireQualified:  sourcebind.RequireQualification,
 		analyzeQualified:  sourceanalysis.Analyze,
@@ -80,9 +75,9 @@ func sourceOperationMapCommandWithDependencies(arguments []string, dependencies 
 func newSourceOperationMapCobraCommand(dependencies authoringSourceDependencies) *cobra.Command {
 	spec := authoringCobraSpec("source-operation-map", "Derive source-backed provider operation evidence",
 		[]string{
-			"--artifact-dir", "--diagnostics", "--openapi", "--out", "--provider-file",
-			"--provider-module", "--provider-source", "--resource-prefix", "--resources",
-			"--schema", "--sdk-file", "--sdk-root", "--source-manifest", "--source-root",
+			"--artifact-dir", "--openapi", "--provider-file", "--provider-module",
+			"--resources", "--schema", "--sdk-file", "--sdk-root",
+			"--source-manifest", "--source-root",
 		},
 		[]string{"--provider-file", "--sdk-file", "--sdk-root"},
 		[]string{"--allow-unverified-source"},
@@ -103,7 +98,9 @@ func sourceOperationMapCommandInput(parsed commandInput, dependencies authoringS
 		return 0, err
 	}
 	if mode == sourceModeLegacy {
-		return sourceOperationMapLegacy(parsed, dependencies)
+		// The legacy text-scanner mapping lane was retired with the LegacyV1
+		// provider-probe proof of concept.
+		return 0, usageError("source-operation-map requires --source-manifest (qualified) or --allow-unverified-source; the legacy text-scanner mode is retired")
 	}
 	if err := validateV2SourceOptions(parsed, mode, "source-operation-map", "--artifact-dir"); err != nil {
 		return 0, err
@@ -119,73 +116,6 @@ func sourceOperationMapCommandInput(parsed commandInput, dependencies authoringS
 	return completeSourceBundle(context.Background(), destination, bundle, parsed, mode, false, dependencies)
 }
 
-func sourceOperationMapLegacy(parsed commandInput, dependencies authoringSourceDependencies) (int, error) {
-	if err := rejectOptions(parsed, "legacy source-operation-map", "--artifact-dir", "--provider-file", "--provider-module", "--sdk-file", "--source-manifest"); err != nil {
-		return 0, err
-	}
-	if parsed.Flags.Has("--allow-unverified-source") {
-		return 0, usageError("--allow-unverified-source requires --artifact-dir")
-	}
-	if len(parsed.Options["--sdk-root"]) > 1 {
-		return 0, usageError("--sdk-root may be passed only once")
-	}
-	if err := validateLegacySourceOperationMapInputs(parsed); err != nil {
-		return 0, err
-	}
-	options, err := legacySourceOptions(parsed, dependencies)
-	if err != nil {
-		return 0, err
-	}
-	report, err := dependencies.deriveLegacy(options)
-	if err != nil {
-		return 0, err
-	}
-	if diagnosticsPath := authoringLastOption(parsed, "--diagnostics"); diagnosticsPath != nil {
-		if writeErr := authoringWriteJSON(dependencies.core, map[string]any{
-			"diagnostics": report["diagnostics"],
-			"summary":     report["summary"],
-		}, diagnosticsPath); writeErr != nil {
-			return 0, writeErr
-		}
-	}
-	return 0, authoringWriteJSON(dependencies.core, report["registry"], authoringLastOption(parsed, "--out"))
-}
-
-func legacySourceOptions(parsed commandInput, dependencies authoringSourceDependencies) (sourceoperation.LegacyOptions, error) {
-	openAPIPath, err := authoringRequiredOption(parsed, "--openapi")
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	openAPI, err := authoringReadObject(dependencies.core, openAPIPath)
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	if err := dependencies.validateLegacyAPI(openAPI); err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	schemaPath, err := authoringRequiredOption(parsed, "--schema")
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	schema, err := authoringReadObject(dependencies.core, schemaPath)
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	sourceRoot, err := authoringRequiredOption(parsed, "--source-root")
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	return sourceoperation.LegacyOptions{
-		OpenAPI:        openAPI,
-		SchemaData:     schema,
-		SourceRoot:     sourceRoot,
-		ResourcePrefix: optionOrEmpty(parsed, "--resource-prefix"),
-		ProviderSource: optionOrEmpty(parsed, "--provider-source"),
-		Resources:      sourceResourceFilter(authoringLastOption(parsed, "--resources")),
-		SDKRoot:        optionOrEmpty(parsed, "--sdk-root"),
-	}, nil
-}
-
 func sourceEvidenceEvalCommandWithDependencies(arguments []string, dependencies authoringSourceDependencies) (int, error) {
 	return executeStandaloneCobra(newSourceEvidenceEvalCobraCommand(dependencies), arguments)
 }
@@ -194,7 +124,7 @@ func newSourceEvidenceEvalCobraCommand(dependencies authoringSourceDependencies)
 	spec := authoringCobraSpec("source-evidence-eval", "Evaluate source-backed provider evidence",
 		[]string{
 			"--openapi", "--out-dir", "--provider-file", "--provider-module",
-			"--provider-source", "--resource-prefix", "--resources", "--schema", "--sdk-file",
+			"--resources", "--schema", "--sdk-file",
 			"--sdk-root", "--source-manifest", "--source-root",
 		},
 		[]string{"--provider-file", "--sdk-file", "--sdk-root"},
@@ -238,15 +168,6 @@ func sourceEvidenceEvalCommandInput(parsed commandInput, dependencies authoringS
 	)
 }
 
-func validateLegacySourceOperationMapInputs(parsed commandInput) error {
-	for _, name := range []string{"--openapi", "--schema", "--source-root"} {
-		if authoringLastOption(parsed, name) == nil {
-			return usageError(name + " is required")
-		}
-	}
-	return nil
-}
-
 func sourceMode(parsed commandInput) (sourceCommandMode, error) {
 	qualified := authoringLastOption(parsed, "--source-manifest") != nil
 	unverified := parsed.Flags.Has("--allow-unverified-source")
@@ -265,9 +186,6 @@ func sourceMode(parsed commandInput) (sourceCommandMode, error) {
 func validateV2SourceOptions(parsed commandInput, mode sourceCommandMode, command, destination string) error {
 	if authoringLastOption(parsed, destination) == nil {
 		return usageError(destination + " is required")
-	}
-	if err := rejectOptions(parsed, command+" source-first mode", "--diagnostics", "--out", "--provider-source", "--resource-prefix"); err != nil {
-		return err
 	}
 	if mode == sourceModeQualified {
 		return rejectOptions(parsed, command+" qualified mode", "--provider-file", "--provider-module", "--resources", "--sdk-file")
@@ -540,13 +458,6 @@ func sourceResourceFilter(value *string) []string {
 		}
 	}
 	return result
-}
-
-func optionOrEmpty(parsed commandInput, name string) string {
-	if value := authoringLastOption(parsed, name); value != nil {
-		return *value
-	}
-	return ""
 }
 
 func rejectOptions(parsed commandInput, mode string, names ...string) error {

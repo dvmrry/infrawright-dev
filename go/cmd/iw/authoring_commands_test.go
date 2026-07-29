@@ -68,21 +68,11 @@ type a6Fixture struct {
 	openAPI string
 	packs   string
 	parity  string
-	recipe  string
 	schema  string
-	source  string
-	work    string
 }
 
 func materializeA6Fixture(t *testing.T, root string) a6Fixture {
 	t.Helper()
-	source := filepath.Join(root, "provider")
-	if err := os.MkdirAll(source, 0o755); err != nil {
-		t.Fatalf("os.MkdirAll(provider): %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(source, "resource_folder.go"), []byte("package provider\nfunc read() {}\n"), 0o600); err != nil {
-		t.Fatalf("os.WriteFile(provider source): %v", err)
-	}
 	provider := "registry.terraform.io/example/example"
 	schema := filepath.Join(root, "schema.json")
 	a6WriteJSON(t, schema, map[string]any{
@@ -107,17 +97,6 @@ func materializeA6Fixture(t *testing.T, root string) a6Fixture {
 	})
 	api := filepath.Join(root, "api.json")
 	a6WriteJSON(t, api, []any{map[string]any{"name": "folder"}})
-	recipe := filepath.Join(root, "recipe.json")
-	a6WriteJSON(t, recipe, map[string]any{
-		"api_prefix":       "/api/",
-		"name":             "example",
-		"openapi":          map[string]any{"format": "json", "path": "openapi.json"},
-		"provider_source":  provider,
-		"provider_version": "1.2.3",
-		"resource_prefix":  "example",
-		"source":           map[string]any{"path": "provider"},
-		"terraform_schema": map[string]any{"path": "schema.json"},
-	})
 	packs := filepath.Join(root, "packs")
 	a6WriteJSON(t, filepath.Join(packs, "sample", "pack.json"), map[string]any{
 		"pin":               "1.2.3",
@@ -164,7 +143,7 @@ func materializeA6Fixture(t *testing.T, root string) a6Fixture {
 	})
 	return a6Fixture{
 		api: api, openAPI: openAPI, packs: packs, parity: parity,
-		recipe: recipe, schema: schema, source: source, work: filepath.Join(root, "probe-work"),
+		schema: schema,
 	}
 }
 
@@ -232,8 +211,6 @@ func TestA6AuthoringCommandsRunWithoutExternalExecutables(t *testing.T) {
 	}{
 		{arguments: []string{"reconcile", "example_folder", "--api", fixture.api, "--schema", fixture.schema, "--out", filepath.Join(root, "smoke-reconcile.json")}},
 		{arguments: []string{"openapi-map", "--schema", fixture.schema, "--openapi", fixture.openAPI, "--provider-source", "registry.terraform.io/example/example", "--resource-prefix", "example", "--out", filepath.Join(root, "smoke-openapi.json")}},
-		{arguments: []string{"source-operation-map", "--schema", fixture.schema, "--openapi", fixture.openAPI, "--source-root", fixture.source, "--provider-source", "registry.terraform.io/example/example", "--resource-prefix", "example", "--out", filepath.Join(root, "smoke-source-registry.json"), "--diagnostics", filepath.Join(root, "smoke-source-diagnostics.json")}},
-		{arguments: []string{"provider-probe", fixture.recipe, "--work-dir", filepath.Join(root, "smoke-probe")}},
 		{
 			arguments:   []string{"transform-adopt-parity", fixture.parity},
 			environment: []string{"INFRAWRIGHT_PACKS=" + fixture.packs},

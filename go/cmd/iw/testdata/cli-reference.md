@@ -626,8 +626,6 @@ Flags:
       --out-dir string            output directory
       --provider-file string      manifest-relative provider source file
       --provider-module string    provider Go module identity
-      --provider-source string    Terraform provider source address
-      --resource-prefix string    Terraform resource-type prefix
       --resources string          comma-separated resource filter
       --schema string             Terraform provider schema path
       --sdk-file string           module-qualified SDK source file
@@ -647,14 +645,10 @@ Usage:
 Flags:
       --allow-unverified-source   analyze explicitly bounded source without qualified provenance
       --artifact-dir string       complete source-evidence artifact directory
-      --diagnostics string        diagnostics output path
   -h, --help                      help for source-operation-map
       --openapi string            OpenAPI document path
-      --out string                output path
       --provider-file string      manifest-relative provider source file
       --provider-module string    provider Go module identity
-      --provider-source string    Terraform provider source address
-      --resource-prefix string    Terraform resource-type prefix
       --resources string          comma-separated resource filter
       --schema string             Terraform provider schema path
       --sdk-file string           module-qualified SDK source file

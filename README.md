@@ -191,9 +191,8 @@ make source-operation-map \
   SCHEMA=tmp/grafana-core-schema.json \
   OPENAPI=tmp/grafana-api-merged.json \
   SOURCE_ROOT=tmp/terraform-provider-grafana \
-  PROVIDER_SOURCE=registry.terraform.io/grafana/grafana \
-  RESOURCE_PREFIX=grafana \
-  OUT=reports/readiness/grafana-core-read-registry.json
+  SOURCE_MANIFEST=tmp/grafana-source-manifest.json \
+  ARTIFACT_DIR=reports/readiness/grafana-core-source-evidence
 
 make reconcile \
   RESOURCE=netbox_site \

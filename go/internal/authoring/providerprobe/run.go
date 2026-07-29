@@ -6,7 +6,7 @@ import (
 )
 
 // InspectRecipeMode parses and validates one local recipe without running its
-// legacy preparation or qualified source-analysis pipeline.
+// qualified source-analysis pipeline.
 func InspectRecipeMode(path string) (Mode, error) {
 	recipe, err := loadRecipe(path)
 	if err != nil {
@@ -15,9 +15,8 @@ func InspectRecipeMode(path string) (Mode, error) {
 	return recipe.mode, nil
 }
 
-// Run loads one local recipe, chooses its categorical contract, and returns
-// only detached in-memory artifacts. It neither publishes artifacts nor lets a
-// qualified recipe reach a legacy preparation capability.
+// Run loads one local recipe and returns only detached in-memory artifacts.
+// It never publishes artifacts.
 func Run(ctx context.Context, options RunOptions) (Result, error) {
 	if ctx == nil {
 		return Result{}, fmt.Errorf("provider probe context is required")
@@ -25,7 +24,6 @@ func Run(ctx context.Context, options RunOptions) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, fmt.Errorf("provider probe cancelled: %w", err)
 	}
-	options.Environment = cloneStringMap(options.Environment)
 	recipe, err := loadRecipe(options.RecipePath)
 	if err != nil {
 		return Result{}, err
@@ -36,15 +34,5 @@ func Run(ctx context.Context, options RunOptions) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, fmt.Errorf("provider probe cancelled: %w", err)
 	}
-	switch recipe.mode {
-	case QualifiedV2:
-		return runQualified(ctx, recipe)
-	case LegacyV1:
-		if options.LegacyHost == nil {
-			options.LegacyHost = newDefaultLegacyHost(options.Environment)
-		}
-		return runLegacy(ctx, recipe, options)
-	default:
-		return Result{}, fmt.Errorf("unsupported provider probe mode %q", recipe.mode)
-	}
+	return runQualified(ctx, recipe)
 }

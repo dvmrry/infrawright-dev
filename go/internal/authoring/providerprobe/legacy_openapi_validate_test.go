@@ -1,7 +1,6 @@
 package providerprobe
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -11,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
 func readLegacyOpenAPICompatibilityFixture(t *testing.T, name, wantSHA256 string) []byte {
@@ -460,15 +461,8 @@ func TestLegacyOpenAPIValidatorVersionRoutingAndYAMLEquivalence(t *testing.T) {
 		})
 	}
 	jsonDocument := legacyValidationDocument(t, `{"openapi":"3.0.3","info":{"title":"x","version":"1"},"paths":{}}`)
-	yamlDocument, err := decodeLegacyOpenAPI([]byte("openapi: 3.0.3\ninfo:\n  title: x\n  version: '1'\npaths: {}\n"), true)
-	if err != nil {
-		t.Fatalf("decodeLegacyOpenAPI(YAML) error = %v", err)
-	}
 	if err := validateLegacyOpenAPI(jsonDocument); err != nil {
 		t.Fatalf("validateLegacyOpenAPI(JSON) error = %v", err)
-	}
-	if err := validateLegacyOpenAPI(yamlDocument); err != nil {
-		t.Fatalf("validateLegacyOpenAPI(YAML) error = %v", err)
 	}
 }
 
@@ -481,28 +475,6 @@ func TestLegacyOpenAPISchemaFormatKeywordDoesNotDeleteFormatProperty(t *testing.
 	valid := `{"openapi":"3.0.4","info":{"title":"x","version":"1","contact":{"email":"not an email"}},"servers":[{"url":"not a URI %%%"}],"paths":{}}`
 	if err := validateLegacyOpenAPI(legacyValidationDocument(t, valid)); err != nil {
 		t.Fatalf("validateLegacyOpenAPI(invalid format values) error = %v, want formats disabled", err)
-	}
-}
-
-func TestLegacyOpenAPIValidatorRejectsBeforeArtifactConstruction(t *testing.T) {
-	root := t.TempDir()
-	writeLegacyFixture(t, root)
-	if err := os.WriteFile(filepath.Join(root, "openapi.json"), []byte(`{"openapi":"3.0.5","info":{"title":"x","version":"1"},"paths":{}}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	recipe, err := loadRecipe(filepath.Join(root, "recipe.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := runLegacy(context.Background(), recipe, RunOptions{WorkDirectory: filepath.Join(root, "work")})
-	if err == nil || !strings.Contains(err.Error(), "legacy OpenAPI validation version:") {
-		t.Fatalf("runLegacy(invalid OpenAPI) error = %v, want version validation failure", err)
-	}
-	if artifacts := result.Artifacts(); len(artifacts) != 0 {
-		t.Fatalf("runLegacy(invalid OpenAPI) artifacts = %#v, want none", artifacts)
-	}
-	if _, statErr := os.Stat(filepath.Join(root, "work", "artifacts")); !os.IsNotExist(statErr) {
-		t.Fatalf("runLegacy(invalid OpenAPI) created artifacts directory: %v", statErr)
 	}
 }
 
@@ -548,9 +520,13 @@ func TestLegacyOpenAPIValidationGraphBoundsAndNumericConversion(t *testing.T) {
 
 func legacyValidationDocument(t *testing.T, source string) map[string]any {
 	t.Helper()
-	document, err := decodeLegacyJSON([]byte(source))
+	value, err := canonjson.ParseDataJSONLosslessly(source)
 	if err != nil {
-		t.Fatalf("decodeLegacyJSON(%s) error = %v", source, err)
+		t.Fatalf("ParseDataJSONLosslessly(%s) error = %v", source, err)
+	}
+	document, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("validation document %s is not a JSON object", source)
 	}
 	return document
 }
