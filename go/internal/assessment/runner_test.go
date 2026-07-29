@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
@@ -1169,5 +1171,139 @@ func TestRunnerChangeSummaryNamesTheChange(t *testing.T) {
 				t.Errorf("runnerChangeSummary(%s) = %q, want %q", test.name, got, test.want)
 			}
 		})
+	}
+}
+
+// TestRenderedReportKeepsEveryMemberTheConsoleElides is what makes the console
+// cap safe rather than a second kind of data loss. The emitted line names ten
+// members; the report artifact -- the thing a reviewer opens when ten is not
+// enough -- has to still carry all three hundred.
+func TestRenderedReportKeepsEveryMemberTheConsoleElides(t *testing.T) {
+	members := runnerProbeMembers(300)
+	report := SavedPlanAssessmentReport{Mode: AssertAdoptable}
+	report.Roots = []AssessmentReportRoot{{
+		Tenant: "tenant", Label: "root", Status: Blocked,
+		Findings: []NormalizedAssessmentFinding{{
+			Status: Blocked, Address: `zia_url_categories.this["ciso_allow"]`,
+			Actions: []string{"update"}, Paths: []string{"db_categorized_urls"},
+			Changes: []NormalizedPlanChange{{
+				Path: "db_categorized_urls", Kind: string(SetChange), Added: members,
+			}},
+		}},
+	}}
+
+	diagnostics := []string{}
+	if err := emitRunnerAssessment(report, func(message string) {
+		diagnostics = append(diagnostics, message)
+	}); err != nil {
+		t.Fatalf("emitRunnerAssessment() error = %v, want nil", err)
+	}
+	console := strings.Join(diagnostics, "\n")
+	if strings.Contains(console, "host299.example.com") {
+		t.Errorf("console output named a member past the cap:\n%s", console)
+	}
+	if !strings.Contains(console, "and 290 more") {
+		t.Errorf("console output = %q, want the elided count named", console)
+	}
+
+	rendered, err := RenderAssessmentReport(report)
+	if err != nil {
+		t.Fatalf("RenderAssessmentReport() error = %v, want nil", err)
+	}
+	for _, member := range []string{"host000.example.com", "host150.example.com", "host299.example.com"} {
+		if !strings.Contains(rendered, member) {
+			t.Errorf("rendered report is missing %q; the console cap must not reach the artifact", member)
+		}
+	}
+	if strings.Contains(rendered, "and 290 more") {
+		t.Error("rendered report carries the console elision note, so the cap leaked into the artifact")
+	}
+}
+
+func runnerProbeMembers(count int) []any {
+	members := make([]any, 0, count)
+	for index := 0; index < count; index++ {
+		members = append(members, fmt.Sprintf("host%03d.example.com", index))
+	}
+	return members
+}
+
+// TestRunnerChangeSummaryBoundsTheRenderedLine pins that a mass edit renders a
+// line a human reads rather than scrolls past. Rendering 300 members in full
+// produced a single 6,332-character line.
+//
+// The count is never elided, only the enumeration -- which is what separates
+// this from the defect this change set exists to fix. There the surviving
+// detail was db_categorized_urls[60], an index into a provider-ordered array
+// naming neither the domain nor the direction.
+func TestRunnerChangeSummaryBoundsTheRenderedLine(t *testing.T) {
+	summary := runnerChangeSummary(NormalizedPlanChange{
+		Path: "db_categorized_urls", Kind: string(SetChange),
+		Added: runnerProbeMembers(300),
+	})
+
+	if !strings.HasPrefix(summary, "+300 (") {
+		t.Errorf("runnerChangeSummary() = %q, want the full count preserved", summary)
+	}
+	if !strings.Contains(summary, "and 290 more") {
+		t.Errorf("runnerChangeSummary() = %q, want the elided count named", summary)
+	}
+	if !strings.Contains(summary, "host000.example.com") ||
+		!strings.Contains(summary, "host009.example.com") {
+		t.Errorf("runnerChangeSummary() = %q, want the first members named", summary)
+	}
+	if strings.Contains(summary, "host010.example.com") {
+		t.Errorf("runnerChangeSummary() = %q, want members past the cap elided", summary)
+	}
+	if len(summary) > 400 {
+		t.Errorf("runnerChangeSummary() rendered %d bytes, want a bounded line", len(summary))
+	}
+}
+
+// A set exactly at the cap must not claim members were elided.
+func TestRunnerChangeSummaryDoesNotClaimElisionAtTheCap(t *testing.T) {
+	summary := runnerChangeSummary(NormalizedPlanChange{
+		Path: "db_categorized_urls", Kind: string(SetChange),
+		Added: runnerProbeMembers(maxRenderedSetMembers),
+	})
+	if strings.Contains(summary, "more") {
+		t.Errorf("runnerChangeSummary(%d members) = %q, want no elision note",
+			maxRenderedSetMembers, summary)
+	}
+	if !strings.Contains(summary, fmt.Sprintf("host%03d.example.com", maxRenderedSetMembers-1)) {
+		t.Errorf("runnerChangeSummary() = %q, want every member named at the cap", summary)
+	}
+}
+
+// TestRunnerValueTextBoundsOneValue pins that a single pathological value
+// cannot blow out the line on its own, and that the cut respects rune
+// boundaries -- splitting UTF-8 mid-rune emits replacement characters, which
+// reads as corrupted data in a report meant to be trusted.
+func TestRunnerValueTextBoundsOneValue(t *testing.T) {
+	long := strings.Repeat("a", maxRenderedValueRunes+50)
+	got := runnerValueText(long)
+	if !strings.HasSuffix(got, "... (truncated)") {
+		t.Errorf("runnerValueText(long) = %q, want a truncation marker", got)
+	}
+	if utf8.RuneCountInString(got) > maxRenderedValueRunes+len("... (truncated)") {
+		t.Errorf("runnerValueText(long) rendered %d runes, want bounded", utf8.RuneCountInString(got))
+	}
+
+	// The leading ASCII byte is load-bearing: without it a cut at byte
+	// maxRenderedValueRunes lands exactly on a 2-byte rune boundary and a
+	// byte-wise truncation looks correct. Offsetting by one puts the cut
+	// mid-rune, which is the case that distinguishes the two.
+	multibyte := "a" + strings.Repeat("é", maxRenderedValueRunes+50)
+	truncated := runnerValueText(multibyte)
+	if !utf8.ValidString(truncated) {
+		t.Errorf("runnerValueText(multibyte) = %q, want valid UTF-8", truncated)
+	}
+	if strings.ContainsRune(truncated, utf8.RuneError) {
+		t.Errorf("runnerValueText(multibyte) = %q, want no replacement characters", truncated)
+	}
+
+	short := "keeps.short.values.intact"
+	if got := runnerValueText(short); got != short {
+		t.Errorf("runnerValueText(short) = %q, want %q unchanged", got, short)
 	}
 }

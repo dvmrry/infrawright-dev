@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/controlevidence"
@@ -724,15 +725,43 @@ func runnerChangeSummary(change NormalizedPlanChange) string {
 	return runnerValueText(change.Before) + " -> " + runnerValueText(change.After)
 }
 
+// Console rendering bounds. These apply only to the emitted text: the report
+// carries every member and every value in full, so nothing observed here is
+// lost, only elided from one line.
+//
+// Eliding is not the defect this change set exists to fix. That defect was a
+// finding whose surviving detail named nothing -- db_categorized_urls[60] is
+// an index into a provider-ordered array, so a reviewer learned neither which
+// domain moved nor whether it arrived or left. Ten named domains and a count
+// of the rest is strictly more than that line ever carried.
+const (
+	maxRenderedSetMembers = 10
+	maxRenderedValueRunes = 120
+)
+
+// runnerValueList names as many members as fit a readable line and counts the
+// rest. A mass edit adds hundreds of domains at once -- 300 rendered in full
+// is a single 6,332-character line, which is not read, it is scrolled past.
 func runnerValueList(values []any) string {
-	rendered := make([]string, len(values))
-	for index, value := range values {
-		rendered[index] = runnerValueText(value)
+	shown := len(values)
+	if shown > maxRenderedSetMembers {
+		shown = maxRenderedSetMembers
+	}
+	rendered := make([]string, 0, shown+1)
+	for _, value := range values[:shown] {
+		rendered = append(rendered, runnerValueText(value))
+	}
+	if elided := len(values) - shown; elided > 0 {
+		rendered = append(rendered, fmt.Sprintf("and %d more", elided))
 	}
 	return strings.Join(rendered, ", ")
 }
 
 func runnerValueText(value any) string {
+	return runnerTruncate(runnerRenderValue(value))
+}
+
+func runnerRenderValue(value any) string {
 	if value == nil {
 		return "null"
 	}
@@ -744,4 +773,16 @@ func runnerValueText(value any) string {
 		return "?"
 	}
 	return strings.TrimSuffix(rendered, "\n")
+}
+
+// runnerTruncate bounds one value so a single pathological member cannot blow
+// out the line on its own. It counts runes rather than bytes: cutting a UTF-8
+// value mid-rune emits replacement characters, which reads as corrupted data
+// in a report whose purpose is letting a reviewer trust what they see.
+func runnerTruncate(text string) string {
+	if utf8.RuneCountInString(text) <= maxRenderedValueRunes {
+		return text
+	}
+	runes := []rune(text)
+	return string(runes[:maxRenderedValueRunes]) + "... (truncated)"
 }
