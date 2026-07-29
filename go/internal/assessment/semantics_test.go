@@ -893,3 +893,57 @@ func blockedAssessmentValueWithChange(t *testing.T, change map[string]any) map[s
 	findings[0].(map[string]any)["changes"] = []any{change}
 	return value
 }
+
+// The report's strictness is what lets a consumer trust the key list: an
+// unknown key anywhere hard-fails rather than being ignored. The change object
+// is new, so it needs that property proven for itself.
+func TestReportValidationRefusesUnknownAndMalformedChangeKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		change   map[string]any
+		wantPath string
+	}{
+		{
+			name: "unknown key",
+			change: map[string]any{
+				"path": "name", "kind": "scalar", "sensitive": false,
+				"before": "a", "after": "b", "added": []any{}, "removed": []any{},
+				"provenance": "invented",
+			},
+			wantPath: "/roots/0/findings/0/changes/0",
+		},
+		{
+			name: "missing key",
+			change: map[string]any{
+				"path": "name", "kind": "scalar", "sensitive": false,
+				"before": "a", "after": "b", "added": []any{},
+			},
+			wantPath: "/roots/0/findings/0/changes/0",
+		},
+		{
+			name: "unknown kind",
+			change: map[string]any{
+				"path": "name", "kind": "list", "sensitive": false,
+				"before": "a", "after": "b", "added": []any{}, "removed": []any{},
+			},
+			wantPath: "/roots/0/findings/0/changes/0/kind",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, details := ValidateSavedPlanAssessment(blockedAssessmentValueWithChange(t, test.change))
+			found := false
+			for _, detail := range details {
+				if detail.Path == test.wantPath {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf(
+					"ValidateSavedPlanAssessment(%s) details = %#v, want a refusal at %s",
+					test.name, details, test.wantPath,
+				)
+			}
+		})
+	}
+}
