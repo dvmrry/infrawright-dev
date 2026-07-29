@@ -1,9 +1,14 @@
 package assessment
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
 // urlCategoriesSchemaTypes is the fixture the whole set-typed walk turns on.
@@ -134,14 +139,14 @@ func TestDiffChangesSetMultiplicityIsCounted(t *testing.T) {
 func TestDiffChangesSetEqualMembersReportNothing(t *testing.T) {
 	before := mustParseDataJSON(t, `{"db_categorized_urls":["a","b","c"],"urls":["a","b","c"]}`)
 	after := mustParseDataJSON(t, `{"db_categorized_urls":["c","a","b"],"urls":["c","a","b"]}`)
+	// Asserted exactly rather than "something was reported". A weaker check
+	// passes even if the ordered list is itself wrongly collapsed to one path,
+	// which is the regression most likely to follow from a change here.
 	paths := DiffPathsWithSets(before, after, urlCategoriesSetAttributes())
-	for _, path := range paths {
-		if path[0] == "db_categorized_urls" {
-			t.Errorf("DiffPathsWithSets(reordered set) reported %#v, want nothing for a set whose members match", path)
-		}
-	}
-	if len(paths) == 0 {
-		t.Error("DiffPathsWithSets(reordered set) reported nothing at all, want the reordered ordered list still reported")
+	want := []PlanPath{{"urls", 0}, {"urls", 1}, {"urls", 2}}
+	if !reflect.DeepEqual(paths, want) {
+		t.Errorf("DiffPathsWithSets(reordered set beside reordered list) = %#v, want the set silent and every list position reported %#v",
+			paths, want)
 	}
 }
 
@@ -511,25 +516,50 @@ func TestClassifyPlanReorderOfAnOrderedListStillBlocks(t *testing.T) {
 // after_unknown, which is walked separately from the values, produces the same
 // spelling of the attribute. Two spellings of one attribute means only one of
 // them can be named by a drift-policy entry.
+//
+// The first case makes before and after identical. That is what forces the
+// assertion to be about after_unknown at all: with any difference between them
+// the value walk supplies PlanPath{"db_categorized_urls"} on its own, the
+// collapsed unknown path dedupes into it, and the test passes even if
+// after_unknown is never read. The second case keeps the mixed shape, where
+// what is being pinned is that the two sources agree rather than double-count.
 func TestClassifyPlanUnknownSetMemberCollapsesToTheAttribute(t *testing.T) {
-	planValue := mustParseDataJSON(t, `{
-		"format_version":"1.2","complete":true,"errored":false,
-		"resource_drift":[{
-			"address":"zia_url_categories.this","type":"zia_url_categories",
-			"change":{"actions":["update"],
-				"before":{"db_categorized_urls":["a"]},
-				"after":{"db_categorized_urls":["a",null]},
-				"after_unknown":{"db_categorized_urls":[false,true]}}
-		}]
-	}`)
-	classification, err := ClassifyPlanWithOptions(planValue, nil, nil, ClassifyPlanOptions{
-		SchemaTypes: urlCategoriesSchemaTypes(),
-	})
-	if err != nil {
-		t.Fatalf("ClassifyPlanWithOptions(unknown set member) error = %v, want nil", err)
-	}
-	if got, want := classification.Findings[0].Paths, []PlanPath{{"db_categorized_urls"}}; !reflect.DeepEqual(got, want) {
-		t.Errorf("ClassifyPlanWithOptions(unknown set member).Paths = %#v, want %#v", got, want)
+	for _, test := range []struct{ name, before, after, unknown string }{
+		{
+			"unknown_is_the_only_signal",
+			`{"db_categorized_urls":["a","b"]}`,
+			`{"db_categorized_urls":["a","b"]}`,
+			`{"db_categorized_urls":[false,true]}`,
+		},
+		{
+			"unknown_beside_a_membership_change",
+			`{"db_categorized_urls":["a"]}`,
+			`{"db_categorized_urls":["a",null]}`,
+			`{"db_categorized_urls":[false,true]}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			planValue := mustParseDataJSON(t, `{
+				"format_version":"1.2","complete":true,"errored":false,
+				"resource_drift":[{
+					"address":"zia_url_categories.this","type":"zia_url_categories",
+					"change":{"actions":["update"],
+						"before":`+test.before+`,
+						"after":`+test.after+`,
+						"after_unknown":`+test.unknown+`}
+				}]
+			}`)
+			classification, err := ClassifyPlanWithOptions(planValue, nil, nil, ClassifyPlanOptions{
+				SchemaTypes: urlCategoriesSchemaTypes(),
+			})
+			if err != nil {
+				t.Fatalf("ClassifyPlanWithOptions(%s) error = %v, want nil", test.name, err)
+			}
+			want := []PlanPath{{"db_categorized_urls"}}
+			if got := classification.Findings[0].Paths; !reflect.DeepEqual(got, want) {
+				t.Errorf("ClassifyPlanWithOptions(%s).Paths = %#v, want %#v", test.name, got, want)
+			}
+		})
 	}
 }
 
@@ -718,5 +748,115 @@ func TestPublishedReportNeverEmitsNullForRequiredChangeArrays(t *testing.T) {
 		if !strings.Contains(rendered, member) {
 			t.Errorf("RenderAssessmentReport dropped set member %q:\n%s", member, rendered)
 		}
+	}
+}
+
+// schemaTypesPackRoot builds a one-resource pack root carrying the supplied
+// resource schema, so a malformed schema can be put in front of
+// NewPlanSchemaTypes without hand-building a LoadedPackRoot -- which would
+// bypass the loader whose failures this is meant to exercise.
+func schemaTypesPackRoot(t *testing.T, resourceSchema any) metadata.LoadedPackRoot {
+	t.Helper()
+	directory := t.TempDir()
+	pack := filepath.Join(directory, "sample")
+	write := func(path string, value any) {
+		t.Helper()
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("json.Marshal(%q) error = %v, want nil", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("os.MkdirAll(%q) error = %v, want nil", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(%q) error = %v, want nil", path, err)
+		}
+	}
+	write(filepath.Join(pack, "pack.json"), metadata.JsonObject{
+		"provider_prefixes": metadata.JsonObject{"sample_": "sample"},
+		"provider_sources":  metadata.JsonObject{"sample": "example/sample"},
+	})
+	write(filepath.Join(pack, "registry.json"), metadata.JsonObject{
+		"sample_resource": metadata.JsonObject{"generate": true, "product": "sample"},
+	})
+	schemas := metadata.JsonObject{}
+	if resourceSchema != nil {
+		schemas["sample_resource"] = resourceSchema
+	}
+	write(filepath.Join(pack, "schemas", "provider", "sample.json"), metadata.JsonObject{
+		"resource_schemas": schemas,
+	})
+	profile := filepath.Join(directory, "profile.json")
+	write(profile, metadata.JsonObject{
+		"kind": metadata.PackSetKind, "version": 1,
+		"packs": []string{"sample"}, "shared": []string{},
+	})
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot: directory, ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("metadata.LoadPackRoot(schema-types fixture) error = %v, want nil", err)
+	}
+	return root
+}
+
+// TestNewPlanSchemaTypesRefusesAnUnreadableSchema pins the failure half of the
+// deliberate decision to error rather than fall back to positional comparison.
+//
+// A silent fallback would be invisible: the gate would keep running and simply
+// stop collapsing sets, which looks exactly like a plan that has none. Since
+// that stance is the reason two test fixtures had to grow provider schemas, the
+// error paths deserve the same standard as the success path -- five of them
+// existed with only the happy path covered.
+func TestNewPlanSchemaTypesRefusesAnUnreadableSchema(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		schema any
+	}{
+		{"resource type absent from the provider schema", nil},
+		{"schema is not an object", "not-an-object"},
+		{"block is missing", metadata.JsonObject{}},
+		{"attributes is not an object", metadata.JsonObject{
+			"block": metadata.JsonObject{"attributes": "not-an-object"},
+		}},
+		{"attribute is not an object", metadata.JsonObject{
+			"block": metadata.JsonObject{"attributes": metadata.JsonObject{"name": "not-an-object"}},
+		}},
+		{"attribute type is unparseable", metadata.JsonObject{
+			"block": metadata.JsonObject{"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": []any{"set"}},
+			}},
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			types, err := NewPlanSchemaTypes(schemaTypesPackRoot(t, test.schema))
+			if err == nil {
+				t.Fatalf("NewPlanSchemaTypes(%s) error = nil, want a refusal; got %#v", test.name, types)
+			}
+			if !types.Empty() {
+				t.Errorf("NewPlanSchemaTypes(%s) returned %#v alongside its error, want the zero value", test.name, types)
+			}
+		})
+	}
+}
+
+// TestNewPlanSchemaTypesReadsAWellFormedSyntheticPack is the success half of
+// the pair above, on the same fixture builder, so the refusals are known to
+// come from the malformation rather than from the fixture never working.
+func TestNewPlanSchemaTypesReadsAWellFormedSyntheticPack(t *testing.T) {
+	root := schemaTypesPackRoot(t, metadata.JsonObject{
+		"block": metadata.JsonObject{"attributes": metadata.JsonObject{
+			"members": metadata.JsonObject{"type": []any{"set", "string"}},
+			"ordered": metadata.JsonObject{"type": []any{"list", "string"}},
+			"name":    metadata.JsonObject{"type": "string"},
+		}},
+	})
+	types, err := NewPlanSchemaTypes(root)
+	if err != nil {
+		t.Fatalf("NewPlanSchemaTypes(well-formed synthetic pack) error = %v, want nil", err)
+	}
+	want := map[string]struct{}{"members": {}}
+	if got := types.SetAttributes("sample_resource"); !reflect.DeepEqual(got, want) {
+		t.Errorf("SetAttributes(sample_resource) = %#v, want only the set-typed attribute %#v", got, want)
 	}
 }
