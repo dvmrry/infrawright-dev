@@ -62,7 +62,14 @@ func TestPlanClassificationCompatibility(t *testing.T) {
 				t.Fatalf("ClassifyPlan(%q) error: %v", test.Name, err)
 			}
 			wantResult := mustParseDataJSON(t, string(test.Result))
-			gotResult := classificationCompatibilityJSON(t, classification)
+			// The fixture is the retired implementation's output, digest-pinned
+			// and not regenerable: regenerating it destroys the evidence it
+			// exists to provide. Findings now carry an additional `changes`
+			// key, so the comparison projects that key out. Everything the
+			// retired implementation specified -- statuses, sources, actions,
+			// and every path -- stays a live byte assertion, and the only
+			// admitted divergence is the additive key.
+			gotResult := withoutFindingChanges(classificationCompatibilityJSON(t, classification))
 			if !canonjson.JSONEqual(gotResult, wantResult) {
 				t.Errorf("ClassifyPlan(%q) = %#v, want %#v", test.Name, gotResult, wantResult)
 			}
@@ -93,4 +100,41 @@ func classificationCompatibilityJSON(t *testing.T, value any) any {
 		t.Fatalf("canonjson.ParseDataJSONLosslessly(json.Marshal(%T)) error: %v", value, err)
 	}
 	return result
+}
+
+// withoutFindingChanges removes the additive `changes` key from every finding
+// so a v1 fixture can still assert every byte it originally specified. It
+// deliberately removes nothing else: a change to `paths`, `status`, or any
+// other v1 key must still fail against the retired implementation's output.
+func withoutFindingChanges(value any) any {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	findings, ok := object["findings"].([]any)
+	if !ok {
+		return value
+	}
+	projectedFindings := make([]any, len(findings))
+	for index, rawFinding := range findings {
+		finding, ok := rawFinding.(map[string]any)
+		if !ok {
+			projectedFindings[index] = rawFinding
+			continue
+		}
+		projected := make(map[string]any, len(finding))
+		for key, keyValue := range finding {
+			if key == "changes" {
+				continue
+			}
+			projected[key] = keyValue
+		}
+		projectedFindings[index] = projected
+	}
+	projectedObject := make(map[string]any, len(object))
+	for key, keyValue := range object {
+		projectedObject[key] = keyValue
+	}
+	projectedObject["findings"] = projectedFindings
+	return projectedObject
 }

@@ -93,6 +93,12 @@ func TestClassifyPlanPreservesCoreAndPartialToleranceSemantics(t *testing.T) {
 		Findings: []PlanFinding{{
 			Status: Blocked, Source: "resource_changes", Address: "sample_resource.this",
 			Actions: []string{"update"}, Paths: []PlanPath{{"rules", 10, "status"}},
+			// A leaf inside a block collection keeps its positional path and
+			// gains the values behind it.
+			Changes: []PlanChange{{
+				Path: PlanPath{"rules", 10, "status"}, Kind: ScalarChange,
+				Before: "before", After: "after",
+			}},
 		}},
 	}
 	if !reflect.DeepEqual(classification, want) {
