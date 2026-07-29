@@ -5,6 +5,7 @@ package collectors
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,6 +25,71 @@ func intPtr(v int) *int { return &v }
 
 var sharedContext = CollectorContext{CustomerID: "customer"}
 var sharedAuth = CollectorAuthContext{Headers: map[string]string{"Accept": "application/json"}}
+
+func TestCollectorTruthyVocabulary(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  bool
+	}{
+		{name: "nil", value: nil, want: false},
+		{name: "false", value: false, want: false},
+		{name: "true", value: true, want: true},
+		{name: "empty_string", value: "", want: false},
+		{name: "nonempty_string", value: "0", want: true},
+		{name: "empty_list", value: []any{}, want: false},
+		{name: "nonempty_list", value: []any{nil}, want: true},
+		{name: "zero_float", value: float64(0), want: false},
+		{name: "nonzero_float", value: float64(-1), want: true},
+		{name: "zero_json_number", value: json.Number("0"), want: false},
+		{name: "nonzero_json_number", value: json.Number("-1"), want: true},
+		{name: "empty_object", value: map[string]any{}, want: false},
+		{name: "nonempty_object", value: map[string]any{"item": nil}, want: true},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := collectorTruthy(testCase.value); got != testCase.want {
+				t.Errorf("collectorTruthy(%#v) = %t, want %t", testCase.value, got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestCollectorIntVocabulary(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   any
+		want    int
+		wantErr bool
+	}{
+		{name: "json_integer", value: json.Number("7"), want: 7},
+		{name: "json_fraction_truncates", value: json.Number("7.9"), want: 7},
+		{name: "float_fraction_truncates_toward_zero", value: float64(-7.9), want: -7},
+		{name: "trimmed_signed_string", value: " +42 ", want: 42},
+		{name: "true", value: true, want: 1},
+		{name: "false", value: false, want: 0},
+		{name: "empty_string", value: "", wantErr: true},
+		{name: "fractional_string", value: "1.5", wantErr: true},
+		{name: "invalid_json_number", value: json.Number("invalid"), wantErr: true},
+		{name: "json_nan", value: json.Number("NaN"), wantErr: true},
+		{name: "json_infinity", value: json.Number("Infinity"), wantErr: true},
+		{name: "float_nan", value: math.NaN(), wantErr: true},
+		{name: "float_infinity", value: math.Inf(1), wantErr: true},
+		{name: "unsupported_type", value: map[string]any{}, wantErr: true},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := collectorInt(testCase.value)
+			if gotErr := err != nil; gotErr != testCase.wantErr {
+				t.Errorf("collectorInt(%#v) error = %v, want error presence = %t", testCase.value, err, testCase.wantErr)
+				return
+			}
+			if !testCase.wantErr && got != testCase.want {
+				t.Errorf("collectorInt(%#v) = %d, want %d", testCase.value, got, testCase.want)
+			}
+		})
+	}
+}
 
 func TestFetchResourceAllFourPaginationStyles(t *testing.T) {
 	ziaFirst := make([]any, 1_000)
