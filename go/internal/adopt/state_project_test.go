@@ -180,3 +180,26 @@ func TestProjectionSyncRejectsRepeatedBlockTraversal(t *testing.T) {
 		t.Fatalf("projection sync error = %v", err)
 	}
 }
+
+// The projection path already strips computed attributes before pack defaults
+// run, so widening the rule to computed_only is inert here; it matters in the
+// generated-config path, which edits HCL that Terraform's own import
+// generation produced. What this guard still owes is refusing to drop a
+// required input, which would leave config Terraform rejects.
+func TestProjectProviderStateRefusesAPackDefaultOnARequiredInput(t *testing.T) {
+	override := metadata.JsonObject{
+		"drop_if_default": metadata.JsonObject{"required_settings.mode": "strict"},
+	}
+	_, err := ProjectProviderState(ProjectProviderStateOptions{
+		Policy:       stateProjectPolicy(t, metadata.JsonObject{}),
+		ResourceType: testResourceType,
+		Root:         stateProjectRoot(t, override),
+		StateValues: map[string]any{
+			"name":              "Example",
+			"required_settings": map[string]any{"mode": "strict"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "is a required input") {
+		t.Fatalf("ProjectProviderState(required pack default) error = %v, want a refusal", err)
+	}
+}
