@@ -291,6 +291,7 @@ func newCobraRootWithTerraformPreflight(preflight func() error) *cobra.Command {
 	root.AddCommand(
 		newCheckPackCobraCommand(defaultMetadataCommandDependencies()),
 		newCheckPackSetCobraCommand(defaultMetadataCommandDependencies()),
+		newCheckConfigCobraCommand(defaultCheckConfigCommandDependencies()),
 		newDeploymentCobraCommand(defaultMetadataCommandDependencies()),
 		newTransformCobraCommand(),
 		newAdoptCobraCommand(defaultBlockDCommandDependencies()),

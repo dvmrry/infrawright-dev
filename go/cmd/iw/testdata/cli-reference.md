@@ -18,6 +18,7 @@ Available Commands:
   apply                  Apply exact saved Terraform plans
   assert-adoptable       Require saved plans to satisfy adoption policy
   assert-clean           Require saved plans to be clean
+  check-config           Require every committed resource type to be fetchable
   check-pack             Validate pack and registry metadata
   check-pack-set         Validate an installed pack set
   clean-plans            Delete saved plan artifacts
@@ -133,6 +134,22 @@ Flags:
       --root string             pack root directory
       --tenant string           deployment tenant label
       --terraform string        Terraform executable path
+```
+
+## `iw check-config`
+
+```text
+Require every committed resource type to be fetchable
+
+Usage:
+  iw check-config [flags]
+
+Flags:
+      --deployment string   deployment overlay path
+  -h, --help                help for check-config
+      --profile string      pack profile path
+      --root string         pack root directory
+      --tenant string       deployment tenant label
 ```
 
 ## `iw check-pack`

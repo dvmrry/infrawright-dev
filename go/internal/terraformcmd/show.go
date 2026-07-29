@@ -14,7 +14,23 @@ import (
 )
 
 const (
-	maxTerraformJSONStructureTokens  = 100_000
+	// maxTerraformJSONStructureTokens bounds the structural characters
+	// ({ } [ ] , :) in one show payload. It is a pathology guard, not a size
+	// guard: real plan JSON is mostly string content, while degenerate input
+	// such as "[[[[..." is almost entirely structural.
+	//
+	// Memory is bounded separately and earlier by MaxStdoutBytes, 8 MiB by
+	// default, which admits at most 8,388,608 structural characters. The
+	// previous value of 100,000 therefore refused at roughly 1.2% of what the
+	// byte bound already permitted, and refused it for the wrong reason:
+	// structural-character count scales with how many resources a plan
+	// touches, so the cap tightened as a tenant grew and rejected plans
+	// Terraform itself produced without difficulty.
+	//
+	// One million keeps a real guard -- an eighth of what the byte bound
+	// allows, so degenerate payloads are still refused -- while leaving room
+	// for large legitimate plans.
+	maxTerraformJSONStructureTokens  = 1_000_000
 	maxTerraformJSONStringCharacters = 4 * 1024 * 1024
 	maxTerraformJSONScalarCharacters = 1024 * 1024
 )

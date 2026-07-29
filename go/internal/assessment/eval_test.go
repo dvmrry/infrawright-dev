@@ -150,6 +150,43 @@ func TestClassifyPlanRejectsIncompleteBeforePolicyMatching(t *testing.T) {
 	}
 }
 
+// assertRefreshDriftStance compares what this test is about -- the status a
+// finding receives and which section it came from -- rather than deep-equalling
+// whole findings. A finding grows fields for reasons unrelated to the demotion
+// stance, and pinning the entire struct here makes this test fail for those
+// reasons instead, in a file whose author is not looking at this behaviour.
+func assertRefreshDriftStance(
+	t *testing.T,
+	label string,
+	got, want PlanClassification,
+) {
+	t.Helper()
+	if got.Status != want.Status {
+		t.Errorf("%s status = %q, want %q", label, got.Status, want.Status)
+	}
+	if len(got.Findings) != len(want.Findings) {
+		t.Fatalf("%s findings = %#v, want %d findings", label, got.Findings, len(want.Findings))
+	}
+	for index, wantFinding := range want.Findings {
+		gotFinding := got.Findings[index]
+		if gotFinding.Status != wantFinding.Status ||
+			gotFinding.Source != wantFinding.Source ||
+			gotFinding.Address != wantFinding.Address {
+			t.Errorf("%s findings[%d] = %+v, want status %q source %q address %q",
+				label, index, gotFinding,
+				wantFinding.Status, wantFinding.Source, wantFinding.Address)
+		}
+		if !reflect.DeepEqual(gotFinding.Actions, wantFinding.Actions) {
+			t.Errorf("%s findings[%d].Actions = %#v, want %#v",
+				label, index, gotFinding.Actions, wantFinding.Actions)
+		}
+		if !reflect.DeepEqual(gotFinding.Paths, wantFinding.Paths) {
+			t.Errorf("%s findings[%d].Paths = %#v, want %#v",
+				label, index, gotFinding.Paths, wantFinding.Paths)
+		}
+	}
+}
+
 func TestClassifyPlanRefreshDriftStanceIsExplicitAndScoped(t *testing.T) {
 	// An import-only plan whose refresh found the recorded values stale. This
 	// is the adoption deadlock: resource_drift carries a change that only the
@@ -179,9 +216,7 @@ func TestClassifyPlanRefreshDriftStanceIsExplicitAndScoped(t *testing.T) {
 				Actions: []string{"create"}, Paths: []PlanPath{}},
 		},
 	}
-	if !reflect.DeepEqual(strict, wantStrict) {
-		t.Errorf("ClassifyPlan(refresh drift) = %#v, want %#v", strict, wantStrict)
-	}
+	assertRefreshDriftStance(t, "ClassifyPlan(refresh drift)", strict, wantStrict)
 
 	adopting, err := ClassifyPlanWithOptions(
 		adoptionPlan, nil, nil, ClassifyPlanOptions{TolerateRefreshDrift: true},
@@ -203,9 +238,9 @@ func TestClassifyPlanRefreshDriftStanceIsExplicitAndScoped(t *testing.T) {
 				Actions: []string{"create"}, Paths: []PlanPath{}},
 		},
 	}
-	if !reflect.DeepEqual(adopting, wantAdopting) {
-		t.Errorf("ClassifyPlanWithOptions(tolerate refresh drift) = %#v, want %#v", adopting, wantAdopting)
-	}
+	assertRefreshDriftStance(
+		t, "ClassifyPlanWithOptions(tolerate refresh drift)", adopting, wantAdopting,
+	)
 
 	// The same change reported by resource_changes is a real pending write,
 	// not a stale record, and stays blocked under the adoption stance.
