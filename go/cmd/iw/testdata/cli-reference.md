@@ -620,7 +620,6 @@ Usage:
 
 Flags:
       --allow-unverified-source   analyze explicitly bounded source without qualified provenance
-      --ast-tool-dir string       legacy AST tool directory
       --fail-on-regression        return non-zero when comparison regresses
   -h, --help                      help for source-evidence-eval
       --openapi string            OpenAPI document path
@@ -633,7 +632,6 @@ Flags:
       --schema string             Terraform provider schema path
       --sdk-file string           module-qualified SDK source file
       --sdk-root string           SDK module and local source root
-      --source-facts string       precomputed source-facts path
       --source-manifest string    qualified source manifest path
       --source-root string        provider source root directory
 ```
@@ -647,24 +645,22 @@ Usage:
   iw source-operation-map [flags]
 
 Flags:
-      --allow-unverified-source       analyze explicitly bounded source without qualified provenance
-      --artifact-dir string           complete source-evidence artifact directory
-      --diagnostics string            diagnostics output path
-  -h, --help                          help for source-operation-map
-      --openapi string                OpenAPI document path
-      --out string                    output path
-      --provider-file string          manifest-relative provider source file
-      --provider-module string        provider Go module identity
-      --provider-source string        Terraform provider source address
-      --resource-prefix string        Terraform resource-type prefix
-      --resources string              comma-separated resource filter
-      --schema string                 Terraform provider schema path
-      --sdk-file string               module-qualified SDK source file
-      --sdk-root string               SDK module and local source root
-      --source-facts string           precomputed source-facts path
-      --source-facts-compare string   source-facts comparison path
-      --source-manifest string        qualified source manifest path
-      --source-root string            provider source root directory
+      --allow-unverified-source   analyze explicitly bounded source without qualified provenance
+      --artifact-dir string       complete source-evidence artifact directory
+      --diagnostics string        diagnostics output path
+  -h, --help                      help for source-operation-map
+      --openapi string            OpenAPI document path
+      --out string                output path
+      --provider-file string      manifest-relative provider source file
+      --provider-module string    provider Go module identity
+      --provider-source string    Terraform provider source address
+      --resource-prefix string    Terraform resource-type prefix
+      --resources string          comma-separated resource filter
+      --schema string             Terraform provider schema path
+      --sdk-file string           module-qualified SDK source file
+      --sdk-root string           SDK module and local source root
+      --source-manifest string    qualified source manifest path
+      --source-root string        provider source root directory
 ```
 
 ## `iw stage-imports`

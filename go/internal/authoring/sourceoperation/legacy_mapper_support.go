@@ -365,32 +365,6 @@ func legacyResourceFiles(root string, resources []string, prefix string) (map[st
 	}
 	return out, nil
 }
-func legacyFactsFiles(root string, resources []string, facts map[string]any) map[string][]string {
-	out := map[string][]string{}
-	for _, resource := range resources {
-		out[resource] = nil
-	}
-	for _, item := range legacyArray(facts["resource_references"]) {
-		record := legacyObject(item)
-		resource, file := legacyString(record["resource"]), legacyFactPath(root, legacyString(record["file"]))
-		if _, ok := out[resource]; ok && file != "" {
-			out[resource] = append(out[resource], file)
-		}
-	}
-	for resource := range out {
-		out[resource] = legacySorted(out[resource])
-	}
-	return out
-}
-func legacyFactPath(root, value string) string {
-	if value == "" {
-		return ""
-	}
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value)
-	}
-	return filepath.Join(root, filepath.FromSlash(value))
-}
 func legacyTextEvidence(root string, files []string) (map[string]bool, []map[string]any, []map[string]any, []map[string]any, bool) {
 	var all []string
 	for _, filename := range files {
@@ -401,46 +375,4 @@ func legacyTextEvidence(root string, files []string) (map[string]bool, []map[str
 	}
 	joined := strings.Join(all, "\n")
 	return GoIdentifierTokens(joined), SDKClientCalls(joined, true), PackageCalls(joined, root), RawRESTCalls(joined), IsGraphQLSource(joined)
-}
-func legacySelected(files []string) map[string]bool {
-	out := map[string]bool{}
-	for _, file := range files {
-		out[filepath.ToSlash(file)] = true
-	}
-	return out
-}
-func legacySDKCallsFromFacts(root string, files []string, facts map[string]any, requireRole bool) []map[string]any {
-	selected := legacySelected(files)
-	calls := map[string]map[string]any{}
-	for _, item := range legacyArray(facts["selector_calls"]) {
-		record := legacyObject(item)
-		if !selected[filepath.ToSlash(legacyFactPath(root, legacyString(record["file"])))] {
-			continue
-		}
-		var parts []string
-		for _, part := range legacyArray(record["parts"]) {
-			parts = append(parts, legacyString(part))
-		}
-		if len(parts) == 0 {
-			parts = strings.Split(legacyString(record["symbol"]), ".")
-		}
-		last := -1
-		for i, part := range parts {
-			if part == "api" || part == "client" {
-				last = i
-			}
-		}
-		if last < 0 || last+1 >= len(parts) {
-			continue
-		}
-		suffix := parts[last+1:]
-		method := suffix[len(suffix)-1]
-		role := SDKMethodRole(method)
-		if role == "" && requireRole {
-			continue
-		}
-		symbol := strings.Join(suffix, ".")
-		calls[symbol] = map[string]any{"chain": suffix[:len(suffix)-1], "client_symbol": symbol, "method": method, "source_role": legacyNullableRole(role)}
-	}
-	return legacyCallMap(calls)
 }

@@ -105,34 +105,28 @@ path evidence, relationship resources can use list endpoints as
 GraphQL-backed resources are reported as `graphql_source` instead of being
 buried as ordinary unmapped REST misses.
 
-Before replacing the legacy source scanner with AST-backed evidence, run the
-A/B harness:
+For AST-backed source evidence, run the in-engine source-first analyzer. The
+legacy external-facts A/B harness (`SOURCE_FACTS` plus the standalone
+`tools/source-evidence-ast` collector) is retired; the same AST analysis now
+runs in-process:
 
 ```bash
 make source-evidence-eval \
   SCHEMA=tmp/provider-schema.json \
-  OPENAPI=tmp/openapi.json \
   SOURCE_ROOT=tmp/terraform-provider-example \
-  PROVIDER_SOURCE=registry.terraform.io/example/example \
-  RESOURCE_PREFIX=example \
+  SOURCE_MANIFEST=tmp/source-manifest.json \
   OUT_DIR=reports/readiness/example-source-eval
 ```
 
-The harness writes an artifact bundle:
+Pass `ALLOW_UNVERIFIED_SOURCE=1` (with `PROVIDER_MODULE`, `PROVIDER_FILE`,
+`SDK_ROOT`, and `RESOURCES` bounds) instead of `SOURCE_MANIFEST` for an
+explicitly bounded diagnostic run without qualified provenance.
 
-- `source-facts.json`: AST facts generated from provider source, unless
-  `SOURCE_FACTS=<facts.json>` was supplied.
-- `control-report.json`: legacy text-scanner source mapping.
-- `ast-report.json`: AST-backed source mapping.
-- `source-facts-compare.json`: raw old-vs-AST delta.
-- `source-evidence-eval.json` and `source-evidence-eval.md`: classified
-  evaluation report.
+The analyzer writes the sealed source-first bundle: `source-registry.json`,
+`source-diagnostics.json`, `summary.json`, `summary.md`,
+`input-provenance.json`, and `openapi-diagnostics.json`.
 
-Use `FAIL_ON_REGRESSION=1` in automation. The evaluator treats these as hard
-regressions: `mapped -> unmapped`, mapped read-path changes, and source files
-dropping to zero. New mappings, ambiguity changes, and read/list split changes
-are review-required. Same mapping with a narrower source-file set is usually
-acceptable and often means the AST path avoided a loose text false positive.
+Use `FAIL_ON_REGRESSION=1` in automation to fail on OpenAPI conflicts.
 
 ## SDK Path Evidence
 

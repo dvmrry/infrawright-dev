@@ -13,7 +13,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-const sdkPathCompatibilitySHA256 = "cf86f1e8e7095562ed4f777997af4c93735aa6610e4b199e855c3deef5f80b0c"
+const sdkPathCompatibilitySHA256 = "0dcffaed98f84d40fb811c4dc6d8352a469525194c2a603c761f6b2879561aa1"
 const digitalOceanProvider = "registry.terraform.io/digitalocean/digitalocean"
 
 const sdkScannerSource = `package sdk
@@ -123,7 +123,7 @@ func loadSDKPathCompatibility(t *testing.T) map[string]any {
 		t.Fatalf("canonjson.Decode(%q) error: %v", path, err)
 	}
 	root := legacyObject(decoded)
-	if legacyV1Number(root["schema_version"]) != 1 {
+	if version, ok := root["schema_version"].(json.Number); !ok || version.String() != "1" {
 		t.Fatalf("%s schema_version = %v, want 1", path, root["schema_version"])
 	}
 	return legacyObject(root["cases"])
@@ -185,13 +185,11 @@ func TestSDKSourceOperationReportsCompatibility(t *testing.T) {
 		name, resource, calls string
 		paths                 map[string]any
 		sdk                   map[string]string
-		facts                 func(string, string) map[string]any
 	}{
 		{name: "domain", resource: "digitalocean_domain", calls: "client.Domains.Get(ctx, name)", paths: domainPaths, sdk: map[string]string{"domains.go": domainsSDK}},
 		{name: "droplet", resource: "digitalocean_droplet", calls: "client.Droplets.Get(ctx, id)", paths: detail("droplets", "droplet_id"), sdk: map[string]string{"droplets.go": dropletsSDK}},
 		{name: "vpc", resource: "digitalocean_vpc", calls: "client.VPCs.Get(ctx, id)", paths: detail("vpcs", "vpc_id"), sdk: map[string]string{"vpcs.go": vpcsSDK}},
 		{name: "reserved_ip_action", resource: "digitalocean_reserved_ip", calls: "client.ReservedIPs.Get(ctx, name)\nclient.ReservedIPs.Assign(ctx, name)", paths: actionPaths, sdk: map[string]string{"reserved_ips.go": reservedIPsSDK}},
-		{name: "ast_sdk_action", resource: "digitalocean_reserved_ip", paths: actionPaths, sdk: map[string]string{"reserved_ips.go": reservedIPsSDK}, facts: reservedIPSourceFacts},
 		{name: "helper_action_disambiguation", resource: "digitalocean_reserved_ipv6", calls: "client.Actions.Get(ctx, actionID)\nclient.ReservedIPV6s.Get(ctx, name)", paths: mergeSDKPaths(detail("actions", "action_id"), detail("reserved_ipv6", "reserved_ipv6")), sdk: map[string]string{"action.go": actionsSDK, "reserved_ipv6.go": reservedIPv6sSDK}},
 		{name: "fuzzy_fallback", resource: "digitalocean_domain", calls: "client.Domains.Get(ctx, name)", paths: domainPaths},
 		{name: "unresolved_ambiguous_path", resource: "digitalocean_thing", calls: "client.Things.Get(ctx, id)", paths: mergeSDKPaths(detail("things", "a"), detail("things", "b")), sdk: map[string]string{"things.go": thingsSDK}},
@@ -200,13 +198,13 @@ func TestSDKSourceOperationReportsCompatibility(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := deriveSDKCompatibilityReport(t, test.resource, test.calls, test.paths, test.sdk, test.facts)
+			got := deriveSDKCompatibilityReport(t, test.resource, test.calls, test.paths, test.sdk)
 			assertSDKCompatibilityJSON(t, got, cases[test.name])
 		})
 	}
 }
 
-func deriveSDKCompatibilityReport(t *testing.T, resource, calls string, paths map[string]any, sdk map[string]string, facts func(string, string) map[string]any) map[string]any {
+func deriveSDKCompatibilityReport(t *testing.T, resource, calls string, paths map[string]any, sdk map[string]string) map[string]any {
 	t.Helper()
 	root := t.TempDir()
 	bare := strings.TrimPrefix(resource, "digitalocean_")
@@ -223,9 +221,6 @@ func deriveSDKCompatibilityReport(t *testing.T, resource, calls string, paths ma
 	if sdk != nil {
 		options.SDKRoot = filepath.Join(root, "sdk")
 	}
-	if facts != nil {
-		options.SourceFacts = facts(options.SourceRoot, relative)
-	}
 	report, err := DeriveLegacySourceOperationRegistry(options)
 	if err != nil {
 		t.Fatalf("DeriveLegacySourceOperationRegistry() error: %v", err)
@@ -235,18 +230,6 @@ func deriveSDKCompatibilityReport(t *testing.T, resource, calls string, paths ma
 
 func digitalOceanCompatibilitySchema(resource string) map[string]any {
 	return map[string]any{"provider_schemas": map[string]any{digitalOceanProvider: map[string]any{"resource_schemas": map[string]any{resource: map[string]any{"block": map[string]any{"attributes": map[string]any{"name": map[string]any{"required": true, "type": "string"}}}}}}}}
-}
-
-func reservedIPSourceFacts(sourceRoot, relative string) map[string]any {
-	return map[string]any{
-		"files": []any{map[string]any{"package": "reserved_ip", "path": relative}}, "functions": []any{}, "identifier_references": []any{}, "package_calls": []any{}, "raw_rest_calls": []any{}, "read_callbacks": []any{},
-		"resource_references": []any{map[string]any{"file": relative, "resource": "digitalocean_reserved_ip"}}, "resource_registrations": []any{},
-		"selector_calls": []any{
-			map[string]any{"file": relative, "function": "read", "parts": []any{"client", "ReservedIPs", "Get"}, "symbol": "client.ReservedIPs.Get"},
-			map[string]any{"file": relative, "function": "read", "parts": []any{"client", "ReservedIPs", "Assign"}, "symbol": "client.ReservedIPs.Assign"},
-		},
-		"source_root": sourceRoot,
-	}
 }
 
 func mergeSDKPaths(left, right map[string]any) map[string]any {

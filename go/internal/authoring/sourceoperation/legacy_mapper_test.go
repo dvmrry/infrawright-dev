@@ -180,12 +180,3 @@ func read() {
 		t.Errorf("example_missing source files = %#v, want empty", got)
 	}
 }
-
-func TestCompareLegacySourceOperationReports(t *testing.T) {
-	control := map[string]any{"registry": map[string]any{"a": map[string]any{"reason": nil, "status": "mapped", "source": map[string]any{"candidate_count": 1, "files": []any{"a.go"}}, "read": map[string]any{"evidence_kind": "read", "operation_id": "GetA", "path": "/a/{id}"}}}, "summary": map[string]any{"mapped": 1}}
-	candidate := map[string]any{"registry": map[string]any{"a": map[string]any{"reason": nil, "status": "mapped", "source": map[string]any{"candidate_count": 1, "files": []any{"a.go"}}, "read": map[string]any{"evidence_kind": "read", "operation_id": "GetA", "path": "/a/{id}"}}, "b": map[string]any{"reason": "resource_file_not_found", "status": "unmapped", "source": map[string]any{}}}, "summary": map[string]any{"mapped": 1, "unmapped": 1}}
-	got := CompareLegacySourceOperationReports(control, candidate)
-	if summary := legacyObject(got["summary"]); legacyNumber(summary["changed"]) != 1 || legacyNumber(summary["resources"]) != 2 || legacyNumber(summary["unchanged"]) != 1 || legacyNumber(summary["status_changes"]) != 1 {
-		t.Errorf("CompareLegacySourceOperationReports() summary = %#v, want one ordered status change", summary)
-	}
-}

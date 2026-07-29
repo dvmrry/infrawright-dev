@@ -30,7 +30,6 @@ type LegacyOptions struct {
 	SchemaData, OpenAPI                                 map[string]any
 	SourceRoot, ProviderSource, ResourcePrefix, SDKRoot string
 	Resources                                           []string
-	SourceFacts                                         map[string]any
 }
 
 func legacyObject(value any) map[string]any {
