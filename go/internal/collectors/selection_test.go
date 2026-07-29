@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
@@ -32,6 +33,56 @@ func loadFullRoot(t *testing.T) metadata.LoadedPackRoot {
 	return loaded
 }
 
+// testExpectsFetchable is deliberately a second implementation rather than a
+// call to hasFetchEntry. Deriving the expectation from the same predicate
+// production uses makes the oracle circular: a mutation widening
+// hasFetchEntry moves both sides together and the comparison still passes,
+// however wrong selection has become. Restating the rule against the raw
+// registry is what makes the agreement assertion mean something.
+func testExpectsFetchable(resource metadata.LoadedResourceMetadata) bool {
+	_, isFetchBlock := resource.Registry["fetch"].(map[string]any)
+	return isFetchBlock
+}
+
+// TestFetchPredicateAgainstAHandWrittenOracle pins the predicate itself
+// against cases whose answers are written out, not computed. The committed
+// root exercises the predicate over real data but cannot pin what it should
+// say: every entry there is one the predicate already classifies.
+func TestFetchPredicateAgainstAHandWrittenOracle(t *testing.T) {
+	tests := []struct {
+		name     string
+		registry metadata.JsonObject
+		want     bool
+	}{
+		{"fetch_block", metadata.JsonObject{"fetch": map[string]any{"path": "/x"}}, true},
+		{"empty_fetch_block", metadata.JsonObject{"fetch": map[string]any{}}, true},
+		{"no_fetch_key", metadata.JsonObject{"generate": true}, false},
+		{"fetch_false", metadata.JsonObject{"fetch": false}, false},
+		// "fetch": true is refused by metadata validation because it does not
+		// describe how to fetch; the predicate must not treat it as one.
+		{"fetch_true", metadata.JsonObject{"fetch": true}, false},
+		{"fetch_string", metadata.JsonObject{"fetch": "/x"}, false},
+		{"fetch_array", metadata.JsonObject{"fetch": []any{"/x"}}, false},
+		{"fetch_null", metadata.JsonObject{"fetch": nil}, false},
+		{"derive_only", metadata.JsonObject{"derive": map[string]any{"from": "other"}}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resource := metadata.LoadedResourceMetadata{
+				Type: "sample_resource", Product: "zia", Registry: test.registry,
+			}
+			if got := hasFetchEntry(resource); got != test.want {
+				t.Errorf("hasFetchEntry(%s) = %v, want %v", test.name, got, test.want)
+			}
+			// The test-side oracle has to agree, or the derived expectation
+			// in the committed-root test is measuring a different rule.
+			if got := testExpectsFetchable(resource); got != test.want {
+				t.Errorf("testExpectsFetchable(%s) = %v, want %v", test.name, got, test.want)
+			}
+		})
+	}
+}
+
 func TestSelectFetchResourcesAgainstCommittedRoot(t *testing.T) {
 	packRoot := loadFullRoot(t)
 
@@ -39,18 +90,43 @@ func TestSelectFetchResourcesAgainstCommittedRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SelectFetchResources(no selectors): %v", err)
 	}
-	if len(all) != 92 {
-		t.Errorf("len(all) = %d, want 92", len(all))
+	// The expectation is derived from the loaded registry rather than written
+	// as a literal. loadFullRoot reads whatever packs/ the consuming repo
+	// has, and packs are the downstream-owned layer, so asserting an exact
+	// cardinality here would make this engine test a constraint on what
+	// consumers may put in their own packs: adding a legitimate fetch block
+	// downstream would fail a test that repo neither owns nor can fix without
+	// diverging a vendored file. The property worth pinning is that selection
+	// agrees with the registry, which holds for any pack tree.
+	expected := map[string][]string{}
+	for resourceType, resource := range packRoot.Resources {
+		if testExpectsFetchable(resource) {
+			expected[resource.Product] = append(expected[resource.Product], resourceType)
+		}
+	}
+	total := 0
+	for product := range expected {
+		expected[product] = canonjson.SortedStrings(expected[product])
+		total += len(expected[product])
+	}
+	if len(all) != total {
+		t.Errorf("len(all) = %d, want %d fetch-bearing registry entries", len(all), total)
 	}
 
-	wantCounts := map[string]int{"zia": 56, "zpa": 16, "zcc": 5, "ztc": 15}
-	for product, want := range wantCounts {
+	// A floor, not an equality: it still catches fetch blocks disappearing
+	// from upstream's own packs, and a consuming tree only ever adds to them.
+	const upstreamFetchResourceFloor = 92
+	if len(all) < upstreamFetchResourceFloor {
+		t.Errorf("len(all) = %d, want at least %d", len(all), upstreamFetchResourceFloor)
+	}
+
+	for product, want := range expected {
 		got, err := SelectFetchResources(SelectFetchResourcesOptions{Root: packRoot, Selectors: []string{product}})
 		if err != nil {
 			t.Fatalf("SelectFetchResources(%q): %v", product, err)
 		}
-		if len(got) != want {
-			t.Errorf("len(SelectFetchResources(%q)) = %d, want %d", product, len(got), want)
+		if !equalStrings(got, want) {
+			t.Errorf("SelectFetchResources(%q) = %v, want %v", product, got, want)
 		}
 	}
 
@@ -64,21 +140,17 @@ func TestSelectFetchResourcesAgainstCommittedRoot(t *testing.T) {
 		t.Errorf("SelectFetchResources(derived) = %v, want [zpa_policy_access_rule]", derived)
 	}
 
-	zcc, err := SelectFetchResources(SelectFetchResourcesOptions{Root: packRoot, Selectors: []string{"zcc"}})
-	if err != nil {
-		t.Fatalf("SelectFetchResources(zcc): %v", err)
-	}
-	wantZcc := []string{
-		"zcc_device_cleanup", "zcc_failopen_policy", "zcc_forwarding_profile",
-		"zcc_trusted_network", "zcc_web_privacy",
-	}
-	if !equalStrings(zcc, wantZcc) {
-		t.Errorf("SelectFetchResources(zcc) = %v, want %v", zcc, wantZcc)
-	}
+	// Product selection is already compared against the derived expectation
+	// above, for every product the loaded tree carries. A second literal list
+	// here would reintroduce the same coupling for one product.
 
+	// The valid-product list is likewise derived: a consuming tree with an
+	// extra product would otherwise fail this on a message that correctly
+	// describes its own packs.
 	_, err = SelectFetchResources(SelectFetchResourcesOptions{Root: packRoot, Selectors: []string{"unknown"}})
-	if err == nil || !strings.Contains(err.Error(), "valid products: zcc, zia, zpa, ztc") {
-		t.Errorf("SelectFetchResources(unknown) error = %v, want a valid-products message", err)
+	wantProducts := "valid products: " + strings.Join(FetchProducts(packRoot), ", ")
+	if err == nil || !strings.Contains(err.Error(), wantProducts) {
+		t.Errorf("SelectFetchResources(unknown) error = %v, want it to contain %q", err, wantProducts)
 	}
 }
 
