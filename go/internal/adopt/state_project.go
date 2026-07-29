@@ -708,8 +708,10 @@ func applyPackDropIfDefault(output map[string]any, resourceType string, root *me
 		if err != nil {
 			return err
 		}
-		if status != "optional" {
-			return projectionErrorf("%s pack drop_if_default path %s is not optional (schema status %s)", resourceType, pathText, status)
+		if refusal := PackDropIfDefaultRefusal(status); refusal != "" {
+			return projectionErrorf(
+				"%s pack drop_if_default path %s %s", resourceType, pathText, refusal,
+			)
 		}
 		removeMatchingProjectionLeaves(output, selector, []any{dropDefaults[pathText]}, nil, true, transform.MatchesTransformDefault)
 	}

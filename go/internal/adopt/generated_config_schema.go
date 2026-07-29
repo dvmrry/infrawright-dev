@@ -154,6 +154,36 @@ func schemaStatusBlock(block metadata.JsonObject, path []any, label string, reso
 	return "unknown", nil
 }
 
+// PackDropIfDefaultRefusal reports why a pack drop_if_default path may not be
+// dropped, or "" when it may. Both call sites share it so the pack rule cannot
+// drift between projection and generated-config policy.
+//
+// The rule is deliberately not "optional only". A computed-only attribute is
+// never a valid config input -- the provider computes it -- so a projection
+// that emits one produces config Terraform will refuse or ignore, and dropping
+// it is the correction rather than a liberty. Refusing computed_only left the
+// pack vocabulary covering zero real cases: every entry a consumer wanted to
+// move out of per-consumer policy and into a shared pack targeted one.
+//
+// required stays refused, because dropping a required input produces config
+// Terraform rejects. So does a path that does not resolve, or one naming the
+// resource root: a pack ships to every consumer, and a default aimed at
+// nothing is a typo that silently suppresses nothing while reading as
+// coverage. The equivalent policy-side rule refuses only required; a pack is
+// held tighter than a consumer's own file on purpose.
+func PackDropIfDefaultRefusal(status string) string {
+	switch status {
+	case "optional", "computed_only":
+		return ""
+	case "required":
+		return "is a required input"
+	case "unknown":
+		return "does not resolve in the provider schema"
+	default:
+		return "has schema status " + status
+	}
+}
+
 // ProviderSchemaStatus ports providerSchemaStatus from
 // the original implementation. D3 reuses this narrow D1 substrate rather
 // than maintaining a second schema walker.

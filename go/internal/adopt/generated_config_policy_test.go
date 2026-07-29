@@ -25,6 +25,9 @@ func generatedPolicyRoot(t *testing.T, override metadata.JsonObject) *metadata.L
 				"description":    map[string]any{"type": "string", "optional": true},
 				"filled":         map[string]any{"type": "string", "optional": true},
 				"required_value": map[string]any{"type": "string", "required": true},
+				// Computed-only: the provider sets it and it is never a valid
+				// config input, which is the case a pack could not express.
+				"computed_id": map[string]any{"type": "string", "computed": true},
 			},
 			"block_types": map[string]any{
 				"optional_block": map[string]any{
@@ -354,5 +357,77 @@ func TestGeneratedConfigCompoundExpressionIsPreserved(t *testing.T) {
 	}
 	if result.Edits != 0 || result.Text != input {
 		t.Fatalf("compound expression changed: %#v", result)
+	}
+}
+
+// TestPackDropIfDefaultRefusalAllowsComputedOnly pins the rule the pack side
+// enforces. Refusing computed_only left the vocabulary covering zero real
+// cases: a computed-only attribute is never a valid config input, so a
+// projection that emits one produces config Terraform refuses or ignores, and
+// dropping it is the correction. required stays refused, and so does a path
+// that resolves to nothing, because a pack ships to every consumer and a
+// default aimed at nothing reads as coverage while suppressing nothing.
+func TestPackDropIfDefaultRefusalAllowsComputedOnlyAndStillRefusesTheRest(t *testing.T) {
+	tests := []struct {
+		status      string
+		wantRefusal string
+	}{
+		{status: "optional", wantRefusal: ""},
+		{status: "computed_only", wantRefusal: ""},
+		{status: "required", wantRefusal: "is a required input"},
+		{status: "unknown", wantRefusal: "does not resolve in the provider schema"},
+		{status: "block", wantRefusal: "has schema status block"},
+	}
+	for _, test := range tests {
+		t.Run(test.status, func(t *testing.T) {
+			if got := PackDropIfDefaultRefusal(test.status); got != test.wantRefusal {
+				t.Errorf(
+					"PackDropIfDefaultRefusal(%q) = %q, want %q",
+					test.status, got, test.wantRefusal,
+				)
+			}
+		})
+	}
+}
+
+// The end-to-end case the downstream evidence found: every entry they wanted
+// to move into a shared pack targeted a computed_only attribute, so before
+// this the pack side could express none of them.
+func TestGeneratedConfigPackDropIfDefaultDropsAComputedOnlyAttribute(t *testing.T) {
+	override := metadata.JsonObject{
+		"drop_if_default": metadata.JsonObject{"computed_id": "provider-assigned"},
+	}
+	input := "resource \"test_item\" \"example\" {\n" +
+		"  computed_id = \"provider-assigned\"\n" +
+		"  required_value = \"keep\"\n}\n"
+	result, err := ApplyGeneratedConfigPolicy(input, GeneratedConfigPolicyResource{
+		AddressToKey: map[string]string{"test_item.example": "key"},
+		Policy:       testPolicy(t, "projection_omit_if"),
+		ResourceType: testResourceType,
+	}, generatedPolicyRoot(t, override))
+	if err != nil {
+		t.Fatalf("ApplyGeneratedConfigPolicy(computed_only pack default) error = %v, want nil", err)
+	}
+	if result.Edits != 1 || strings.Contains(result.Text, "computed_id") {
+		t.Errorf("result = %#v, want the computed-only attribute dropped", result)
+	}
+	if !strings.Contains(result.Text, "required_value") {
+		t.Errorf("result = %#v, want the required input untouched", result)
+	}
+}
+
+// A pack may not drop a required input, whatever the mechanism.
+func TestGeneratedConfigPackDropIfDefaultStillRefusesRequiredInputs(t *testing.T) {
+	override := metadata.JsonObject{
+		"drop_if_default": metadata.JsonObject{"required_value": "keep"},
+	}
+	input := "resource \"test_item\" \"example\" {\n  required_value = \"keep\"\n}\n"
+	_, err := ApplyGeneratedConfigPolicy(input, GeneratedConfigPolicyResource{
+		AddressToKey: map[string]string{"test_item.example": "key"},
+		Policy:       testPolicy(t, "projection_omit_if"),
+		ResourceType: testResourceType,
+	}, generatedPolicyRoot(t, override))
+	if err == nil || !strings.Contains(err.Error(), "is a required input") {
+		t.Fatalf("ApplyGeneratedConfigPolicy(required pack default) error = %v, want a refusal", err)
 	}
 }

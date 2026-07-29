@@ -121,8 +121,11 @@ func generatedPolicyEntriesFor(root *metadata.LoadedPackRoot, resourceType strin
 		if err != nil {
 			return generatedPolicyEntries{}, err
 		}
-		if status != "optional" {
-			return generatedPolicyEntries{}, generatedConfigErrorf("%s generated import config pack drop_if_default path %s is not optional (schema status %s)", resourceType, pathText, status)
+		if refusal := PackDropIfDefaultRefusal(status); refusal != "" {
+			return generatedPolicyEntries{}, generatedConfigErrorf(
+				"%s generated import config pack drop_if_default path %s %s",
+				resourceType, pathText, refusal,
+			)
 		}
 		if !exactPolicyIndex(selector) {
 			result.Omits = append(result.Omits, generatedOmitEntry{Mode: omitPackDefault, Selector: selector, Values: []any{dropDefaults[pathText]}})
@@ -196,6 +199,20 @@ func generatedValueDepthDelta(text string) int {
 	return depth
 }
 
+// generatedOmitRefusal is the single place the omit rules live. A pack entry
+// is held tighter than a consumer's own policy entry: a pack ships to every
+// consumer, so a path that resolves to nothing is a typo worth refusing, while
+// the same mistake in a local policy file is the author's own to make.
+func generatedOmitRefusal(mode omitMode, status string) string {
+	if mode == omitPackDefault {
+		return PackDropIfDefaultRefusal(status)
+	}
+	if status == "required" {
+		return "is a required input"
+	}
+	return ""
+}
+
 func matchGeneratedOmit(path []any, parsed parsedGeneratedScalar, entries []generatedOmitEntry, resourceType string, schema metadata.JsonObject) (*generatedOmitEntry, error) {
 	if !parsed.Known {
 		return nil, nil
@@ -220,9 +237,16 @@ func matchGeneratedOmit(path []any, parsed parsedGeneratedScalar, entries []gene
 		if err != nil {
 			return nil, err
 		}
-		if status != "optional" {
+		// Admission already validated this selector, and this call re-derives
+		// the same status from the same selector. Enforcing a stricter rule
+		// here than admission used made entries admissible and then
+		// unusable: they passed the check that gates them and failed the one
+		// that applies them. Each mode is held to its own rule.
+		if refusal := generatedOmitRefusal(candidate.Mode, status); refusal != "" {
 			pathLabel := policyPathLabel(candidate)
-			return nil, generatedConfigErrorf("%s generated import config policy matched non-optional path %s (schema status %s)", resourceType, pathLabel, status)
+			return nil, generatedConfigErrorf(
+				"%s generated import config policy path %s %s", resourceType, pathLabel, refusal,
+			)
 		}
 		if candidate.Mode == omitProjection {
 			return candidate, nil
