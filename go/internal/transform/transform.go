@@ -147,19 +147,6 @@ func sortedObjectKeys[V any](m map[string]V) []string {
 	return canonjson.SortedStrings(mapKeys(m))
 }
 
-// isPlainJSONRecord reports whether value is a JSON object in this
-// package's dynamic value tree (map[string]any). Ports isPlainJsonRecord
-// from the original implementation, whose extra checks (own-property
-// descriptor enumerability, absence of a non-Object.prototype prototype,
-// absence of symbol keys) exist only to defend against JS objects
-// constructed in ways a bare `typeof value === "object"` test would miss
-// (getters/setters, Object.create(customProto), symbol-keyed properties).
-// None of that has a Go analogue: every map[string]any in this package's
-// tree is, by construction, exactly the shape isPlainJsonRecord verifies.
-func isPlainJSONRecord(value any) bool {
-	return canonjson.IsJSONRecord(value)
-}
-
 // stringArraySlice ports the local `stringArray` helper from
 // the original implementation: value must be a JSON array of strings,
 // or absent (nil/JSON null), which yields an empty result exactly like the

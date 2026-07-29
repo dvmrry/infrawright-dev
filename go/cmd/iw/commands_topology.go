@@ -106,11 +106,6 @@ func selectedDeploymentPath(parsed commandInput) (string, error) {
 	return deployment.DeploymentPath(deployment.DeploymentPathOptions{})
 }
 
-// resourcesCommand ports resourcesCommand.
-func resourcesCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newResourcesCobraCommand(), arguments)
-}
-
 func newResourcesCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "resources", short: "List generated resources",
@@ -191,11 +186,6 @@ func rootQueryCliOptionsInput(parsed commandInput) (rootQueryOptions, error) {
 	return options, nil
 }
 
-// rootsCommand ports rootsCommand.
-func rootsCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newRootQueryCobraCommand("roots", "Emit root topology", rootsInput), arguments)
-}
-
 func newRootQueryCobraCommand(use, short string, run func(commandInput) (int, error)) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: use, short: short,
@@ -238,11 +228,6 @@ func rootsInput(parsed commandInput) (int, error) {
 	}
 	fmt.Fprint(os.Stdout, rendered)
 	return 0, nil
-}
-
-// scopePathsCommand ports scopePathsCommand.
-func scopePathsCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newScopePathsCobraCommand(), arguments)
 }
 
 func newScopePathsCobraCommand() *cobra.Command {
@@ -322,11 +307,6 @@ func scopePathsInput(parsed commandInput) (int, error) {
 	return 0, nil
 }
 
-// planRootsCommand ports planRootsCommand.
-func planRootsCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newRootQueryCobraCommand("plan-roots", "Enumerate plan roots and artifacts", planRootsInput), arguments)
-}
-
 func planRootsInput(parsed commandInput) (int, error) {
 	options, err := rootQueryCliOptionsInput(parsed)
 	if err != nil {
@@ -357,11 +337,6 @@ func planRootsInput(parsed commandInput) (int, error) {
 	}
 	fmt.Fprint(os.Stdout, rendered)
 	return 0, nil
-}
-
-// genEnvCommand ports genEnv.
-func genEnvCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newGenEnvCobraCommand(), arguments)
 }
 
 func newGenEnvCobraCommand() *cobra.Command {
@@ -484,11 +459,6 @@ func environMap() map[string]string {
 	return output
 }
 
-// modulesCommand ports moduleOptions + modules.
-func modulesCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newModulesCobraCommand(), arguments)
-}
-
 func newModulesCobraCommand() *cobra.Command {
 	modules := &cobra.Command{
 		Use:   "modules",
@@ -502,7 +472,10 @@ func newModulesCobraCommand() *cobra.Command {
 		verb := verb
 		modules.AddCommand(newTypedCobraCommand(typedCobraCommandSpec{
 			use: verb, short: strings.ToUpper(verb[:1]) + verb[1:] + " Terraform modules",
-			valueFlags: []string{"--resource", "--out", "--deployment", "--root", "--profile", "--terraform"},
+			// No --terraform: module generation renders HCL from pack metadata
+			// and never executes Terraform, so the flag was accepted and then
+			// silently ignored.
+			valueFlags: []string{"--resource", "--out", "--deployment", "--root", "--profile"},
 			run: func(parsed commandInput) (int, error) {
 				return legacyPlanLifecycleCommand(func() (int, error) {
 					if len(parsed.Positionals) != 0 {

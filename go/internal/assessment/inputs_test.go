@@ -22,10 +22,6 @@ func assessmentString(value string) *string {
 	return &value
 }
 
-func assessmentBool(value bool) *bool {
-	return &value
-}
-
 func assessmentResourceSet(resources ...metadata.ResourceDescriptor) metadata.ResourceSet {
 	return metadata.ResourceSet{
 		DeclaredProviders: []string{"zpa"},

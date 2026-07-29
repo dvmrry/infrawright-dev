@@ -161,11 +161,6 @@ func (adapter *lazyRefreshTerraform) Apply(request plan.RefreshApplyRequest) err
 	return adapter.adapter.Apply(request)
 }
 
-// refreshCommand reconciles recorded state with reality.
-func refreshCommand(arguments []string) (int, error) {
-	return refreshCommandWithDependencies(arguments, defaultRefreshCommandDependencies())
-}
-
 func refreshCommandWithDependencies(
 	arguments []string,
 	dependencies refreshCommandDependencies,

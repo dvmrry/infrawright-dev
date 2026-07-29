@@ -64,9 +64,24 @@ func readV2TransformGolden(t *testing.T, root, name string) []byte {
 	return content
 }
 
+// readV2TransformTreeGolden reads the shipped demo authority rather than a
+// second committed copy of the same bytes. `make check-demo` already pins
+// demo/ as the published output, so a private duplicate under testdata only
+// added a tree that had to be regenerated in lockstep with it. Only the two
+// subtrees transform actually writes are collected; demo/ also carries its own
+// deployment.json and Makefile, which are inputs, not transform output.
 func readV2TransformTreeGolden(t *testing.T, root string) map[string][]byte {
 	t.Helper()
-	return treeBytes(t, filepath.Join(root, "go", "cmd", "iw", v2TransformGoldenRoot, "tree"))
+	golden := map[string][]byte{}
+	for _, subtree := range []string{"config", "imports"} {
+		for path, content := range treeBytes(t, filepath.Join(root, "demo", subtree)) {
+			golden[subtree+"/"+path] = content
+		}
+	}
+	if len(golden) == 0 {
+		t.Fatal("demo authority tree is empty; expected demo/config and demo/imports")
+	}
+	return golden
 }
 
 func runV2TransformAuthority(t *testing.T, repositoryRoot, binary, name string) v2TransformAuthorityRun {

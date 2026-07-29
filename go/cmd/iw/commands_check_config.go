@@ -61,17 +61,6 @@ func newCheckConfigCobraCommand(dependencies checkConfigCommandDependencies) *co
 	})
 }
 
-func checkConfigCommand(arguments []string) (int, error) {
-	return checkConfigCommandWithDependencies(arguments, defaultCheckConfigCommandDependencies())
-}
-
-func checkConfigCommandWithDependencies(
-	arguments []string,
-	dependencies checkConfigCommandDependencies,
-) (int, error) {
-	return executeStandaloneCobra(newCheckConfigCobraCommand(dependencies), arguments)
-}
-
 func checkConfigInput(parsed commandInput, dependencies checkConfigCommandDependencies) (int, error) {
 	rootDirectory, err := dependencies.packageRoot()
 	if err != nil {

@@ -149,13 +149,6 @@ func assessmentTerraformResolver(explicit *string) func() (string, error) {
 	}
 }
 
-func assessmentCommand(
-	arguments []string,
-	mode assessment.AssessmentMode,
-) (int, error) {
-	return executeStandaloneCobra(newAssessmentCobraCommand(mode), arguments)
-}
-
 func assessmentCobraSpec(
 	mode assessment.AssessmentMode,
 	run func(commandInput) (int, error),
@@ -204,12 +197,4 @@ func assessmentCommandInput(parsed commandInput, mode assessment.AssessmentMode)
 		return 0, err
 	}
 	return runAssessmentCommand(options, mode, workspace)
-}
-
-func assertCleanCommand(arguments []string) (int, error) {
-	return assessmentCommand(arguments, assessment.AssertClean)
-}
-
-func assertAdoptableCommand(arguments []string) (int, error) {
-	return assessmentCommand(arguments, assessment.AssertAdoptable)
 }

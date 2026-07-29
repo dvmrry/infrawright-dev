@@ -71,17 +71,23 @@ jobs:
         with:
           go-version: "1.26.5"
           cache-dependency-path: go/go.sum
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-        with:
-          terraform_version: "1.15.4"
-          terraform_wrapper: false
       - name: Verify Go formatting and vet
         run: |
           test -z "$(gofmt -l go/cmd go/internal)"
           cd go
           go vet ./...
       - name: Whitespace hygiene
-        run: git diff --check
+        # `git diff --check` alone inspects the working tree, which is clean on
+        # a fresh checkout and so never inspected the PR's own commits. Diff
+        # against the merge base instead.
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            echo "No pull-request base; checking the last commit."
+            git diff --check HEAD~1 HEAD
+            exit 0
+          fi
+          git diff --check "$(git merge-base "$base" HEAD)" HEAD
 
   full-go-check:
     needs: scope

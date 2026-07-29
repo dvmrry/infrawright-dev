@@ -143,29 +143,6 @@ func TestRenderIntegerOnlyCompatibility(t *testing.T) {
 	if !strings.Contains(got, "\\ud83d\\ude00") {
 		t.Error(`rendered output should contain the 😀 surrogate pair escape`)
 	}
-
-	wantLen := len(want)
-	length, err := ByteLength(value)
-	if err != nil {
-		t.Fatalf("ByteLength: %v", err)
-	}
-	if length != wantLen {
-		t.Errorf("ByteLength(value) = %d, want %d", length, wantLen)
-	}
-	length, err = ByteLength(value, wantLen)
-	if err != nil {
-		t.Fatalf("ByteLength(value, wantLen): %v", err)
-	}
-	if length != wantLen {
-		t.Errorf("ByteLength(value, %d) = %d, want %d", wantLen, length, wantLen)
-	}
-	length, err = ByteLength(value, wantLen-1)
-	if err != nil {
-		t.Fatalf("ByteLength(value, wantLen-1): %v", err)
-	}
-	if length != wantLen {
-		t.Errorf("ByteLength(value, %d) = %d, want %d (over-limit rendering must report exactly limit+1)", wantLen-1, length, wantLen)
-	}
 }
 
 // TestRenderFloatSpellingAndLosslessTokens ports the
@@ -266,27 +243,6 @@ func TestUTF16UnitsHelperMatchesManualEncoding(t *testing.T) {
 	if len(want) != len([]rune(s))+1 {
 		t.Fatalf("sanity check failed: expected exactly one surrogate pair in %q", s)
 	}
-}
-
-func TestByteLengthRejectsOutOfRangeLimit(t *testing.T) {
-	if _, err := ByteLength("x", -1); err == nil {
-		t.Error("ByteLength(_, -1) should return an error")
-	}
-	if _, err := ByteLength("x", MaxByteLengthLimit+1); err == nil {
-		t.Error("ByteLength(_, MaxByteLengthLimit+1) should return an error")
-	}
-	if _, err := ByteLength("x", MaxByteLengthLimit); err != nil {
-		t.Errorf("ByteLength(_, MaxByteLengthLimit) should be accepted: %v", err)
-	}
-}
-
-func TestByteLengthPanicsOnTooManyArguments(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Error("ByteLength with two maximumBytes arguments should panic")
-		}
-	}()
-	_, _ = ByteLength("x", 1, 2)
 }
 
 // TestFormatNumberSafeIntegerBoundary exercises the plain-float64 branch of

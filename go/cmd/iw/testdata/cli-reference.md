@@ -427,7 +427,6 @@ Flags:
       --profile string      pack profile path
       --resource string     resource selector (repeatable)
       --root string         pack root directory
-      --terraform string    Terraform executable path
 ```
 
 ## `iw modules validate`
@@ -445,7 +444,6 @@ Flags:
       --profile string      pack profile path
       --resource string     resource selector (repeatable)
       --root string         pack root directory
-      --terraform string    Terraform executable path
 ```
 
 ## `iw openapi-map`

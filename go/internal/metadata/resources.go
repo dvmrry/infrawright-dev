@@ -640,12 +640,6 @@ func loadRegistry(metadata PackMetadata, packNames []string) LoadedRegistry {
 	return LoadedRegistry{Entries: entries, Sources: sources}
 }
 
-// LoadRegistry ports loadRegistry from the original implementation.
-func LoadRegistry(metadata PackMetadata, packNames []string) (registry LoadedRegistry, err error) {
-	defer recoverMetadataError(&err)
-	return loadRegistry(metadata, packNames), nil
-}
-
 func firstNonEmpty(candidate, fallback string) string {
 	if candidate != "" {
 		return candidate
@@ -700,14 +694,6 @@ func validateUnsupportedProviderScopes(metadata PackMetadata, registry LoadedReg
 			}
 		}
 	}
-}
-
-// ValidateUnsupportedProviderScopes ports
-// validateUnsupportedProviderScopes from the original implementation.
-func ValidateUnsupportedProviderScopes(metadata PackMetadata, registry LoadedRegistry) (err error) {
-	defer recoverMetadataError(&err)
-	validateUnsupportedProviderScopes(metadata, registry)
-	return nil
 }
 
 // validateOverride ports validateOverride from
@@ -826,21 +812,8 @@ func loadOverrides(metadata PackMetadata, packNames []string) LoadedOverrides {
 	return LoadedOverrides{Entries: entries, Sources: sources}
 }
 
-// LoadOverrides ports loadOverrides from the original implementation.
-func LoadOverrides(metadata PackMetadata, packNames []string) (overrides LoadedOverrides, err error) {
-	defer recoverMetadataError(&err)
-	return loadOverrides(metadata, packNames), nil
-}
-
 func providerSchemaPath(metadata PackMetadata, provider string) string {
 	return filepath.Join(manifestForProvider(metadata, provider).Directory, "schemas", "provider", provider+".json")
-}
-
-// ProviderSchemaPath ports providerSchemaPath from
-// the original implementation.
-func ProviderSchemaPath(metadata PackMetadata, provider string) (path string, err error) {
-	defer recoverMetadataError(&err)
-	return providerSchemaPath(metadata, provider), nil
 }
 
 func loadProviderSchema(metadata PackMetadata, provider string) ProviderSchema {

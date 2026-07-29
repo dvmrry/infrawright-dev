@@ -64,12 +64,6 @@ var readOnlyNames = map[string]struct{}{
 	"owner": {}, "tagged_items": {}, "url": {},
 }
 
-// Buckets returns the twelve reconciliation buckets in the authority's
-// stable order. The returned slice is detached from package state.
-func Buckets() []ReconciliationBucket {
-	return append([]ReconciliationBucket(nil), reconciliationBuckets[:]...)
-}
-
 // ProviderSchemaFromTerraformDump selects the provider schema containing
 // resourceType from a Terraform provider-schema dump. It ports
 // providerSchemaFromTerraformDump from the original implementation.

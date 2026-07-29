@@ -89,10 +89,6 @@ const (
 	sourceModeUnverified
 )
 
-func sourceOperationMapCommand(arguments []string) (int, error) {
-	return sourceOperationMapCommandWithDependencies(arguments, defaultAuthoringSourceDependencies())
-}
-
 func sourceOperationMapCommandWithDependencies(arguments []string, dependencies authoringSourceDependencies) (int, error) {
 	return executeStandaloneCobra(newSourceOperationMapCobraCommand(dependencies), arguments)
 }
@@ -224,10 +220,6 @@ func legacySourceOptions(parsed commandInput, dependencies authoringSourceDepend
 		options.SourceFacts = facts
 	}
 	return options, nil
-}
-
-func sourceEvidenceEvalCommand(arguments []string) (int, error) {
-	return sourceEvidenceEvalCommandWithDependencies(arguments, defaultAuthoringSourceDependencies())
 }
 
 func sourceEvidenceEvalCommandWithDependencies(arguments []string, dependencies authoringSourceDependencies) (int, error) {

@@ -327,9 +327,13 @@ func newCobraRootWithTerraformPreflight(preflight func() error) *cobra.Command {
 // on every platform without a second, divergent argv parser.
 func cobraCommandRequiresTerraformExecution(command *cobra.Command) (bool, error) {
 	switch command.CommandPath() {
-	case "iw adopt", "iw gen-env", "iw plan", "iw refresh", "iw assert-clean", "iw assert-adoptable", "iw apply", "iw modules generate":
+	// `iw modules generate` is deliberately absent: it renders HCL from pack
+	// metadata and never shells out to Terraform, so gating it only made the
+	// command unavailable on unsupported platforms for no reason.
+	case "iw adopt", "iw plan", "iw refresh", "iw assert-clean", "iw assert-adoptable", "iw apply":
 		return true, nil
-	case "iw stage-imports":
+	// gen-env and stage-imports reach Terraform only under --state-aware.
+	case "iw gen-env", "iw stage-imports":
 		enabled, err := command.Flags().GetBool("state-aware")
 		if err != nil {
 			return false, fmt.Errorf("read --state-aware: %w", err)

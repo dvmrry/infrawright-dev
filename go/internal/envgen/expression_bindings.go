@@ -145,13 +145,6 @@ func newHclExpression(expression string) *HclExpression {
 	return &HclExpression{Expression: validateExpression(expression, "HclExpression")}
 }
 
-// NewHclExpression ports the HclExpression constructor from
-// the original implementation.
-func NewHclExpression(expression string) (result *HclExpression, err error) {
-	defer recoverBindingsError(&err)
-	return newHclExpression(expression), nil
-}
-
 // pythonJSONString ports the local pythonJsonString helper from
 // the original implementation: `JSON.stringify(value)` with
 // every UTF-16 code unit at or above 0x7F additionally escaped as \uXXXX
@@ -534,13 +527,6 @@ func validateExpression(expression any, context string) string {
 		)
 	}
 	return s
-}
-
-// ValidateExpression ports validateExpression from
-// the original implementation.
-func ValidateExpression(expression any, context string) (result string, err error) {
-	defer recoverBindingsError(&err)
-	return validateExpression(expression, context), nil
 }
 
 // renderPath ports renderPath from the original implementation.
