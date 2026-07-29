@@ -23,6 +23,13 @@ type PlanSchemaTypes struct {
 	setAttributes map[string]map[string]struct{}
 }
 
+// A set carrying a sensitive member is a case the clearing rule never reaches.
+// Terraform's sensitivity masks are positional arrays, so reordering such a set
+// reorders its mask, updatePathsFrom sees the mask move, and the record blocks
+// on SensitivityChange before set equality is consulted. That is fail-closed
+// and correct, but it means "a set whose members match is reported clean" holds
+// only for sets with no sensitive member.
+
 // SetAttributes returns the top-level set-typed attribute names for one
 // resource type. A nil result means every array on that resource is compared by
 // position, which is what an unknown resource type gets: absent schema evidence
@@ -43,11 +50,22 @@ func (types PlanSchemaTypes) Empty() bool {
 // NewPlanSchemaTypes reads the set-typed top-level attributes of every resource
 // type active in root.
 //
-// Only top-level attributes are read. A collection nested inside a block keeps
-// its positional identity in the plan -- Terraform addresses block instances by
-// index -- so collapsing one would lose the address a reviewer needs. The
-// resource-level attribute is the only place where a whole set is one value
-// with one name.
+// Only top-level attributes are read, and that is a scope limit rather than a
+// principle. It would be wrong to claim nested collections are positional: a
+// block_types entry with nesting_mode "set" is tracked by element hash exactly
+// as a set attribute is, and the installed packs carry hundreds of them (318 in
+// zia alone, plus 254 set attributes nested inside blocks -- more nested
+// surfaces than top-level ones). The reported defect is a top-level attribute,
+// this reads top-level attributes, and everything else stays positional, which
+// over-reports rather than under-reports. Extending to nested set blocks is
+// tracked separately; until then the limitation is here, in the open.
+//
+// Note that the same schema can spell one concept two ways: a plugin-framework
+// nested_type attribute with mode "set" arrives through TerraformAttributeType
+// as a TerraformCollectionType and is therefore already collapsed, while an
+// SDKv2 block_types entry with nesting_mode "set" is not, because this function
+// never reads block_types. That inconsistency is a consequence of the scope
+// limit above, not a deliberate distinction.
 //
 // A schema this cannot read is an error rather than a resource type quietly
 // left positional: the difference between the two is thousands of findings, and

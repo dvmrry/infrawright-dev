@@ -414,10 +414,20 @@ func TestClassifyPlanSuppressedSetReorderDoesNotClearTheRecord(t *testing.T) {
 }
 
 // TestClassifyPlanSetEqualityDoesNotClearNonValueDrift pins the boundary of
-// the clearing rule from the other side. Identity metadata and the sensitivity
-// mask contribute paths without contributing values, so a record can carry a
-// set whose members match and still have drift the value walk never sees. Set
-// equality explains the values only; it may not clear the record.
+// the clearing rule from the other side. Identity metadata, the sensitivity
+// mask, and unknown-until-apply values all contribute paths without
+// contributing values, so a record can carry a set whose members match and
+// still have drift the value walk never sees. Set equality explains the values
+// only; it may not clear the record.
+//
+// The root-level unknown case is the one that needs saying out loud. When
+// Terraform marks the entire post-apply value unknown, after_unknown is a bare
+// true, TruthyPaths yields one zero-length path, and that path becomes the
+// opaque marker rather than a named one -- so the record reaches the clearing
+// rule looking exactly like a record whose values diffed to nothing. Nothing in
+// before or after distinguishes it, which means explainedBySetEquality cannot;
+// only the after_unknown guard can, and this is what proves the guard is doing
+// that work.
 func TestClassifyPlanSetEqualityDoesNotClearNonValueDrift(t *testing.T) {
 	for _, test := range []struct {
 		name, extra string
@@ -432,6 +442,16 @@ func TestClassifyPlanSetEqualityDoesNotClearNonValueDrift(t *testing.T) {
 			"sensitivity_mask_moved",
 			`"before_sensitive":{},"after_sensitive":{"configured_name":true},`,
 			PlanPath{SensitivityChange},
+		},
+		{
+			"whole_value_unknown_until_apply",
+			`"after_unknown":true,`,
+			PlanPath{OpaqueUpdate},
+		},
+		{
+			"whole_set_unknown_until_apply",
+			`"after_unknown":{"db_categorized_urls":true},`,
+			PlanPath{"db_categorized_urls"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
