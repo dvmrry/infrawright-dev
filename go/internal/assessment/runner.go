@@ -278,7 +278,15 @@ func emitRunnerFindings(
 			address = "None"
 		}
 		emit("  " + address + " " + strings.Join(finding.Actions, ",") + " " + string(finding.Status))
+		content := make(map[string]string, len(finding.Changes))
+		for _, change := range finding.Changes {
+			content[change.Path] = runnerChangeSummary(change)
+		}
 		for _, planPath := range finding.Paths {
+			if summary, ok := content[planPath]; ok {
+				emit("    - " + planPath + ": " + summary)
+				continue
+			}
 			emit("    - " + planPath)
 		}
 	}
@@ -695,4 +703,45 @@ func runSavedPlanAssertion(
 // assessment primitives.
 func RunSavedPlanAssertion(options RunSavedPlanAssertionOptions) error {
 	return runSavedPlanAssertion(options, productionSavedPlanAssertionHooks())
+}
+
+// runnerChangeSummary renders one change so a reviewer can name it without
+// opening the plan. A redacted change says that it moved and nothing more.
+func runnerChangeSummary(change NormalizedPlanChange) string {
+	if change.Sensitive {
+		return "(sensitive value changed)"
+	}
+	if change.Kind == string(SetChange) {
+		parts := make([]string, 0, 2)
+		if len(change.Added) > 0 {
+			parts = append(parts, fmt.Sprintf("+%d (%s)", len(change.Added), runnerValueList(change.Added)))
+		}
+		if len(change.Removed) > 0 {
+			parts = append(parts, fmt.Sprintf("-%d (%s)", len(change.Removed), runnerValueList(change.Removed)))
+		}
+		return strings.Join(parts, ", ")
+	}
+	return runnerValueText(change.Before) + " -> " + runnerValueText(change.After)
+}
+
+func runnerValueList(values []any) string {
+	rendered := make([]string, len(values))
+	for index, value := range values {
+		rendered[index] = runnerValueText(value)
+	}
+	return strings.Join(rendered, ", ")
+}
+
+func runnerValueText(value any) string {
+	if value == nil {
+		return "null"
+	}
+	if text, ok := value.(string); ok {
+		return text
+	}
+	rendered, err := canonjson.Render(value)
+	if err != nil {
+		return "?"
+	}
+	return strings.TrimSuffix(rendered, "\n")
 }

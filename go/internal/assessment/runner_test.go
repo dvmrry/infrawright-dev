@@ -1121,3 +1121,53 @@ func TestEmitRunnerAssessmentExactDiagnostics(t *testing.T) {
 		t.Errorf("emitRunnerAssessment(assert-clean) diagnostics = %#v, want exact NOT CLEAN line", diagnostics)
 	}
 }
+
+// TestRunnerChangeSummaryNamesTheChange is criterion 6 at the surface an
+// operator actually reads: the gate line should say what moved, not only
+// where. The sensitive case must name the field and nothing else.
+func TestRunnerChangeSummaryNamesTheChange(t *testing.T) {
+	tests := []struct {
+		name   string
+		change NormalizedPlanChange
+		want   string
+	}{
+		{
+			name: "scalar",
+			change: NormalizedPlanChange{
+				Path: "urls_retaining_parent_category_count", Kind: "scalar",
+				Before: json.Number("36"), After: json.Number("38"),
+			},
+			want: "36 -> 38",
+		},
+		{
+			name: "set_additions",
+			change: NormalizedPlanChange{
+				Path: "db_categorized_urls", Kind: "set",
+				Added: []any{"substrate.office.com", "support.devrev.ai"},
+			},
+			want: "+2 (substrate.office.com, support.devrev.ai)",
+		},
+		{
+			name: "set_both_directions",
+			change: NormalizedPlanChange{
+				Path: "db_categorized_urls", Kind: "set",
+				Added: []any{"new.example"}, Removed: []any{"old.example"},
+			},
+			want: "+1 (new.example), -1 (old.example)",
+		},
+		{
+			name: "sensitive",
+			change: NormalizedPlanChange{
+				Path: "token", Kind: "scalar", Sensitive: true,
+			},
+			want: "(sensitive value changed)",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := runnerChangeSummary(test.change); got != test.want {
+				t.Errorf("runnerChangeSummary(%s) = %q, want %q", test.name, got, test.want)
+			}
+		})
+	}
+}
