@@ -148,6 +148,7 @@ func runnerTestHooks(report SavedPlanAssessmentReport) runSavedPlanAssertionHook
 		guidanceSource: func(metadata.LoadedPackRoot) AssessmentGuidanceSource {
 			return AssessmentGuidanceSource{}
 		},
+		schemaTypes: NewPlanSchemaTypes,
 	}
 }
 

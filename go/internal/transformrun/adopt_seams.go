@@ -43,13 +43,16 @@ func TransformHasInferredLookupLifecycleForAdopt(
 }
 
 // TransformBindingContextForAdopt exposes the ordinary transform runner's
-// binding-context derivation to adoption.
+// binding-context derivation to adoption. The schema carries the set-block
+// field map; adoption is the path that binds real tenant data, so it must
+// classify block nesting exactly as the transform runner does.
 func TransformBindingContextForAdopt(
 	dep deployment.Deployment,
 	root metadata.LoadedPackRoot,
 	resource metadata.LoadedResourceMetadata,
 	resourceRoots map[string]string,
 	references map[string]tfrender.TransformReferenceSpec,
-) tfrender.BindingContext {
-	return transformBindingContext(dep, root, resource, resourceRoots, references)
+	schema metadata.JsonObject,
+) (tfrender.BindingContext, error) {
+	return transformBindingContext(dep, root, resource, resourceRoots, references, schema)
 }

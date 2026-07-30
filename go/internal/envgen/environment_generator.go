@@ -716,8 +716,9 @@ func compareBoundReference(left, right boundRemoteStateReference) int {
 // of the topology and pack-declared cross-state edges used by every generated
 // root's binding validation.
 type remoteStateReferenceValidationIndex struct {
-	declared     map[string]bool
-	rootsByLabel map[string]roots.RootTopologyRoot
+	declared       map[string]bool
+	declaredFields map[string][]string
+	rootsByLabel   map[string]roots.RootTopologyRoot
 }
 
 // remoteStateDeclaredEdgeKey preserves the Node port's exact composite key for
@@ -739,6 +740,7 @@ func newRemoteStateReferenceValidationIndex(
 	rootsByLabel map[string]roots.RootTopologyRoot,
 ) remoteStateReferenceValidationIndex {
 	declared := make(map[string]bool, len(crossState.Edges))
+	declaredFields := make(map[string][]string, len(crossState.Edges))
 	for _, edge := range crossState.Edges {
 		key := remoteStateDeclaredEdgeKey(
 			edge.Referrer,
@@ -748,11 +750,21 @@ func newRemoteStateReferenceValidationIndex(
 			edge.ReferentRoot,
 		)
 		declared[key] = true
+		identity := remoteStateDeclaredEdgeIdentity(edge.Referrer, edge.ReferrerRoot, edge.Referent, edge.ReferentRoot)
+		declaredFields[identity] = append(declaredFields[identity], edge.Field)
 	}
 	return remoteStateReferenceValidationIndex{
-		declared:     declared,
-		rootsByLabel: rootsByLabel,
+		declared:       declared,
+		declaredFields: declaredFields,
+		rootsByLabel:   rootsByLabel,
 	}
+}
+
+// remoteStateDeclaredEdgeIdentity keys an edge by everything except its
+// field, so a binding can be matched against the declared fields of one
+// referrer/referent pair.
+func remoteStateDeclaredEdgeIdentity(referrer, referrerRoot, referent, referentRoot string) string {
+	return referrer + "\x00" + referrerRoot + "\x00" + referent + "\x00" + referentRoot
 }
 
 // validateRemoteStateReferences ports the local
@@ -786,7 +798,27 @@ func validateRemoteStateReferences(
 			reference.ResourceType,
 			reference.Root,
 		)
-		if !index.declared[key] {
+		// A binding may sit exactly on a declared field, or on a block leaf
+		// above one. The leaf form is not a loosening but the only legal
+		// spelling for a set-nested block: set members have no stable order,
+		// the schema-path validator refuses an indexed path into one and
+		// advises binding the complete block leaf, and the complete-leaf
+		// binding carries the declared field beneath it. Referrer, referent,
+		// and both roots stay pinned; only the field comparison admits
+		// leaf-covers-declared.
+		accepted := index.declared[key]
+		if !accepted {
+			identity := remoteStateDeclaredEdgeIdentity(
+				reference.Referrer, currentRoot, reference.ResourceType, reference.Root,
+			)
+			for _, declaredField := range index.declaredFields[identity] {
+				if strings.HasPrefix(declaredField, reference.Field+".") {
+					accepted = true
+					break
+				}
+			}
+		}
+		if !accepted {
 			return fmt.Errorf(
 				"cross-state binding %s.%s to %s in root %s is not declared by pack reference metadata",
 				reference.Referrer, reference.Field, reference.ResourceType, reference.Root,
@@ -1138,7 +1170,13 @@ func RenderEnvironmentSmokeTest(options RenderEnvironmentSmokeTestOptions) (stri
 				if err != nil {
 					return "", err
 				}
-				lines = append(lines, fmt.Sprintf("          %s = \"infrawright-test-reference-id\"", quoted))
+				// The mocked reference ID is a numeric string on purpose.
+				// Terraform converts "20090001" to a number where the bound
+				// attribute is number-typed (ZIA set-block ids) and leaves it
+				// a string where it is string-typed (ZPA ids), so one
+				// sentinel plans everywhere. A non-numeric sentinel fails
+				// conversion at plan time for every number-typed reference.
+				lines = append(lines, fmt.Sprintf("          %s = \"20090001\"", quoted))
 			}
 			lines = append(lines, "        }")
 		}

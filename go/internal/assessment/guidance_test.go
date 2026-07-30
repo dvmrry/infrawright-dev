@@ -301,6 +301,7 @@ func TestProviderGuidanceClonesExpectedValuePerCandidate(t *testing.T) {
 		NewAssessmentGuidanceSource(guidanceRoot(data)),
 		plan,
 		"sample_resource",
+		PlanSchemaTypes{},
 	)
 	if err != nil {
 		t.Fatalf("providerConfigGuidance(two candidates) error = %v, want nil", err)

@@ -327,10 +327,18 @@ func transformArtifactOptions(
 	if err != nil {
 		return tfrender.TransformArtifactCompileOptions{}, err
 	}
+	schema, err := options.Root.LoadResourceSchema(resource.Type)
+	if err != nil {
+		return tfrender.TransformArtifactCompileOptions{}, err
+	}
+	bindingContext, err := transformrun.TransformBindingContextForAdopt(
+		options.Deployment, options.Root, resource, resourceRoots, references, schema,
+	)
+	if err != nil {
+		return tfrender.TransformArtifactCompileOptions{}, err
+	}
 	return tfrender.TransformArtifactCompileOptions{
-		BindingContext: transformrun.TransformBindingContextForAdopt(
-			options.Deployment, options.Root, resource, resourceRoots, references,
-		),
+		BindingContext:         bindingContext,
 		Deployment:             options.Deployment,
 		LookupNameField:        lookupNameField,
 		RemoveLookupWhenAbsent: transformrun.TransformHasInferredLookupLifecycleForAdopt(options.Root, resource),

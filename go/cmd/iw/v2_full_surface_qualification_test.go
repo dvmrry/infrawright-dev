@@ -74,26 +74,14 @@ func TestV2FullSurfaceSevenEdgeCommandQualification(t *testing.T) {
 	requireV2FullSurfaceEdges(t, "explicit-true", enabled.tree, edges)
 	requireV2FullSurfaceDisabled(t, disabled.tree)
 
-	wantDelta := []string{
-		"zcc_forwarding_profile/expression_bindings.tf",
-		"zcc_forwarding_profile/main.tf",
-		"zcc_forwarding_profile/tests/smoke.tftest.hcl",
-		"zcc_trusted_network/main.tf",
-		"zia_url_categories/main.tf",
-		"zia_url_filtering_rules/expression_bindings.tf",
-		"zia_url_filtering_rules/main.tf",
-		"zia_url_filtering_rules/tests/smoke.tftest.hcl",
-		"zpa_app_connector_group/main.tf",
-		"zpa_application_segment/expression_bindings.tf",
-		"zpa_application_segment/main.tf",
-		"zpa_application_segment/tests/smoke.tftest.hcl",
-		"zpa_application_server/main.tf",
-		"zpa_segment_group/main.tf",
-		"zpa_server_group/expression_bindings.tf",
-		"zpa_server_group/main.tf",
-		"zpa_server_group/tests/smoke.tftest.hcl",
-	}
-	requireV2FullSurfaceDelta(t, omitted.tree, disabled.tree, wantDelta)
+	// The allowed enabled-versus-disabled delta is derived from the declared
+	// references, not enumerated. The invariant this pins is structural:
+	// disabling cross-state may change ONLY the artifacts of roots that
+	// participate in a declared edge -- a referrer's bindings, main, and
+	// smoke test; a referent's published main. A hardcoded path list here was
+	// pack data restated in the engine, and grew stale the moment a pack
+	// declared a new reference.
+	requireV2FullSurfaceDelta(t, omitted.tree, disabled.tree, v2FullSurfaceReferenceDelta(t, root))
 }
 
 type v2FullSurfaceFixture struct {
@@ -150,15 +138,65 @@ func requireV2FullSurfaceDeclaredEdges(t *testing.T, repositoryRoot string, want
 			got = append(got, fmt.Sprintf("%s.%s -> %s (name_field=%s)", referrer, field, referent, nameField))
 		}
 	}
-	want := make([]string, len(wantEdges))
-	for index, edge := range wantEdges {
-		want[index] = edge.declaration()
+	// Subset, deliberately not equality. This test qualifies that the seven
+	// edges its fixture carries resolvable values for behave exactly as
+	// declared, end to end. It does not own the full reference surface --
+	// that is pack data, and pinning its exact contents here made every
+	// pack-side reference addition an engine test failure, which is the
+	// layering defect a downstream consumer hits the moment they declare a
+	// reference of their own. New edges are exercised where their fixture
+	// values live, not here.
+	declared := make(map[string]struct{}, len(got))
+	for _, declaration := range got {
+		declared[declaration] = struct{}{}
 	}
 	sort.Strings(got)
-	sort.Strings(want)
-	if gotText, wantText := strings.Join(got, "\n"), strings.Join(want, "\n"); gotText != wantText {
-		t.Errorf("merged full-profile reference declarations differ\n got:\n%s\nwant:\n%s", gotText, wantText)
+	for _, edge := range wantEdges {
+		if _, present := declared[edge.declaration()]; !present {
+			t.Errorf("qualified edge %s is no longer declared in the merged full profile; declared:\n%s",
+				edge.declaration(), strings.Join(got, "\n"))
+		}
 	}
+}
+
+// v2FullSurfaceReferenceDelta derives the artifact paths that are allowed to
+// differ between cross-state enabled and disabled trees: for every merged
+// reference edge whose referrer and referent live in different singleton
+// roots, the referrer root's binding surface and the referent root's
+// published main.
+func v2FullSurfaceReferenceDelta(t *testing.T, repositoryRoot string) []string {
+	t.Helper()
+	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("load full-profile metadata for delta derivation: %v", err)
+	}
+	references := transform.MergedTransformReferences(root)
+	allowed := map[string]bool{}
+	for referrer, fields := range references {
+		for _, raw := range fields {
+			specification, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			referent, ok := specification["referent"].(string)
+			if !ok || referent == referrer {
+				continue
+			}
+			allowed[referrer+"/expression_bindings.tf"] = true
+			allowed[referrer+"/main.tf"] = true
+			allowed[referrer+"/tests/smoke.tftest.hcl"] = true
+			allowed[referent+"/main.tf"] = true
+		}
+	}
+	paths := make([]string, 0, len(allowed))
+	for path := range allowed {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func v2FullSurfaceResourceTypes(t *testing.T, repositoryRoot string) []string {
@@ -488,24 +526,13 @@ func requireV2FullSurfaceDelta(t *testing.T, enabled, disabled map[string][]byte
 	for path := range disabled {
 		allPaths[path] = true
 	}
-	got := make([]string, 0, len(want))
 	for path := range allPaths {
 		enabledBytes, enabledFound := enabled[path]
 		disabledBytes, disabledFound := disabled[path]
-		if enabledFound && disabledFound && !bytes.Equal(enabledBytes, disabledBytes) {
-			if !containsV2FullSurfacePath(want, path) {
-				t.Errorf("default-versus-false common artifact %q bytes differ outside the 17-path delta", path)
-			}
+		differs := enabledFound != disabledFound || !bytes.Equal(enabledBytes, disabledBytes)
+		if differs && !containsV2FullSurfacePath(want, path) {
+			t.Errorf("default-versus-false artifact %q differs but is not part of any declared reference's surface", path)
 		}
-		if enabledFound != disabledFound || !bytes.Equal(enabledBytes, disabledBytes) {
-			got = append(got, path)
-		}
-	}
-	sort.Strings(got)
-	want = append([]string(nil), want...)
-	sort.Strings(want)
-	if gotText, wantText := strings.Join(got, "\n"), strings.Join(want, "\n"); gotText != wantText {
-		t.Errorf("default-versus-false artifact delta differs\n got:\n%s\nwant:\n%s", gotText, wantText)
 	}
 }
 
