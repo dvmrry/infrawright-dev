@@ -1421,6 +1421,29 @@ func DeriveGeneratedBindings(context BindingContext, items map[string]map[string
 	if context.Mode == deployment.ReferenceBindingDisabled {
 		return GeneratedBindingsResult{Resources: b.resources, Notes: b.notes}, nil
 	}
+	// Two reference fields crossing the same set block would each bind the
+	// complete block leaf at the same (item, path) key: the second assign
+	// overwrites the first, whose references are then reproduced literally
+	// inside the surviving expression (adversarial-review finding). Grouped
+	// block resolution is not implemented, so the shape is refused up
+	// front, before any value can be minted or bound. No shipped pack
+	// declares it (corpus audited 2026-07-30).
+	blockOwners := map[string]string{}
+	for _, field := range canonjson.SortedStrings(mapKeys(context.References)) {
+		setIndex, throughSet := context.SetBlockFields[field]
+		if !throughSet {
+			continue
+		}
+		segments := strings.Split(field, ".")
+		prefix := strings.Join(segments[:setIndex+1], ".")
+		if other, taken := blockOwners[prefix]; taken {
+			return GeneratedBindingsResult{}, fmt.Errorf(
+				"reference fields %s and %s both cross set block %s of %s; binding them independently would overwrite one resolution with the other, so this shape is refused until grouped set-block resolution exists",
+				other, field, prefix, resourceType,
+			)
+		}
+		blockOwners[prefix] = field
+	}
 	for _, field := range canonjson.SortedStrings(mapKeys(context.References)) {
 		spec, ok := context.References[field]
 		if !ok {

@@ -665,3 +665,38 @@ func TestHclDeploymentsMintNoTokens(t *testing.T) {
 		t.Fatalf("config = %q, want the literal ID retained for an HCL deployment", compiled.ConfigText)
 	}
 }
+
+// TestDeriveRefusesTwoReferenceFieldsInOneSetBlock pins the re-review's
+// set-block finding in its ACTUAL shape -- two different reference fields
+// crossing the same set block -- which my earlier two-members-one-field
+// test did not cover: each field's pass would bind the complete block at
+// the same (item, path) key, the second overwriting the first and
+// reproducing its references literally. The shape is refused up front.
+func TestDeriveRefusesTwoReferenceFieldsInOneSetBlock(t *testing.T) {
+	context := BindingContext{
+		Derived: map[string]bool{},
+		Generated: map[string]bool{
+			"sample_groups": true, "referent_a": true, "referent_b": true,
+		},
+		Mode: deployment.ReferenceBindingCrossState,
+		References: map[string]TransformReferenceSpec{
+			"services.a_id": {NameField: "name", Referent: "referent_a"},
+			"services.b_id": {NameField: "name", Referent: "referent_b"},
+		},
+		SetBlockFields: map[string]int{"services.a_id": 0, "services.b_id": 0},
+		ResourceRoots: map[string]string{
+			"sample_groups": "sample_groups", "referent_a": "referent_a", "referent_b": "referent_b",
+		},
+	}
+	items := map[string]map[string]any{
+		"one": {"services": []any{map[string]any{"a_id": "A", "b_id": "B"}}},
+	}
+	lookupKeys := map[string]map[string]string{
+		"referent_a": {"A": "a"}, "referent_b": {"B": "b"},
+	}
+	_, err := DeriveGeneratedBindings(context, items, lookupKeys, "sample_groups")
+	if err == nil || !strings.Contains(err.Error(), "services.a_id") ||
+		!strings.Contains(err.Error(), "services.b_id") {
+		t.Fatalf("DeriveGeneratedBindings error = %v, want the two-fields-one-block refusal", err)
+	}
+}
