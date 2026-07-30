@@ -516,3 +516,81 @@ func TestRemoveLookupProceedsWithoutTokenDependents(t *testing.T) {
 		t.Fatalf("CompileTransformArtifacts error = %v, want nil without token dependents", err)
 	}
 }
+
+// TestSubstituteLeavesUnbindableListUntouched pins bail parity with
+// bindValue (adversarial-review finding): a list holding any element the
+// binder calls unbindable -- null here -- must not have its other elements
+// tokenised, because derivation will refuse the whole list and the tokens
+// would have no resolver.
+func TestSubstituteLeavesUnbindableListUntouched(t *testing.T) {
+	items := map[string]map[string]any{
+		"app_one": {"segment_group_id": []any{"sg-1", nil}},
+	}
+	lookupKeys := map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}}
+	minted := substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment", lookupKeys)
+	got := items["app_one"]["segment_group_id"].([]any)
+	if got[0] != "sg-1" {
+		t.Errorf("list[0] = %#v, want untouched raw ID beside an unbindable element", got[0])
+	}
+	if len(minted) != 0 {
+		t.Errorf("minted = %#v, want none for a list derivation refuses", minted)
+	}
+}
+
+// TestMintedTokensRecordCoverablePaths pins the minted-token record the
+// compile-level coverage assert consumes: candidate-style paths for plain,
+// dotted, and set-nested shapes, each covered by its derived binding path.
+func TestMintedTokensRecordCoverablePaths(t *testing.T) {
+	items := map[string]map[string]any{
+		"iot_device_services": {
+			"services": []any{map[string]any{"id": []any{json.Number("123")}}},
+		},
+	}
+	lookupKeys := map[string]map[string]string{
+		"zia_firewall_filtering_network_service": {"123": "service_one"},
+	}
+	context := setBlockBindingContext(map[string]int{"services.id": 0})
+	minted := substituteReferenceTokens(items, context, "zia_firewall_filtering_network_service_groups", lookupKeys)
+	if len(minted) != 1 {
+		t.Fatalf("minted = %#v, want exactly one set-nested token", minted)
+	}
+	if minted[0].Path != "services[0].id" {
+		t.Errorf("minted path = %q, want services[0].id", minted[0].Path)
+	}
+	binding, err := DeriveGeneratedBindings(context, items, lookupKeys, "zia_firewall_filtering_network_service_groups")
+	if err != nil {
+		t.Fatalf("DeriveGeneratedBindings: %v", err)
+	}
+	if err := assertMintedTokensCovered(minted, binding, "zia_firewall_filtering_network_service_groups"); err != nil {
+		t.Errorf("assertMintedTokensCovered = %v, want covered", err)
+	}
+}
+
+// TestAssertMintedTokensCoveredRefusesGaps pins the divergence backstop
+// itself: a minted token with no covering binding fails the compile naming
+// the leaf, never publishing an unresolvable token.
+func TestAssertMintedTokensCoveredRefusesGaps(t *testing.T) {
+	minted := []mintedReferenceToken{{ItemKey: "app_one", Path: "segment_group_id", Token: "zpa_segment_group.ghost"}}
+	err := assertMintedTokensCovered(minted, GeneratedBindingsResult{Resources: map[string]any{}}, "zpa_application_segment")
+	if err == nil || !strings.Contains(err.Error(), "segment_group_id") ||
+		!strings.Contains(err.Error(), "traversal divergence") {
+		t.Fatalf("assertMintedTokensCovered = %v, want a refusal naming the uncovered leaf", err)
+	}
+}
+
+// TestRemoveLookupIgnoresDottedKeyNames pins the retirement guard's
+// precision (adversarial-review finding): a dotted string appearing as a
+// JSON map key -- never a value -- must not block book retirement.
+func TestRemoveLookupIgnoresDottedKeyNames(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "sample_group")
+	options.LookupNameField = nil
+	options.RemoveLookupWhenAbsent = true
+	paths := mustComputePaths(t, options)
+	dependent := filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars.json")
+	writeFileMkdir(t, dependent, `{"items":{"one":{"sample_group.k":"raw-id"}}}`)
+
+	if _, err := CompileTransformArtifacts(options); err != nil {
+		t.Fatalf("CompileTransformArtifacts error = %v, want nil for a dotted key name", err)
+	}
+}

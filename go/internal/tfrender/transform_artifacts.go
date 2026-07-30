@@ -740,14 +740,23 @@ func fieldCandidates(items map[string]map[string]any, field string) []fieldCandi
 // diagnostics of its own: DeriveGeneratedBindings runs over the same live
 // item maps immediately afterwards and remains the reporting layer for
 // every skip class (missing lookups, unknown IDs, unsafe keys).
+// mintedReferenceToken records one leaf the substitution rewrote, at the
+// candidate-style path binding coverage is checked against.
+type mintedReferenceToken struct {
+	ItemKey string
+	Path    string
+	Token   string
+}
+
 func substituteReferenceTokens(
 	items map[string]map[string]any,
 	context BindingContext,
 	resourceType string,
 	lookupKeys map[string]map[string]string,
-) {
+) []mintedReferenceToken {
+	var minted []mintedReferenceToken
 	if context.Mode == deployment.ReferenceBindingDisabled {
-		return
+		return nil
 	}
 	for _, field := range canonjson.SortedStrings(mapKeys(context.References)) {
 		spec, ok := context.References[field]
@@ -776,30 +785,39 @@ func substituteReferenceTokens(
 			if !ok {
 				continue
 			}
-			substituteAtPath(item, segments, spec.Referent, keyMap)
+			substituteAtPath(item, segments, key, "", spec.Referent, keyMap, &minted)
 		}
 	}
+	return minted
 }
 
 // substituteAtPath descends container segment by segment -- fanning out
-// over list elements at every level, exactly like fieldCandidates and the
-// set-block member walk -- and rewrites the terminal segment's value(s).
+// over list elements at every level with the same index bookkeeping as
+// fieldCandidates -- and rewrites the terminal segment's value(s).
 // Substitution is value-level, so the set-block/plain-path distinction that
 // matters for binding addressing does not arise here: both walks reach the
-// same leaves.
-func substituteAtPath(container map[string]any, segments []string, referent string, keyMap map[string]string) {
+// same leaves, and every rewrite is recorded so CompileTransformArtifacts
+// can prove a covering binding was derived for it.
+func substituteAtPath(
+	container map[string]any,
+	segments []string,
+	itemKey, concretePath, referent string,
+	keyMap map[string]string,
+	minted *[]mintedReferenceToken,
+) {
 	head := segments[0]
+	leafPath := head
+	if concretePath != "" {
+		leafPath = concretePath + "." + head
+	}
 	if len(segments) == 1 {
 		switch value := container[head].(type) {
 		case []any:
-			for index, child := range value {
-				if token, ok := referenceToken(child, referent, keyMap); ok {
-					value[index] = token
-				}
-			}
+			substituteListElements(value, itemKey, leafPath, referent, keyMap, minted)
 		default:
 			if token, ok := referenceToken(value, referent, keyMap); ok {
 				container[head] = token
+				*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
 			}
 		}
 		return
@@ -808,17 +826,99 @@ func substituteAtPath(container map[string]any, segments []string, referent stri
 	if !present {
 		return
 	}
-	rest := segments[1:]
-	switch value := next.(type) {
+	substituteThroughValue(next, segments[1:], itemKey, leafPath, referent, keyMap, minted)
+}
+
+// substituteThroughValue continues the descent through one intermediate
+// value, fanning arrays (including arrays of arrays) with fieldCandidates'
+// exact index bookkeeping.
+func substituteThroughValue(
+	value any,
+	rest []string,
+	itemKey, concretePath, referent string,
+	keyMap map[string]string,
+	minted *[]mintedReferenceToken,
+) {
+	switch typed := value.(type) {
 	case map[string]any:
-		substituteAtPath(value, rest, referent, keyMap)
+		substituteAtPath(typed, rest, itemKey, concretePath, referent, keyMap, minted)
 	case []any:
-		for _, child := range value {
-			if member, ok := child.(map[string]any); ok {
-				substituteAtPath(member, rest, referent, keyMap)
+		for index, child := range typed {
+			if child == nil {
+				continue
 			}
+			substituteThroughValue(child, rest, itemKey, fmt.Sprintf("%s[%d]", concretePath, index), referent, keyMap, minted)
 		}
 	}
+}
+
+// substituteListElements rewrites token-eligible elements of one terminal
+// list, replicating bindValue's whole-list bail exactly: a list holding any
+// non-zero-sentinel element the binder calls unbindable (null, nested
+// lists, objects, empty strings) is left entirely untouched, because
+// derivation will refuse to bind it and a minted token would otherwise have
+// no resolver.
+func substituteListElements(
+	arr []any,
+	itemKey, leafPath, referent string,
+	keyMap map[string]string,
+	minted *[]mintedReferenceToken,
+) {
+	for _, child := range arr {
+		if zeroSentinel(child) {
+			continue
+		}
+		if !bindableListElement(child) {
+			return
+		}
+	}
+	for index, child := range arr {
+		if zeroSentinel(child) {
+			continue
+		}
+		if token, ok := referenceToken(child, referent, keyMap); ok {
+			arr[index] = token
+			*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
+		}
+	}
+}
+
+// BindingPathCovers reports whether a binding at bindingPath resolves the
+// leaf at leafPath: an exact match, or the leaf sitting anywhere below the
+// binding's path (the set-block complete-leaf form binds the block and
+// resolves every reference member under it). Exported because envgen's
+// render-time totality gate applies the identical rule against committed
+// bindings.
+func BindingPathCovers(bindingPath, leafPath string) bool {
+	return leafPath == bindingPath ||
+		strings.HasPrefix(leafPath, bindingPath+".") ||
+		strings.HasPrefix(leafPath, bindingPath+"[")
+}
+
+// assertMintedTokensCovered fails the compile if any token the substitution
+// minted has no covering derived binding. Substitution and derivation walk
+// the same gates over the same items, so a gap between them is a traversal
+// divergence bug; publishing it would commit a token nothing resolves,
+// which on a string-typed provider field would flow to the provider as a
+// literal. Loud beats silent.
+func assertMintedTokensCovered(minted []mintedReferenceToken, binding GeneratedBindingsResult, resourceType string) error {
+	for _, m := range minted {
+		fields, _ := binding.Resources[resourceType+"."+m.ItemKey].(map[string]any)
+		covered := false
+		for bindingPath := range fields {
+			if BindingPathCovers(bindingPath, m.Path) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return fmt.Errorf(
+				"substitution minted token %s at %s.%s.%s but derivation produced no covering binding; refusing to publish an unresolvable token (traversal divergence)",
+				jsonQuote(m.Token), resourceType, m.ItemKey, m.Path,
+			)
+		}
+	}
+	return nil
 }
 
 // referenceToken maps a raw ID present in keyMap to its qualified token.
@@ -1532,7 +1632,7 @@ func tokenDependents(configDirectory, resourceType string) ([]string, error) {
 		}
 		return nil, err
 	}
-	needle := `"` + resourceType + `.`
+	prefix := resourceType + "."
 	var dependents []string
 	for _, entry := range entries {
 		name := entry.Name()
@@ -1544,11 +1644,44 @@ func tokenDependents(configDirectory, resourceType string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if strings.Contains(string(raw), needle) {
+		// JSON configs are parsed so only string VALUES count -- a dotted
+		// map key or field name can never block retirement. HCL configs
+		// cannot be parsed here; their quoted-text scan stays conservative.
+		if strings.HasSuffix(name, ".auto.tfvars.json") {
+			if parsed, parseErr := canonjson.ParseDataJSONLosslessly(string(raw)); parseErr == nil {
+				if jsonValueHasPrefix(parsed, prefix) {
+					dependents = append(dependents, name)
+				}
+				continue
+			}
+		}
+		if strings.Contains(string(raw), `"`+prefix) {
 			dependents = append(dependents, name)
 		}
 	}
 	return canonjson.SortedStrings(dependents), nil
+}
+
+// jsonValueHasPrefix reports whether any string VALUE in the decoded JSON
+// carries the prefix -- keys and field names are never inspected.
+func jsonValueHasPrefix(value any, prefix string) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.HasPrefix(typed, prefix)
+	case []any:
+		for _, child := range typed {
+			if jsonValueHasPrefix(child, prefix) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, child := range typed {
+			if jsonValueHasPrefix(child, prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // resolveLookup ports resolveLookup from
@@ -1850,7 +1983,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
-	substituteReferenceTokens(options.Result.Items, options.BindingContext, options.ResourceType, keyMaps)
+	minted := substituteReferenceTokens(options.Result.Items, options.BindingContext, options.ResourceType, keyMaps)
 
 	configText, err := renderDeploymentTfvars(
 		options.Deployment, options.Result.Items, options.References,
@@ -1862,6 +1995,9 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 
 	binding, err := DeriveGeneratedBindings(options.BindingContext, options.Result.Items, keyMaps, options.ResourceType)
 	if err != nil {
+		return CompiledTransformArtifacts{}, err
+	}
+	if err := assertMintedTokensCovered(minted, binding, options.ResourceType); err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
 

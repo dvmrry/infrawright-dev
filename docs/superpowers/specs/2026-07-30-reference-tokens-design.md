@@ -162,9 +162,14 @@ v1.15.4):**
    expressions; all key→ID truth lives in the producing state outputs.
    The resolver for a token is computed from the token itself
    (`<referent>.<key>` → the canonical
-   `infrawright_reference_ids.<referent>["<key>"]` selector) — no
-   sidecar is consulted at render time, and there is no render-side ID
-   fallback. A referent whose state is absent or lacks the key fails
+   `infrawright_reference_ids.<referent>["<key>"]` selector). The settled
+   fallback contract (chosen by the requester after this section was first
+   written, and governing over it): the resolver is lookup-first `try()`
+   whose fallback arm is a plan-time read of the committed book — "no
+   sidecar at render time" means the renderer never *inlines a value*
+   from one; emitting an expression Terraform evaluates against the
+   committed artifact, and reading books/configs as *gating* inputs
+   (validation, totality), are both within the contract. A referent whose state is absent or lacks the key fails
    loudly at plan time naming the state/key; bootstrap is referent-first
    apply ordering. The sidecar remains a *producing-side* artifact
    (token minting at transform/adopt, display comments) and never a

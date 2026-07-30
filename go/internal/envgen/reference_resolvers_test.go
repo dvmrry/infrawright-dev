@@ -148,3 +148,110 @@ func TestUntokenisedRootRendersByteIdentically(t *testing.T) {
 		t.Errorf("main.tf = %q, want no book machinery for an old-shape config", main)
 	}
 }
+
+// TestUnboundTokenFailsGenerationNamingLeaf pins adversarial-review blocker
+// 1: one unrelated binding used to satisfy the root-level guard while other
+// tokens passed unresolved through the root's opaque variable -- and on a
+// string-typed provider field, straight to the provider. The totality gate
+// is leaf-granular: generation refuses, naming the uncovered token.
+func TestUnboundTokenFailsGenerationNamingLeaf(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokenise(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"app_one": map[string]any{
+			"segment_group_id": "zpa_segment_group.segment_one",
+			"description":      "text",
+		}},
+	})
+	// The bindings file covers a DIFFERENT, existing leaf, so the old
+	// root-level guard (len(bindings) > 0) is satisfied while the tokenised
+	// leaf has no resolver.
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.generated.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"description": map[string]any{
+					"expression": "var.decoy_description",
+				},
+			},
+		},
+	})
+
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot, Root: syntheticRootForTopology(t),
+		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
+	})
+	if err == nil || !strings.Contains(err.Error(), "app_one.segment_group_id") ||
+		!strings.Contains(err.Error(), "zpa_segment_group.segment_one") {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want a refusal naming the uncovered token leaf", err)
+	}
+}
+
+// TestDisabledModeWithCommittedTokensRefused pins adversarial-review
+// blocker 2: disabling cross_state_references after tokens are committed
+// used to blind the edge-keyed scan and pass tokens bare through
+// var.<name>. Detection is now binding-mode-independent, and the mismatch
+// is a loud refusal with the remedy named.
+func TestDisabledModeWithCommittedTokensRefused(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokenise(t)
+	writeJSONFile(t, fixture.deploymentPath, map[string]any{
+		"overlay": fixture.workspace,
+		"roots": map[string]any{
+			"zpa": map[string]any{"cross_state_references": false},
+		},
+	})
+
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot, Root: syntheticRootForTopology(t),
+		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
+	})
+	if err == nil || !strings.Contains(err.Error(), "disabled") ||
+		!strings.Contains(err.Error(), "re-run transform") {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want the disabled-mode-with-tokens refusal", err)
+	}
+}
+
+// TestInnocentDottedStringKeepsProbeActive pins the false-positive fix: a
+// non-reference string value that happens to look dotted must not flip the
+// root into token mode -- the probe filter still runs and no resolver
+// machinery is emitted.
+func TestInnocentDottedStringKeepsProbeActive(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"app_one": map[string]any{
+			"segment_group_id": "sg-1",
+			"description":      "zpa_segment_group.note",
+		}},
+	})
+
+	var probeCalls []string
+	outputRoot := fixture.outputRoot
+	if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot, Root: syntheticRootForTopology(t),
+		Selectors: []string{"zpa_application_segment"}, StateAware: true,
+		StateProbe: func(rootLabel, referentType string) (StateProbeResult, error) {
+			probeCalls = append(probeCalls, rootLabel)
+			return StateProbeResult{Usable: true}, nil
+		},
+		Tenant: "tenant",
+	}); err != nil {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil", err)
+	}
+	if len(probeCalls) == 0 {
+		t.Errorf("probe calls = none, want the probe consulted for an old-shape root")
+	}
+	bindings := fixture.readReferrerFile(t, "expression_bindings.tf")
+	if strings.Contains(bindings, "try(") || strings.Contains(bindings, "infrawright_reference_book") {
+		t.Errorf("expression_bindings.tf = %q, want no resolver machinery for an old-shape root", bindings)
+	}
+}

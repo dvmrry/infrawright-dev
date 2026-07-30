@@ -147,16 +147,13 @@ shipped).
   expected to read as empty state (matching `state pull`'s
   synthesized-empty behavior), in which case the fallback arm serves
   unapplied referents automatically and this design is complete with no
-  unknown failure modes. **One live downstream confirmation required
-  before this task's review closes:** the azurerm remote_state reader
-  on a missing blob succeeds with empty outputs. Contingency if it
-  hard-errors instead: gate *reader emission* (not value substitution)
-  behind the existing backend state probe — probe consults state, the
-  sanctioned truth source, so render purity still holds — and the
-  resolver for an absent referent is emitted as the fallback arm alone,
-  converging to the lookup on the next generation after apply.
-  Local-backend bootstrap = apply referent first or accept the loud
-  error (documented corner).
+  unknown failure modes. **CONFIRMED downstream (tf-zscaler, 2026-07-30):
+  the azurerm reader on a missing blob reads as empty state; remote state
+  resolves correctly when applied, and the book fallback served
+  unapplied referents non-blocking.** The probe-gated reader-emission
+  contingency is retired unused. Local-backend bootstrap = apply
+  referent first or accept the loud error (documented corner, and the
+  CHANGELOG must say so — flagged by the adversarial review).
 
 - [ ] **Step 1: failing tests.**
   - tokenised config → emitted local resolves every token leaf via the
