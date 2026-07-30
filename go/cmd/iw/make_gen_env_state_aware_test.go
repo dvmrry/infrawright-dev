@@ -37,9 +37,20 @@ func TestMakeGenEnvPassesStateAwareFlag(t *testing.T) {
 	if !strings.Contains(withFlag, "--state-aware") {
 		t.Errorf("make gen-env STATE_AWARE=1 recipe = %q, want it to pass --state-aware", withFlag)
 	}
+	if !strings.Contains(withFlag, "--terraform") {
+		t.Errorf("make gen-env STATE_AWARE=1 recipe = %q, want it to forward --terraform so the azurerm probe uses the pinned binary", withFlag)
+	}
 
 	withoutFlag := recipe(t)
 	if strings.Contains(withoutFlag, "--state-aware") {
 		t.Errorf("make gen-env recipe = %q, want no --state-aware without STATE_AWARE", withoutFlag)
+	}
+	if strings.Contains(withoutFlag, "--backend-config") {
+		t.Errorf("make gen-env recipe = %q, want no --backend-config without BACKEND_CONFIG", withoutFlag)
+	}
+
+	withBackendConfig := recipe(t, "STATE_AWARE=1", "BACKEND_CONFIG=cfg/backend.azurerm.json")
+	if !strings.Contains(withBackendConfig, `--backend-config "cfg/backend.azurerm.json"`) {
+		t.Errorf("make gen-env BACKEND_CONFIG=... recipe = %q, want it to forward --backend-config so the state probe can reach the backend", withBackendConfig)
 	}
 }

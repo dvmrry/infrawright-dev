@@ -29,7 +29,32 @@
   present; two-element lists and keyed-object collection bypasses fail before
   the provider can silently discard them.
 
+### Cross-state references
+
+- `gen-env --state-aware` now probes the referent's *backend* (scratch
+  `terraform init` + `state pull` keyed `<tenant>/<label>.tfstate`) instead of
+  inspecting the local workspace for `<root>/.terraform`. In clean-workspace
+  pipelines the old probe read every referent as absent, so `STATE_AWARE=1`
+  silently rewrote every cross-state reference to its tfvars literal on every
+  run; lookups now engage whenever the referent's state carries
+  `infrawright_reference_ids`.
+- `iw gen-env` accepts `--backend-config` (the same JSON file `iw plan`
+  consumes) and `make gen-env` forwards `BACKEND_CONFIG=<file>` plus the
+  pinned `--terraform` binary alongside `STATE_AWARE=1`.
+- Local-backend tenants probe the state file beside each generated root and
+  no longer resolve a terraform executable for `--state-aware`.
+
 ### Breaking changes
+
+#### State-aware generation against azurerm requires BACKEND_CONFIG
+
+`make gen-env STATE_AWARE=1` for a tenant on the azurerm backend now fails
+with a usage error unless `BACKEND_CONFIG=<file>` is also passed; previously
+it exited 0 while silently degrading every cross-state reference to a
+literal. Pass the same backend file the pipeline already gives `make plan`.
+Expect generated roots to flip literals to remote-state lookups on the first
+run after each referent root is applied; the flip plans as a no-op because
+the lookup resolves to the same ID.
 
 #### Retired catalog compatibility surface removed
 

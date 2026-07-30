@@ -367,7 +367,7 @@ func genEnvCommand(arguments []string) (int, error) {
 func newGenEnvCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "gen-env", short: "Generate tenant environment roots",
-		valueFlags: []string{"--tenant", "--backend", "--resource", "--terraform", "--deployment", "--root", "--profile"},
+		valueFlags: []string{"--tenant", "--backend", "--backend-config", "--resource", "--terraform", "--deployment", "--root", "--profile"},
 		boolFlags:  []string{"--state-aware"},
 		run: func(parsed commandInput) (int, error) {
 			return legacyPlanLifecycleCommand(func() (int, error) {
@@ -416,22 +416,35 @@ func genEnvInput(parsed commandInput) (int, error) {
 		generateOptions.Backend = &backend
 	}
 	if generateOptions.StateAware {
-		// The probe asks Terraform, which resolves whatever backend each root
-		// was initialized with, so no backend name is needed here and none of
-		// local/azurerm/s3/gcs is a special case.
+		// The probe is built through envgen's factory seam after generation
+		// resolves the backend (flag or .backend marker), so a
+		// marker-configured azurerm tenant probes the backend even when
+		// --backend is omitted on this run. Local tenants probe the state
+		// file beside each generated root and resolve no terraform at all.
 		environment := environMap()
 		selectedTerraform, _ := lastCommandOption(parsed, "--terraform")
-		executable, err := terraformcmd.ResolveTerraformExecutable(selectedTerraform, environment)
-		if err != nil {
-			return 0, err
+		backendConfig, hasBackendConfig := lastCommandOption(parsed, "--backend-config")
+		generateOptions.StateProbeFor = func(backend *string) (envgen.StateProbe, error) {
+			if backend == nil || *backend == "" {
+				return nil, nil
+			}
+			if *backend != "azurerm" {
+				return nil, fmt.Errorf("state-aware generation supports local or azurerm state, not %s", *backend)
+			}
+			if !hasBackendConfig {
+				return nil, fmt.Errorf("state-aware generation against an azurerm backend requires --backend-config (the same file iw plan consumes) so the probe can reach the backend instead of silently falling back on every reference")
+			}
+			executable, err := terraformcmd.ResolveTerraformExecutable(selectedTerraform, environment)
+			if err != nil {
+				return nil, err
+			}
+			return stateprobe.New(stateprobe.Options{
+				BackendConfig:       backendConfig,
+				Environment:         environment,
+				Tenant:              tenant,
+				TerraformExecutable: executable,
+			}), nil
 		}
-		generateOptions.StateProbe = stateprobe.New(stateprobe.Options{
-			Environment:         environment,
-			TerraformExecutable: executable,
-			ResolveRootDirectory: func(rootLabel string) (string, error) {
-				return envgen.EnvironmentRootDirectory(loadedDeployment, tenant, rootLabel, nil)
-			},
-		})
 	}
 	if _, err := envgen.GenerateEnvironmentRoots(generateOptions); err != nil {
 		return 0, err

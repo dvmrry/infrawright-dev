@@ -203,3 +203,73 @@ func TestGenEnvStateAwareCLIControlsFallback(t *testing.T) {
 	}
 
 }
+
+// TestGenEnvStateAwareBackendDispatch pins the CLI's backend-aware probe
+// wiring: local tenants probe files and need no terraform at all, azurerm
+// tenants must be given the backend config plan already uses, and anything
+// else is refused. The child environment carries no PATH on purpose -- the
+// local case proves it resolves no terraform executable.
+func TestGenEnvStateAwareBackendDispatch(t *testing.T) {
+	repositoryRoot := repoRoot(t)
+	binary := buildGoV2AuthorityCLI(t, repositoryRoot, "iw-state-aware-dispatch")
+
+	t.Run("local backend needs no terraform", func(t *testing.T) {
+		fixture := prepareStateAwareCLIFixture(t)
+		result := runStateAwareGenEnvCLI(t, binary, fixture, "--state-aware")
+		if result.exit != 0 {
+			t.Fatalf("gen-env --state-aware exit = %d, want 0 without any terraform on the runner; stderr=%q", result.exit, result.stderr)
+		}
+		if !bytes.Contains(result.stderr, []byte("fell back to literal")) {
+			t.Errorf("stderr = %q, want the local prober's fallback note", result.stderr)
+		}
+	})
+
+	t.Run("azurerm requires backend config", func(t *testing.T) {
+		fixture := prepareStateAwareCLIFixture(t)
+		result := runStateAwareGenEnvCLI(t, binary, fixture,
+			"--state-aware", "--backend", "azurerm", "--terraform", fakeTerraformForProbe(t))
+		if result.exit == 0 {
+			t.Fatalf("gen-env --state-aware --backend azurerm exit = 0, want a loud usage error without --backend-config; stderr=%q", result.stderr)
+		}
+		if !bytes.Contains(result.stderr, []byte("requires --backend-config")) {
+			t.Errorf("stderr = %q, want it to name the missing --backend-config", result.stderr)
+		}
+	})
+
+	t.Run("azurerm probes through backend config", func(t *testing.T) {
+		fixture := prepareStateAwareCLIFixture(t)
+		backendConfig := filepath.Join(fixture.workspace, "backend.azurerm.json")
+		writeBlockC4JSON(t, backendConfig, map[string]any{
+			"container_name": "tfstate", "resource_group_name": "rg",
+			"storage_account_name": "sa", "use_azuread_auth": true,
+		})
+		// The fake terraform answers init with exit 0 and state pull with no
+		// document, so the probe reaches the backend and reads every root as
+		// unapplied: fallback, loudly reported, exit 0.
+		result := runStateAwareGenEnvCLI(t, binary, fixture,
+			"--state-aware", "--backend", "azurerm",
+			"--backend-config", backendConfig, "--terraform", fakeTerraformForProbe(t))
+		if result.exit != 0 {
+			t.Fatalf("gen-env --state-aware --backend azurerm exit = %d, want 0; stderr=%q", result.exit, result.stderr)
+		}
+		if !bytes.Contains(result.stderr, []byte("fell back to literal")) {
+			t.Errorf("stderr = %q, want the fallback note for an unapplied referent", result.stderr)
+		}
+		main := readStateAwareCLIArtifact(t, fixture, "main.tf")
+		if bytes.Contains(main, []byte(`data "terraform_remote_state"`)) {
+			t.Errorf("main.tf contains a remote-state block for absent state:\n%s", main)
+		}
+	})
+
+	t.Run("unsupported backend is refused", func(t *testing.T) {
+		fixture := prepareStateAwareCLIFixture(t)
+		result := runStateAwareGenEnvCLI(t, binary, fixture,
+			"--state-aware", "--backend", "s3", "--terraform", fakeTerraformForProbe(t))
+		if result.exit == 0 {
+			t.Fatalf("gen-env --state-aware --backend s3 exit = 0, want a refusal; stderr=%q", result.stderr)
+		}
+		if !bytes.Contains(result.stderr, []byte("azurerm")) {
+			t.Errorf("stderr = %q, want the refusal to name the supported backends", result.stderr)
+		}
+	})
+}
