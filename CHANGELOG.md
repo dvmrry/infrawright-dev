@@ -31,6 +31,31 @@
 
 ### Cross-state references
 
+- Committed config stops carrying tenant IDs for declared reference
+  fields: transform and adopt now write qualified reference tokens
+  (`"<referent_type>.<key>"`, e.g.
+  `"zia_firewall_filtering_network_service.dns"`) wherever the referent's
+  lookup book knows the ID. Unknown IDs, sentinels, and fields without a
+  declared pack edge keep their literal values; old-shape (raw-ID) configs
+  remain valid indefinitely — the next transform/adopt run rewrites them,
+  with no flag day.
+- gen-env renders tokenised roots with lookup-first resolvers:
+  `try(<remote-state lookup>, local.infrawright_reference_book_<referent>["<key>"])`,
+  where the book local is a plan-time, `fileexists()`-guarded read of the
+  committed lookup sidecar. State truth wins whenever the referent is
+  applied; the book literal serves it until then and retires
+  automatically. The state-probe drop filter is superseded for tokenised
+  roots (the fallback lives in-language); operator-authored bindings are
+  never wrapped and keep failing loudly.
+- The lookup sidecar gains `id_by_key` (books written before the field
+  decode both directions via parser inversion), HCL display comments
+  resolve tokens to the same names raw IDs showed, and retiring a book
+  that committed tokens still decode through is refused, naming the
+  dependents.
+- A tokenised root with no binding evidence is refused at generation, and
+  an unresolved token that reaches a module fails its provider-typed
+  variable check — a token can never silently reach the provider.
+
 - `gen-env --state-aware` now probes the referent's *backend* (scratch
   `terraform init` + `state pull` keyed `<tenant>/<label>.tfstate`) instead of
   inspecting the local workspace for `<root>/.terraform`. In clean-workspace
