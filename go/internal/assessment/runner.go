@@ -64,6 +64,7 @@ type runSavedPlanAssertionHooks struct {
 	assessReport    func(AssessSavedPlansReportOptions) (SavedPlanAssessmentReportOutcome, error)
 	writeReport     func(WriteAssessmentReportOptions) error
 	guidanceSource  func(metadata.LoadedPackRoot) AssessmentGuidanceSource
+	schemaTypes     func(metadata.LoadedPackRoot) (PlanSchemaTypes, error)
 }
 
 func productionSavedPlanAssertionHooks() runSavedPlanAssertionHooks {
@@ -73,6 +74,7 @@ func productionSavedPlanAssertionHooks() runSavedPlanAssertionHooks {
 		assessReport:    AssessSavedPlansReport,
 		writeReport:     WriteAssessmentReport,
 		guidanceSource:  NewAssessmentGuidanceSource,
+		schemaTypes:     NewPlanSchemaTypes,
 	}
 }
 
@@ -573,6 +575,7 @@ func runSavedPlanAssertion(
 	var inputs SavedPlanAssertionInputs
 	var resolved ResolvedSavedPlanAssessment
 	var guidanceSource *AssessmentGuidanceSource
+	var schemaTypes PlanSchemaTypes
 	terraformExecutable := options.TerraformExecutable
 	inputs, err = loadSavedPlanAssertionInputs(options)
 	if err == nil {
@@ -593,10 +596,17 @@ func runSavedPlanAssertion(
 		})
 	}
 	if err == nil {
-		if options.Mode == AssertAdoptable {
+		// Built for every mode, not only the one that collects guidance: the
+		// classifier reads it too, and assert-clean and assert-adoptable
+		// disagreeing about what a set is would make the same plan classify two
+		// ways depending on which gate ran.
+		schemaTypes, err = hooks.schemaTypes(inputs.Root)
+		if err == nil && options.Mode == AssertAdoptable {
 			guidance := hooks.guidanceSource(inputs.Root)
 			guidanceSource = &guidance
 		}
+	}
+	if err == nil {
 		for _, diagnostic := range resolved.Diagnostics {
 			emit("NOTE: " + diagnostic.Message)
 		}
@@ -654,6 +664,7 @@ func runSavedPlanAssertion(
 		Request:    request,
 	}
 	assessmentOptions.GuidanceSource = guidanceSource
+	assessmentOptions.SchemaTypes = schemaTypes
 	outcome, err := hooks.assessReport(assessmentOptions)
 	if err != nil {
 		return runnerSafeFailure(err)
@@ -704,7 +715,29 @@ func runnerChangeSummary(change NormalizedPlanChange) string {
 	if change.Sensitive {
 		return "(sensitive value changed)"
 	}
+	if change.Kind == string(SetChange) {
+		// A set change carries its membership delta instead of a value pair,
+		// so there is no before and after to print: it is not one value that
+		// moved. An empty delta never reaches here, because a set whose members
+		// match produces no change at all.
+		return runnerMembershipDelta(change.Added, change.Removed)
+	}
 	return runnerValueText(change.Before) + " -> " + runnerValueText(change.After)
+}
+
+// runnerMembershipDelta renders what entered and left a collection. Shared by
+// the schema-typed set change, which is handed its delta, and the positional
+// summary below, which reconstructs one, so the two read alike whether or not
+// provider schema types were available.
+func runnerMembershipDelta(added, removed []any) string {
+	parts := make([]string, 0, 2)
+	if len(added) > 0 {
+		parts = append(parts, fmt.Sprintf("+%d (%s)", len(added), runnerValueList(added)))
+	}
+	if len(removed) > 0 {
+		parts = append(parts, fmt.Sprintf("-%d (%s)", len(removed), runnerValueList(removed)))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // runnerArrayAttribute splits a plan path such as db_categorized_urls[100]
@@ -735,9 +768,8 @@ func runnerArrayAttribute(planPath string) (attribute string, indexed bool) {
 // attribute to one line that says what entered and left.
 //
 // Rendering array elements positionally is not merely verbose, it is wrong.
-// Terraform serializes a set-typed attribute in provider-chosen order, so
-// inserting one member shifts every position after it and a positional line
-// reads
+// Inserting one member of a Terraform set shifts every position after it, and a
+// positional line then reads
 //
 //	db_categorized_urls[100]: .904-aladdin.com -> blackrocksinc.com
 //
@@ -746,10 +778,14 @@ func runnerArrayAttribute(planPath string) (attribute string, indexed bool) {
 // edit of two removals and three additions produced 7,643 such lines, each
 // making a claim that is not true.
 //
-// The multiset delta is true for both kinds of attribute, which is why it can
-// be computed without knowing which one this is. It is presentation only:
-// Paths keeps every index, so gating, policy matching, and the report are
-// untouched -- nothing is suppressed, only summarised.
+// Where the classifier had provider schema types it has already collapsed such
+// an attribute to a single SetChange (see PlanSchemaTypes), and the summary
+// here is not reached. What remains for this function is the case where it did
+// not: an ordered list, or a run with no schema. The multiset delta is true for
+// both kinds of attribute, which is why it can be computed without knowing
+// which one this is. It is presentation only: Paths keeps every index, so
+// gating, policy matching, and the report are untouched -- nothing is
+// suppressed, only summarised.
 func runnerFindingLines(finding NormalizedAssessmentFinding) []string {
 	changes := make(map[string]NormalizedPlanChange, len(finding.Changes))
 	for _, change := range finding.Changes {
@@ -832,20 +868,14 @@ func runnerArraySummary(
 		return fmt.Sprintf("%s: (sensitive values changed at %d position(s))", attribute, positions)
 	}
 	added, removed := runnerMultisetDelta(before, after)
-	parts := make([]string, 0, 2)
-	if len(added) > 0 {
-		parts = append(parts, fmt.Sprintf("+%d (%s)", len(added), runnerValueList(added)))
-	}
-	if len(removed) > 0 {
-		parts = append(parts, fmt.Sprintf("-%d (%s)", len(removed), runnerValueList(removed)))
-	}
-	if len(parts) == 0 {
+	delta := runnerMembershipDelta(added, removed)
+	if delta == "" {
 		// Same members, different order. Reported rather than suppressed:
 		// for an ordered list this is a real change, and nothing here knows
 		// whether it is one.
 		return fmt.Sprintf("%s: same members reordered (%d position(s) differ)", attribute, positions)
 	}
-	return fmt.Sprintf("%s: %s across %d differing position(s)", attribute, strings.Join(parts, ", "), positions)
+	return fmt.Sprintf("%s: %s across %d differing position(s)", attribute, delta, positions)
 }
 
 // runnerMultisetDelta returns the members present only in after and only in

@@ -7,7 +7,14 @@
   "provider_sources": {
     "ztc": "zscaler/ztc"
   },
-  "references": {},
+  "references": {
+    "ztc_traffic_forwarding_dns_rule": {
+      "dns_gateway.id": {
+        "referent": "ztc_dns_gateway",
+        "name_field": "name"
+      }
+    }
+  },
   "requires_shared": [
     "zscaler"
   ],

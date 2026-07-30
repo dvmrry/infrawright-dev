@@ -104,6 +104,15 @@ type BindingContext struct {
 	Generated     map[string]bool
 	ResourceRoots map[string]string
 	References    map[string]TransformReferenceSpec
+	// SetBlockFields maps a dotted reference field to the index of the first
+	// segment that names a set-nested block in the referrer's provider schema.
+	// A set block's members have no stable order, so an indexed path into one
+	// (services[0].id) names nothing; the binding for such a field must land
+	// on the complete block leaf (services) with an expression that renders
+	// the entire block value. gen-env's schema-path validator refuses the
+	// indexed form, so a producer that emits it writes bindings that can
+	// never generate an environment.
+	SetBlockFields map[string]int
 }
 
 // GeneratedBindingsResult is the Go analogue of the GeneratedBindingsResult
@@ -824,6 +833,269 @@ func (b *generatedBindingsBuilder) bindValue(spec TransformReferenceSpec, keyMap
 	return expression, nil
 }
 
+// bindSetBlockField binds a reference field whose dotted path crosses a
+// set-nested block. An indexed path into a set block names nothing -- set
+// members have no stable order -- and gen-env's schema-path validator refuses
+// it with "bind the complete block leaf". So this emits exactly that: one
+// binding per concrete block occurrence, at the path of the set block itself,
+// whose expression renders the entire block value with the reference members
+// resolved to remote-state lookups and everything else reproduced literally.
+func (b *generatedBindingsBuilder) bindSetBlockField(
+	spec TransformReferenceSpec,
+	keyMap map[string]string,
+	items map[string]map[string]any,
+	field string,
+	setIndex int,
+	reason string,
+) error {
+	segments := strings.Split(field, ".")
+	prefix := segments[:setIndex+1]
+	remainder := segments[setIndex+1:]
+	for _, key := range canonjson.SortedStrings(mapKeys(items)) {
+		item, ok := items[key]
+		if !ok {
+			continue
+		}
+		var visit func(value any, segmentIndex int, concretePath string) error
+		visit = func(value any, segmentIndex int, concretePath string) error {
+			if segmentIndex == len(prefix) {
+				expression, err := b.renderSetBlockLeaf(spec, keyMap, key, concretePath, value, remainder)
+				if err != nil {
+					return err
+				}
+				if expression != nil {
+					b.assign(key, concretePath, *expression, reason)
+				}
+				return nil
+			}
+			if arr, ok := value.([]any); ok {
+				for index, child := range arr {
+					if child == nil {
+						continue
+					}
+					if err := visit(child, segmentIndex, fmt.Sprintf("%s[%d]", concretePath, index)); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			record, ok := value.(map[string]any)
+			if !ok {
+				return nil
+			}
+			childValue, present := record[prefix[segmentIndex]]
+			if !present {
+				return nil
+			}
+			nextPath := prefix[segmentIndex]
+			if concretePath != "" {
+				nextPath = concretePath + "." + prefix[segmentIndex]
+			}
+			return visit(childValue, segmentIndex+1, nextPath)
+		}
+		if err := visit(item, 0, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderSetBlockLeaf renders one set block's complete value as an HCL
+// expression, resolving the reference member named by remainder. A block
+// value this cannot reproduce faithfully binds nothing -- the tfvars literal
+// underneath stays authoritative -- because a complete-leaf expression that
+// silently dropped or reshaped a member would rewrite configuration the
+// operator never asked to change.
+func (b *generatedBindingsBuilder) renderSetBlockLeaf(
+	spec TransformReferenceSpec,
+	keyMap map[string]string,
+	key, leafPath string,
+	value any,
+	remainder []string,
+) (*string, error) {
+	arr, isArray := value.([]any)
+	if !isArray {
+		if value == nil {
+			return nil, nil
+		}
+		b.count("unbindable_set_block", 1)
+		b.skipped++
+		b.note("%s.%s.%s skipped; set block value is not a list", b.resourceType, key, leafPath)
+		return nil, nil
+	}
+	boundBefore := b.bound
+	elements := make([]string, 0, len(arr))
+	for index, element := range arr {
+		rendered, err := b.renderSetBlockMember(spec, keyMap, key, fmt.Sprintf("%s[%d]", leafPath, index), element, remainder)
+		if err != nil {
+			return nil, err
+		}
+		if rendered == nil {
+			b.count("unbindable_set_block", 1)
+			b.skipped++
+			b.note("%s.%s.%s skipped; set block member cannot be rendered faithfully", b.resourceType, key, leafPath)
+			return nil, nil
+		}
+		elements = append(elements, *rendered)
+	}
+	if b.bound == boundBefore {
+		return nil, nil
+	}
+	expr := "[" + strings.Join(elements, ", ") + "]"
+	return &expr, nil
+}
+
+// renderSetBlockMember renders one value inside a set block. At the remainder
+// path's end sits the reference member, whose values resolve through the
+// referent lookup exactly as list bindings do; every other member is
+// reproduced as a literal, faithfully typed -- a number stays a number --
+// because the expression replaces the whole block value in the generated
+// root.
+func (b *generatedBindingsBuilder) renderSetBlockMember(
+	spec TransformReferenceSpec,
+	keyMap map[string]string,
+	key, fieldPath string,
+	value any,
+	remainder []string,
+) (*string, error) {
+	if len(remainder) == 0 {
+		if arr, ok := value.([]any); ok {
+			fragments := make([]string, 0, len(arr))
+			for index, child := range arr {
+				if zeroSentinel(child) {
+					continue
+				}
+				if !bindableListElement(child) {
+					return nil, nil
+				}
+				resolved, err := b.resolve(spec, keyMap, key, fmt.Sprintf("%s[%d]", fieldPath, index), child)
+				if err != nil {
+					return nil, err
+				}
+				if resolved == nil {
+					b.skipped++
+					literal, ok, err := renderHclLiteral(child)
+					if err != nil {
+						return nil, err
+					}
+					if !ok {
+						return nil, nil
+					}
+					fragments = append(fragments, literal)
+					continue
+				}
+				b.bound++
+				fragments = append(fragments, *resolved)
+			}
+			expr := "[" + strings.Join(fragments, ", ") + "]"
+			return &expr, nil
+		}
+		if value == nil || !bindableListElement(value) {
+			return nil, nil
+		}
+		resolved, err := b.resolve(spec, keyMap, key, fieldPath, value)
+		if err != nil {
+			return nil, err
+		}
+		if resolved != nil {
+			b.bound++
+			return resolved, nil
+		}
+		b.skipped++
+		literal, ok, err := renderHclLiteral(value)
+		if err != nil || !ok {
+			return nil, err
+		}
+		return &literal, nil
+	}
+	record, isRecord := value.(map[string]any)
+	if !isRecord {
+		return nil, nil
+	}
+	memberNames := canonjson.SortedStrings(mapKeys(record))
+	parts := make([]string, 0, len(record))
+	for _, name := range memberNames {
+		var rendered *string
+		if name == remainder[0] {
+			child, err := b.renderSetBlockMember(spec, keyMap, key, fieldPath+"."+name, record[name], remainder[1:])
+			if err != nil {
+				return nil, err
+			}
+			rendered = child
+		} else {
+			literal, ok, err := renderHclLiteral(record[name])
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				rendered = &literal
+			}
+		}
+		if rendered == nil {
+			return nil, nil
+		}
+		parts = append(parts, name+" = "+*rendered)
+	}
+	expr := "{ " + strings.Join(parts, ", ") + " }"
+	return &expr, nil
+}
+
+// renderHclLiteral reproduces a JSON value as HCL, faithfully typed. The
+// false return marks a value this cannot render (and the binding that
+// contains it must not be emitted); it is distinct from an error, which marks
+// malformed input.
+func renderHclLiteral(value any) (string, bool, error) {
+	switch typed := value.(type) {
+	case nil:
+		return "null", true, nil
+	case bool:
+		if typed {
+			return "true", true, nil
+		}
+		return "false", true, nil
+	case string:
+		quoted, err := RenderHclQuotedString(typed)
+		if err != nil {
+			return "", false, err
+		}
+		return quoted, true, nil
+	case json.Number:
+		token, err := canonjson.CanonicalNumberToken(string(typed))
+		if err != nil {
+			return "", false, nil
+		}
+		return token, true, nil
+	case float64:
+		token, err := pythonTransformString(typed)
+		if err != nil {
+			return "", false, nil
+		}
+		return token, true, nil
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, child := range typed {
+			rendered, ok, err := renderHclLiteral(child)
+			if err != nil || !ok {
+				return "", false, err
+			}
+			parts = append(parts, rendered)
+		}
+		return "[" + strings.Join(parts, ", ") + "]", true, nil
+	case map[string]any:
+		parts := make([]string, 0, len(typed))
+		for _, name := range canonjson.SortedStrings(mapKeys(typed)) {
+			rendered, ok, err := renderHclLiteral(typed[name])
+			if err != nil || !ok {
+				return "", false, err
+			}
+			parts = append(parts, name+" = "+rendered)
+		}
+		return "{ " + strings.Join(parts, ", ") + " }", true, nil
+	default:
+		return "", false, nil
+	}
+}
+
 func (b *generatedBindingsBuilder) reasonFor(spec TransformReferenceSpec) string {
 	return "cross-state reference binding via " + spec.Referent + " root output"
 }
@@ -885,6 +1157,12 @@ func DeriveGeneratedBindings(context BindingContext, items map[string]map[string
 		}
 		reason := b.reasonFor(spec)
 		if strings.Contains(field, ".") {
+			if setIndex, throughSet := context.SetBlockFields[field]; throughSet {
+				if err := b.bindSetBlockField(spec, keyMap, items, field, setIndex, reason); err != nil {
+					return GeneratedBindingsResult{}, err
+				}
+				continue
+			}
 			for _, candidate := range candidates {
 				expression, err := b.bindValue(spec, keyMap, candidate.key, candidate.path, candidate.value)
 				if err != nil {

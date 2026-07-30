@@ -170,7 +170,7 @@ func TestProviderNeutralReferenceBuildExercisesPackLoadAndCrossStateGeneration(t
 	mustMatch(t, overlay, `data\.terraform_remote_state\.fixture_source\.outputs\.infrawright_reference_ids\.fixture_source\["source_one"\]`)
 	smoke := readFileString(t, filepath.Join(outputRoot, "tenant", "fixture_consumer", "tests", "smoke.tftest.hcl"))
 	mustMatch(t, smoke, `override_data \{\n  target = data\.terraform_remote_state\.fixture_source\n  values = \{`)
-	mustMatch(t, smoke, `fixture_source = \{\n          "source_one" = "infrawright-test-reference-id"`)
+	mustMatch(t, smoke, `fixture_source = \{\n          "source_one" = "20090001"`)
 
 	t.Run("Terraform parses generated HCL", func(t *testing.T) {
 		executable := terraformTestExecutable(t)

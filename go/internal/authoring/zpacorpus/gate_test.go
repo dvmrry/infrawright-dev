@@ -28,7 +28,7 @@ const (
 	// matrixSHA256 is the exact authority for the reviewed import, identity,
 	// state-shape, sensitivity, exception, and runtime-gate claims. This gate
 	// deliberately does not recreate the retired version-specific validator.
-	matrixSHA256   = "fe60ad3e18ac1687d9dfe8aca4e7bff4e6bb5a05941690588c667e444c1dbc3f"
+	matrixSHA256   = "9dea07d61bbe707f0020e92019b13c65a69e2ef6dcead4043f459c6f3fb8724f"
 	providerCommit = "1d4f43cc4c59a24d8380f0c655a07b6da7199465"
 	providerRef    = "v4.4.9"
 	providerRepo   = "https://github.com/zscaler/terraform-provider-zpa"

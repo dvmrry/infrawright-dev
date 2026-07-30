@@ -1,0 +1,12 @@
+[
+  {
+    "description": "Demo workload group one",
+    "id": 2809,
+    "name": "WG-Demo-One"
+  },
+  {
+    "description": "Demo workload group two",
+    "id": 2810,
+    "name": "WG-Demo-Two"
+  }
+]

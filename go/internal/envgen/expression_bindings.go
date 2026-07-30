@@ -403,7 +403,128 @@ func matchListElement(s string, pos int) int {
 	if p := matchDataSelector(s, pos); p >= 0 {
 		return p
 	}
-	return matchHclString(s, pos)
+	if p := matchHclString(s, pos); p >= 0 {
+		return p
+	}
+	// Composite literals extend the ported v1 grammar deliberately: a
+	// set-nested block can only be bound at its complete leaf, and the
+	// expression for that leaf reproduces the whole block value -- objects
+	// carrying faithfully-typed members around the resolved references.
+	// Every atom below is either already allowed (selectors, strings) or a
+	// closed literal (numbers, booleans, null); composites of them introduce
+	// no new reference root, so the injection surface this allowlist exists
+	// to close stays closed.
+	if p := matchNumberToken(s, pos); p >= 0 {
+		return p
+	}
+	if p := matchKeywordToken(s, pos); p >= 0 {
+		return p
+	}
+	if p := matchObjectLiteral(s, pos); p >= 0 {
+		return p
+	}
+	return matchListLiteral(s, pos)
+}
+
+// matchNumberToken scans a JSON-shaped number literal: an optional sign,
+// digits, an optional fraction, an optional exponent.
+func matchNumberToken(s string, pos int) int {
+	i := pos
+	if i < len(s) && s[i] == '-' {
+		i++
+	}
+	// JSON-canonical integer part: a single zero, or a nonzero digit
+	// followed by digits. A leading zero is not a number literal here.
+	if i >= len(s) || s[i] < '0' || s[i] > '9' {
+		return -1
+	}
+	if s[i] == '0' {
+		i++
+	} else {
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+	}
+	if i < len(s) && s[i] == '.' {
+		i++
+		fractionStart := i
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+		if i == fractionStart {
+			return -1
+		}
+	}
+	if i < len(s) && (s[i] == 'e' || s[i] == 'E') {
+		i++
+		if i < len(s) && (s[i] == '+' || s[i] == '-') {
+			i++
+		}
+		exponentStart := i
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+		if i == exponentStart {
+			return -1
+		}
+	}
+	return i
+}
+
+// matchKeywordToken scans the three closed HCL literal keywords.
+func matchKeywordToken(s string, pos int) int {
+	for _, keyword := range []string{"true", "false", "null"} {
+		end := pos + len(keyword)
+		if end <= len(s) && s[pos:end] == keyword {
+			// The keyword must end the token: "trueish" is an identifier,
+			// not a literal, and identifiers are not in this grammar.
+			if end == len(s) || !isIdentByte(s[end]) {
+				return end
+			}
+		}
+	}
+	return -1
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// matchObjectLiteral scans `{ ident = element, ... }`. Member values recurse
+// through the same element grammar, so an object can carry selectors, closed
+// literals, and nested composites -- and nothing else.
+func matchObjectLiteral(s string, pos int) int {
+	if pos >= len(s) || s[pos] != '{' {
+		return -1
+	}
+	i := matchWhitespaceRun(s, pos+1)
+	if i < len(s) && s[i] == '}' {
+		return i + 1
+	}
+	for {
+		nameEnd := matchIdent(s, i)
+		if nameEnd < 0 {
+			return -1
+		}
+		i = matchWhitespaceRun(s, nameEnd)
+		if i >= len(s) || s[i] != '=' {
+			return -1
+		}
+		i = matchWhitespaceRun(s, i+1)
+		valueEnd := matchListElement(s, i)
+		if valueEnd < 0 {
+			return -1
+		}
+		i = matchWhitespaceRun(s, valueEnd)
+		if i < len(s) && s[i] == ',' {
+			i = matchWhitespaceRun(s, i+1)
+			continue
+		}
+		if i < len(s) && s[i] == '}' {
+			return i + 1
+		}
+		return -1
+	}
 }
 
 // isPythonWhitespaceRune ports the PYTHON_WHITESPACE character class from
@@ -527,6 +648,13 @@ func validateExpression(expression any, context string) string {
 		)
 	}
 	return s
+}
+
+// ValidateExpression ports validateExpression from
+// the original implementation.
+func ValidateExpression(expression any, context string) (result string, err error) {
+	defer recoverBindingsError(&err)
+	return validateExpression(expression, context), nil
 }
 
 // renderPath ports renderPath from the original implementation.

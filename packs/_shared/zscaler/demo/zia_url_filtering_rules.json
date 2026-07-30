@@ -19,6 +19,12 @@
     "httpHeaderActionProfiles": [],
     "httpHeaderProfiles": [],
     "id": 1690944,
+    "labels": [
+      {
+        "id": 4338882,
+        "name": "TestLabel_VCR_Integration"
+      }
+    ],
     "lastModifiedBy": {
       "id": 117810311,
       "name": "REDACTED"
@@ -60,6 +66,16 @@
       "HIGH",
       "CRITICAL"
     ],
-    "usersAndGroupsSet": false
+    "usersAndGroupsSet": false,
+    "workloadGroups": [
+      {
+        "id": 2809,
+        "name": "WG-Demo-One"
+      },
+      {
+        "id": 2810,
+        "name": "WG-Demo-Two"
+      }
+    ]
   }
 ]

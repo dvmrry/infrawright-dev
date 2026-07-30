@@ -132,6 +132,99 @@ func TestAdoptionIdentitySourceVectors(t *testing.T) {
 	}
 }
 
+// TestDeriveAdoptionKeyAbsentFieldBehavesLikeEmpty pins that a key field the
+// item does not carry takes the same id_<slug> fallback a present-but-empty
+// one does.
+//
+// The distinction is not hypothetical: ZIA omits empty fields on the wire, so
+// a predefined url category has no configured_name key at all while the same
+// item spelled configured_name:"" adopted cleanly. Erroring on the absent
+// spelling failed an entire downstream fetch, 235 items of 235.
+func TestDeriveAdoptionKeyAbsentFieldBehavesLikeEmpty(t *testing.T) {
+	meta := AdoptionMetadata{
+		IdentityFields: map[string]string{}, IdentityRenames: map[string]string{},
+		ImportID: "{id}", KeyFields: []string{"configured_name"},
+	}
+	absent, err := DeriveAdoptionKey(map[string]any{"id": "finance"}, meta)
+	if err != nil {
+		t.Fatalf("DeriveAdoptionKey(absent configured_name) error = %v, want the id fallback", err)
+	}
+	empty, err := DeriveAdoptionKey(map[string]any{"id": "finance", "configured_name": ""}, meta)
+	if err != nil {
+		t.Fatalf("DeriveAdoptionKey(empty configured_name) error = %v, want the id fallback", err)
+	}
+	// The equivalence is the claim: both spellings of "this item has no
+	// configured name" produce the same key, and that key is the readable
+	// fallback, not an accident of one code path.
+	if absent != empty || absent != "id_finance" {
+		t.Errorf("DeriveAdoptionKey absent = %q, empty = %q, want both id_finance", absent, empty)
+	}
+	// A custom item beside them keeps its readable key.
+	custom, err := DeriveAdoptionKey(map[string]any{"id": "c1", "configured_name": "Blackrock Box Urls"}, meta)
+	if err != nil || custom != "blackrock_box_urls" {
+		t.Errorf("DeriveAdoptionKey(custom item) = %q, %v; want blackrock_box_urls", custom, err)
+	}
+}
+
+// TestDeriveAdoptionKeyAbsentFieldKeepsTheFailClosedFloor pins what absence
+// may not do: an item with no key-field value and no id has no derivable key,
+// and that still errors rather than inventing one.
+func TestDeriveAdoptionKeyAbsentFieldKeepsTheFailClosedFloor(t *testing.T) {
+	meta := AdoptionMetadata{
+		IdentityFields: map[string]string{}, IdentityRenames: map[string]string{},
+		ImportID: "{id}", KeyFields: []string{"configured_name"},
+	}
+	if key, err := DeriveAdoptionKey(map[string]any{"other": "x"}, meta); err == nil {
+		t.Errorf("DeriveAdoptionKey(no key field, no id) = %q, want a refusal", key)
+	}
+	if key, err := DeriveAdoptionKey(map[string]any{"id": nil}, meta); err == nil {
+		t.Errorf("DeriveAdoptionKey(no key field, null id) = %q, want a refusal", key)
+	}
+}
+
+// TestDeriveAdoptionKeyMultiFieldPartialAbsence pins the multi-field shape:
+// one absent field contributes an empty part while the fields that are
+// present still name the item, matching how a present-but-empty part behaves
+// in the join.
+func TestDeriveAdoptionKeyMultiFieldPartialAbsence(t *testing.T) {
+	meta := AdoptionMetadata{
+		IdentityFields: map[string]string{}, IdentityRenames: map[string]string{},
+		ImportID: "{id}", KeyFields: []string{"type", "configured_name"},
+	}
+	got, err := DeriveAdoptionKey(map[string]any{"id": "9", "type": "ACCESS"}, meta)
+	if err != nil || got != "access" {
+		t.Errorf("DeriveAdoptionKey(one of two fields absent) = %q, %v; want access", got, err)
+	}
+}
+
+// TestAdoptionIdentitiesMixCustomAndPredefinedItems drives the absent-field
+// fallback through DeriveAdoptionIdentities rather than the unit seam,
+// because the downstream failure was a whole fetch: one predefined item
+// without the key field must not take the 234 custom items down with it.
+func TestAdoptionIdentitiesMixCustomAndPredefinedItems(t *testing.T) {
+	resource := adoptionTestResource(metadata.JsonObject{
+		"import_id": "{id}", "key_field": "configured_name",
+	}, nil)
+	result, err := DeriveAdoptionIdentities(
+		mustLosslessAdoptionItems(t, `[
+			{"id":"CUSTOM_01","configured_name":"Blackrock Box Urls"},
+			{"id":"FINANCE"}
+		]`),
+		resource,
+	)
+	if err != nil {
+		t.Fatalf("DeriveAdoptionIdentities(mixed custom and predefined) error = %v, want both adopted", err)
+	}
+	keys := make([]string, 0, len(result.Identities))
+	for _, identity := range result.Identities {
+		keys = append(keys, identity.Key)
+	}
+	want := []string{"blackrock_box_urls", "id_finance"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Errorf("DeriveAdoptionIdentities(mixed) keys = %v, want %v", keys, want)
+	}
+}
+
 func TestAdoptionClassificationSkipThenUnsupportedWithWideNumbers(t *testing.T) {
 	rule := metadata.JsonObject{
 		"evidence": []any{"https://example.invalid/provider-source"},
