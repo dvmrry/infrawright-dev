@@ -601,7 +601,13 @@ func validateReportChange(
 			}
 		}
 	}
-	if kind, present := change["kind"]; present && kind != "scalar" {
+	// Kept in step with the kind enum in
+	// docs/schemas/saved-plan-assessment.schema.json. This validator runs on
+	// every successful report, so a kind the published schema allows but this
+	// list omits does not merely fail validation somewhere -- it makes the
+	// report unpublishable.
+	if kind, present := change["kind"]; present &&
+		kind != string(ScalarChange) && kind != string(SetChange) {
 		validation.add(path+"/kind", "enum", "must be equal to one of the allowed values")
 	}
 	if sensitive, present := change["sensitive"]; present {

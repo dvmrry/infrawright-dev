@@ -48,6 +48,12 @@ type CollectAssessmentGuidanceOptions struct {
 	Members  []string
 	Plan     map[string]any
 	Findings []PlanFinding
+
+	// SchemaTypes must be the same value the classifier used. Guidance is
+	// joined to findings by exact path equality (joinBlockedGuidance), so a
+	// walk here that collapses set attributes differently from the walk that
+	// produced the findings detaches every annotation silently.
+	SchemaTypes PlanSchemaTypes
 }
 
 type candidatePath struct {
@@ -469,7 +475,12 @@ func formatSchemaGuidancePath(path PlanPath) string {
 	return formatConcreteGuidancePath(schema)
 }
 
-func planGuidanceRecords(plan map[string]any, resourceType string) []candidatePath {
+func planGuidanceRecords(
+	plan map[string]any,
+	resourceType string,
+	schemaTypes PlanSchemaTypes,
+) []candidatePath {
+	setAttributes := schemaTypes.SetAttributes(resourceType)
 	var candidates []candidatePath
 	for _, source := range []string{"resource_changes", "resource_drift"} {
 		changes, ok := plan[source].([]any)
@@ -490,7 +501,10 @@ func planGuidanceRecords(plan map[string]any, resourceType string) []candidatePa
 				continue
 			}
 			paths := make(map[string]PlanPath)
-			for _, path := range append(DiffPaths(change["before"], change["after"]), TruthyPaths(change["after_unknown"])...) {
+			for _, path := range append(
+				DiffPathsWithSets(change["before"], change["after"], setAttributes),
+				collapseSetPaths(TruthyPaths(change["after_unknown"]), setAttributes)...,
+			) {
 				paths[pathMarker(path)] = clonePath(path)
 			}
 			for _, path := range paths {
@@ -556,12 +570,13 @@ func providerConfigGuidance(
 	source AssessmentGuidanceSource,
 	plan map[string]any,
 	resourceType string,
+	schemaTypes PlanSchemaTypes,
 ) ([]guidanceEntry, error) {
 	provider, ok := source.providersByResource[resourceType]
 	if !ok {
 		return nil, errors.New("unknown guidance resource")
 	}
-	candidates := planGuidanceRecords(plan, resourceType)
+	candidates := planGuidanceRecords(plan, resourceType, schemaTypes)
 	var output []guidanceEntry
 	seenSettings := make(map[string]struct{})
 	for _, manifest := range source.manifests {
@@ -1024,12 +1039,13 @@ func ruleGuidance(
 	source AssessmentGuidanceSource,
 	plan map[string]any,
 	resourceType, lane string,
+	schemaTypes PlanSchemaTypes,
 ) ([]guidanceEntry, error) {
 	provider, ok := source.providersByResource[resourceType]
 	if !ok {
 		return nil, errors.New("unknown guidance resource")
 	}
-	candidates := planGuidanceRecords(plan, resourceType)
+	candidates := planGuidanceRecords(plan, resourceType, schemaTypes)
 	rules, err := providerGuidanceLaneRules(source, provider, lane)
 	if err != nil {
 		return nil, err
@@ -1234,13 +1250,13 @@ func CollectAssessmentGuidance(options CollectAssessmentGuidanceOptions) Assessm
 	var annotations []guidanceEntry
 	for _, resourceType := range options.Members {
 		annotations = append(annotations, safeCollectGuidance(func() ([]guidanceEntry, error) {
-			return providerConfigGuidance(options.Source, options.Plan, resourceType)
+			return providerConfigGuidance(options.Source, options.Plan, resourceType, options.SchemaTypes)
 		})...)
 		annotations = append(annotations, safeCollectGuidance(func() ([]guidanceEntry, error) {
-			return ruleGuidance(options.Source, options.Plan, resourceType, "absent_default")
+			return ruleGuidance(options.Source, options.Plan, resourceType, "absent_default", options.SchemaTypes)
 		})...)
 		annotations = append(annotations, safeCollectGuidance(func() ([]guidanceEntry, error) {
-			return ruleGuidance(options.Source, options.Plan, resourceType, "dynamic_schema")
+			return ruleGuidance(options.Source, options.Plan, resourceType, "dynamic_schema", options.SchemaTypes)
 		})...)
 	}
 	joined := joinBlockedGuidance(options.Findings, annotations)
