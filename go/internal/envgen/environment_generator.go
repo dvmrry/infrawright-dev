@@ -283,13 +283,6 @@ func tenantEnvironmentDirectory(dep deployment.Deployment, tenant string, output
 
 // environmentRootDirectory ports environmentRootDirectory from
 // the original implementation.
-// EnvironmentRootDirectory resolves the directory a generated root occupies.
-// It is exported for probers that must reach a referenced root's working
-// directory without reimplementing the layout envgen owns.
-func EnvironmentRootDirectory(dep deployment.Deployment, tenant, label string, outputRoot *string) (string, error) {
-	return environmentRootDirectory(dep, tenant, label, outputRoot)
-}
-
 func environmentRootDirectory(dep deployment.Deployment, tenant, label string, outputRoot *string) (string, error) {
 	tenantDirectory, err := tenantEnvironmentDirectory(dep, tenant, outputRoot)
 	if err != nil {

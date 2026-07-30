@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -207,22 +208,34 @@ func TestGenEnvStateAwareCLIControlsFallback(t *testing.T) {
 // TestGenEnvStateAwareBackendDispatch pins the CLI's backend-aware probe
 // wiring: local tenants probe files and need no terraform at all, azurerm
 // tenants must be given the backend config plan already uses, and anything
-// else is refused. The child environment carries no PATH on purpose -- the
-// local case proves it resolves no terraform executable.
+// else is refused.
 func TestGenEnvStateAwareBackendDispatch(t *testing.T) {
 	repositoryRoot := repoRoot(t)
 	binary := buildGoV2AuthorityCLI(t, repositoryRoot, "iw-state-aware-dispatch")
 
-	t.Run("local backend needs no terraform", func(t *testing.T) {
-		fixture := prepareStateAwareCLIFixture(t)
-		result := runStateAwareGenEnvCLI(t, binary, fixture, "--state-aware")
-		if result.exit != 0 {
-			t.Fatalf("gen-env --state-aware exit = %d, want 0 without any terraform on the runner; stderr=%q", result.exit, result.stderr)
-		}
-		if !bytes.Contains(result.stderr, []byte("fell back to literal")) {
-			t.Errorf("stderr = %q, want the local prober's fallback note", result.stderr)
-		}
-	})
+	// A local tenant probes state files, so it must resolve no terraform
+	// executable at all. Pointing --terraform at a path that does not exist
+	// proves that: resolution would fail loudly, so success can only mean the
+	// local branch never attempted it. Passing nothing would prove nothing,
+	// since the runner usually does have a terraform on PATH.
+	for _, testCase := range []struct {
+		name      string
+		arguments []string
+	}{
+		{name: "implicit local", arguments: []string{"--state-aware", "--terraform", "/nonexistent/terraform"}},
+		{name: "explicit local", arguments: []string{"--state-aware", "--backend", "local", "--terraform", "/nonexistent/terraform"}},
+	} {
+		t.Run(testCase.name+" backend needs no terraform", func(t *testing.T) {
+			fixture := prepareStateAwareCLIFixture(t)
+			result := runStateAwareGenEnvCLI(t, binary, fixture, testCase.arguments...)
+			if result.exit != 0 {
+				t.Fatalf("gen-env %v exit = %d, want 0 without resolving any terraform; stderr=%q", testCase.arguments, result.exit, result.stderr)
+			}
+			if !bytes.Contains(result.stderr, []byte("fell back to literal")) {
+				t.Errorf("stderr = %q, want the local prober's fallback note", result.stderr)
+			}
+		})
+	}
 
 	t.Run("azurerm requires backend config", func(t *testing.T) {
 		fixture := prepareStateAwareCLIFixture(t)
@@ -272,4 +285,87 @@ func TestGenEnvStateAwareBackendDispatch(t *testing.T) {
 			t.Errorf("stderr = %q, want the refusal to name the supported backends", result.stderr)
 		}
 	})
+}
+
+// recordingFakeTerraform writes a terraform stand-in that appends each
+// invocation's argv to logPath and refuses any -backend-config=<file> naming
+// a path that does not resolve from its own working directory. The probe runs
+// Terraform in a scratch directory unrelated to the caller's, so a relative
+// --backend-config that was never resolved fails here exactly as real
+// terraform would. `state pull` answers with no document, so every referent
+// reads unapplied and generation falls back.
+func recordingFakeTerraform(t *testing.T, logPath string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "terraform")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$*\" >> '" + logPath + "'\n" +
+		"for arg in \"$@\"; do\n" +
+		"  case \"$arg\" in\n" +
+		"    -backend-config=key=*) ;;\n" +
+		"    -backend-config=*)\n" +
+		"      file=${arg#-backend-config=}\n" +
+		"      if [ ! -f \"$file\" ]; then\n" +
+		"        echo \"fake terraform: backend config not found from $(pwd): $file\" >&2\n" +
+		"        exit 1\n" +
+		"      fi\n" +
+		"      ;;\n" +
+		"  esac\n" +
+		"done\n" +
+		"exit 0\n"
+	if err := os.WriteFile(path, []byte(script), 0o777); err != nil {
+		t.Fatalf("write recording fake terraform: %v", err)
+	}
+	return path
+}
+
+// TestGenEnvStateAwareResolvesRelativeBackendConfig pins the path contract the
+// Makefile and every documented example actually use: BACKEND_CONFIG is
+// relative to where the operator invoked iw, while the probe runs Terraform in
+// a scratch directory. Unless gen-env resolves the path the way iw plan and
+// stage-imports already do, terraform init cannot find the file and
+// state-aware generation fails for every realistic invocation.
+//
+// Asserting on the recorded argv (not merely the exit code) is what makes this
+// test observe the probe at all: a wiring regression that skipped Terraform
+// entirely would still exit 0 and still emit the fallback note.
+func TestGenEnvStateAwareResolvesRelativeBackendConfig(t *testing.T) {
+	repositoryRoot := repoRoot(t)
+	binary := buildGoV2AuthorityCLI(t, repositoryRoot, "iw-state-aware-relative")
+	fixture := prepareStateAwareCLIFixture(t)
+
+	absoluteBackendConfig := filepath.Join(fixture.workspace, "cfg", "backend.azurerm.json")
+	writeBlockC4JSON(t, absoluteBackendConfig, map[string]any{
+		"container_name": "tfstate", "resource_group_name": "rg",
+		"storage_account_name": "sa", "use_azuread_auth": true,
+	})
+	logPath := filepath.Join(t.TempDir(), "argv.log")
+
+	result := runStateAwareGenEnvCLI(t, binary, fixture,
+		"--state-aware", "--backend", "azurerm",
+		"--backend-config", filepath.Join("cfg", "backend.azurerm.json"),
+		"--terraform", recordingFakeTerraform(t, logPath))
+	if result.exit != 0 {
+		t.Fatalf("gen-env --state-aware with a relative --backend-config exit = %d, want 0; stderr=%q", result.exit, result.stderr)
+	}
+
+	recorded, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(argv log) error = %v, want nil: the probe never invoked terraform", err)
+	}
+	argv := string(recorded)
+	// The child resolves the relative path against its own working directory,
+	// which the OS reports physically (on macOS /var is a symlink to
+	// /private/var), so the expectation is compared physically too.
+	physicalBackendConfig, err := filepath.EvalSymlinks(absoluteBackendConfig)
+	if err != nil {
+		t.Fatalf("filepath.EvalSymlinks(%q) error = %v, want nil", absoluteBackendConfig, err)
+	}
+	wantInit := "init -input=false -reconfigure -backend-config=" + physicalBackendConfig +
+		" -backend-config=key=tenant/sample_referent.tfstate"
+	if !strings.Contains(argv, wantInit) {
+		t.Errorf("argv log = %q, want an init resolving the backend config to %q", argv, absoluteBackendConfig)
+	}
+	if !strings.Contains(argv, "state pull") {
+		t.Errorf("argv log = %q, want a state pull", argv)
+	}
 }

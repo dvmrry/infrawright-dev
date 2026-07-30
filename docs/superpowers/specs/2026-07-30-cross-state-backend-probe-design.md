@@ -110,6 +110,10 @@ callers; precedence is `StateProbe` > `StateProbeFor(backend)` >
 ### Surface changes
 
 - `iw gen-env` gains `--backend-config` (value flag, same meaning as plan's).
+  A relative path is resolved against the invocation directory before it
+  reaches the probe, as `iw plan` and `stage-imports` already do for the same
+  flag: the probe runs Terraform in a scratch directory, so an unresolved
+  relative path would fail `init` for every realistic invocation.
 - `make gen-env` gains `BACKEND_CONFIG=<file>` passthrough and passes
   `--terraform "$(TF)"` alongside `--state-aware`, mirroring stage-imports.
 - `go/internal/stateprobe` drops `ResolveRootDirectory` and the `.terraform`

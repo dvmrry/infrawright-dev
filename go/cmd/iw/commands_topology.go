@@ -424,8 +424,20 @@ func genEnvInput(parsed commandInput) (int, error) {
 		environment := environMap()
 		selectedTerraform, _ := lastCommandOption(parsed, "--terraform")
 		backendConfig, hasBackendConfig := lastCommandOption(parsed, "--backend-config")
+		if hasBackendConfig && !filepath.IsAbs(backendConfig) {
+			// The probe runs Terraform in a scratch directory, so a path
+			// relative to the operator's working directory has to be resolved
+			// here or terraform init cannot find it. iw plan and
+			// stage-imports resolve the same flag the same way against the
+			// invocation directory.
+			resolved, err := filepath.Abs(backendConfig)
+			if err != nil {
+				return 0, err
+			}
+			backendConfig = resolved
+		}
 		generateOptions.StateProbeFor = func(backend *string) (envgen.StateProbe, error) {
-			if backend == nil || *backend == "" {
+			if backend == nil || *backend == "" || *backend == "local" {
 				return nil, nil
 			}
 			if *backend != "azurerm" {
