@@ -159,7 +159,11 @@ v1.15.4):**
    **Render purity (maintainer direction, 2026-07-30 — supersedes the
    earlier sidecar-fallback idea):** the renderer generates and owns no
    lookup maps. It emits only remote-state readers and resolver
-   expressions; all key→ID truth lives in the producing state outputs.
+   expressions; *authoritative* key→ID truth lives in the producing state
+   outputs, with the committed book as the explicitly-chosen plan-time
+   fallback for referents not yet applied (the settled contract below —
+   the two sentences are one design, not a contradiction: state is truth,
+   the book is the fallback, the renderer owns neither).
    The resolver for a token is computed from the token itself
    (`<referent>.<key>` → the canonical
    `infrawright_reference_ids.<referent>["<key>"]` selector). The settled

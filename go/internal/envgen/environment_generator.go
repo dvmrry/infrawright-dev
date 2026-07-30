@@ -618,13 +618,53 @@ func enumerateCommittedReferenceTokens(
 			leaves = append(leaves, found...)
 			continue
 		}
-		found, err := hclConfigTokenValues(dep, tenant, string(raw), resourceType, fields)
-		if err != nil {
-			return nil, err
+		// Tokens are a JSON-format contract. An HCL config cannot be
+		// leaf-verified, so a token-shaped value in one is refused outright
+		// -- fail closed, never a silent passthrough -- with no dependence
+		// on any book or binding mode.
+		if shaped := hclTokenShapedValue(string(raw), allPackReferents(references)); shaped != "" {
+			return nil, fmt.Errorf(
+				"%s is HCL-format tfvars and contains the reference-token-shaped value %q; tokenised configs are supported for JSON tfvars only -- convert the deployment's tfvars_format or restore literal IDs",
+				config, shaped,
+			)
 		}
-		leaves = append(leaves, found...)
 	}
 	return leaves, nil
+}
+
+// allPackReferents collects every referent type any pack reference
+// declares, so HCL refusal and foreign-token handling key on pack truth
+// rather than one field's declaration.
+func allPackReferents(references map[string]map[string]any) map[string]bool {
+	referents := map[string]bool{}
+	for _, fields := range references {
+		for _, raw := range fields {
+			if referent, ok := referentOfFieldSpec(raw); ok {
+				referents[referent] = true
+			}
+		}
+	}
+	return referents
+}
+
+// hclTokenShapedValue reports the first quoted string in an HCL config
+// that opens with any pack-declared referent type and a dot, or "" when
+// none exists.
+func hclTokenShapedValue(text string, referents map[string]bool) string {
+	for referent := range referents {
+		prefix := `"` + referent + `.`
+		index := strings.Index(text, prefix)
+		if index < 0 {
+			continue
+		}
+		start := index + 1
+		end := strings.IndexByte(text[start:], '"')
+		if end < 0 {
+			continue
+		}
+		return text[start : start+end]
+	}
+	return ""
 }
 
 // jsonConfigTokenLeaves walks one JSON config's declared reference fields
@@ -650,8 +690,7 @@ func jsonConfigTokenLeaves(
 	}
 	var leaves []committedTokenLeaf
 	for _, field := range canonjson.SortedStrings(mapKeysAny(fields)) {
-		referent, ok := referentOfFieldSpec(fields[field])
-		if !ok {
+		if _, ok := referentOfFieldSpec(fields[field]); !ok {
 			continue
 		}
 		segments := strings.Split(field, ".")
@@ -666,10 +705,11 @@ func jsonConfigTokenLeaves(
 			if !ok {
 				continue
 			}
-			collectTokenLeaves(item, segments, "", referent, func(path, token string) {
+			collectTokenLeaves(item, segments, "", func(path, token string) {
+				dot := strings.IndexByte(token, '.')
 				leaves = append(leaves, committedTokenLeaf{
 					ResourceType: resourceType, ItemKey: itemKey, Path: path,
-					Token: token, Referent: referent, Key: token[len(referent)+1:],
+					Token: token, Referent: token[:dot], Key: token[dot+1:],
 				})
 			})
 		}
@@ -677,27 +717,40 @@ func jsonConfigTokenLeaves(
 	return leaves, nil
 }
 
+// tokenShapedValue mirrors the producer's tokenShaped rule exactly: an
+// identifier segment, a dot, a remainder -- so detection and minting can
+// never classify the same string differently.
+func tokenShapedValue(s string) bool {
+	dot := strings.IndexByte(s, '.')
+	return dot > 0 && tokenFieldSegmentPattern.MatchString(s[:dot])
+}
+
 // collectTokenLeaves mirrors the producer's substitution walk: descend by
 // identifier segments, fan arrays at every level, and report terminal
 // string values carrying the referent prefix. List-element leaves report
 // the list's own path, matching the path bindings are addressed at.
-func collectTokenLeaves(container map[string]any, segments []string, concretePath, referent string, report func(path, token string)) {
+func collectTokenLeaves(container map[string]any, segments []string, concretePath string, report func(path, token string)) {
 	head := segments[0]
 	leafPath := head
 	if concretePath != "" {
 		leafPath = concretePath + "." + head
 	}
-	prefix := referent + "."
+	// Any token-SHAPED string at a reference leaf is reported, not only the
+	// field's currently-declared referent: a pack referent reassignment
+	// leaves committed tokens carrying the old prefix, and those must fail
+	// the coverage gate loudly rather than pass invisibly (adversarial
+	// review finding). Reference-leaf values are never innocently dotted
+	// (corpus audit, 2026-07-30), so shape alone is decisive here.
 	if len(segments) == 1 {
 		switch value := container[head].(type) {
 		case []any:
 			for _, child := range value {
-				if text, ok := child.(string); ok && strings.HasPrefix(text, prefix) {
+				if text, ok := child.(string); ok && tokenShapedValue(text) {
 					report(leafPath, text)
 				}
 			}
 		case string:
-			if strings.HasPrefix(value, prefix) {
+			if tokenShapedValue(value) {
 				report(leafPath, value)
 			}
 		}
@@ -707,101 +760,21 @@ func collectTokenLeaves(container map[string]any, segments []string, concretePat
 	if !present {
 		return
 	}
-	collectTokenLeavesThrough(next, segments[1:], leafPath, referent, report)
+	collectTokenLeavesThrough(next, segments[1:], leafPath, report)
 }
 
-func collectTokenLeavesThrough(value any, rest []string, concretePath, referent string, report func(path, token string)) {
+func collectTokenLeavesThrough(value any, rest []string, concretePath string, report func(path, token string)) {
 	switch typed := value.(type) {
 	case map[string]any:
-		collectTokenLeaves(typed, rest, concretePath, referent, report)
+		collectTokenLeaves(typed, rest, concretePath, report)
 	case []any:
 		for index, child := range typed {
 			if child == nil {
 				continue
 			}
-			collectTokenLeavesThrough(child, rest, fmt.Sprintf("%s[%d]", concretePath, index), referent, report)
+			collectTokenLeavesThrough(child, rest, fmt.Sprintf("%s[%d]", concretePath, index), report)
 		}
 	}
-}
-
-// hclConfigTokenValues extracts quoted strings from an HCL config and
-// counts one as a token only when its key is present in the referent's
-// committed book -- the membership check is what keeps an innocent dotted
-// string from flipping any render-time gate. HCL configs cannot be
-// leaf-addressed, so these report with an empty Path and are covered
-// value-level.
-func hclConfigTokenValues(
-	dep deployment.Deployment,
-	tenant, text, resourceType string,
-	fields map[string]any,
-) ([]committedTokenLeaf, error) {
-	var leaves []committedTokenLeaf
-	books := map[string]map[string]string{}
-	for _, field := range canonjson.SortedStrings(mapKeysAny(fields)) {
-		referent, ok := referentOfFieldSpec(fields[field])
-		if !ok {
-			continue
-		}
-		if _, loaded := books[referent]; !loaded {
-			book, err := committedBookIDsByKey(dep, tenant, referent)
-			if err != nil {
-				return nil, err
-			}
-			books[referent] = book
-		}
-		book := books[referent]
-		if len(book) == 0 {
-			continue
-		}
-		prefix := `"` + referent + `.`
-		offset := 0
-		for {
-			index := strings.Index(text[offset:], prefix)
-			if index < 0 {
-				break
-			}
-			start := offset + index + 1
-			end := strings.IndexByte(text[start:], '"')
-			if end < 0 {
-				break
-			}
-			candidate := text[start : start+end]
-			key := candidate[len(referent)+1:]
-			if _, known := book[key]; known {
-				leaves = append(leaves, committedTokenLeaf{
-					ResourceType: resourceType, Token: candidate, Referent: referent, Key: key,
-				})
-			}
-			offset = start + end
-		}
-	}
-	return leaves, nil
-}
-
-// committedBookIDsByKey loads a referent's committed lookup sidecar for
-// gating (never rendering): the id_by_key map, with the parser's inversion
-// serving books written before the field existed.
-func committedBookIDsByKey(dep deployment.Deployment, tenant, referent string) (map[string]string, error) {
-	paths, err := tfrender.ComputeTransformArtifactPaths(dep, referent, tenant)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := os.ReadFile(paths.Lookup)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	value, err := canonjson.ParseDataJSONLosslessly(string(raw))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", paths.Lookup, err)
-	}
-	data, err := tfrender.ParseLookupSidecar(value)
-	if err != nil {
-		return nil, err
-	}
-	return data.IDByKey, nil
 }
 
 // referentOfFieldSpec extracts the referent from one pack references entry,

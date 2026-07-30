@@ -594,3 +594,74 @@ func TestRemoveLookupIgnoresDottedKeyNames(t *testing.T) {
 		t.Fatalf("CompileTransformArtifacts error = %v, want nil for a dotted key name", err)
 	}
 }
+
+// TestSetBlockTwoMembersBindOnceWithoutOverwrite pins, against the
+// re-review's overwrite claim, what the walk actually does: the set-block
+// leaf renders the WHOLE member list as one expression at one unique path
+// per occurrence (arrays above the block fan with index bookkeeping), so
+// two tokenised members can never collide in assign().
+func TestSetBlockTwoMembersBindOnceWithoutOverwrite(t *testing.T) {
+	items := map[string]map[string]any{
+		"iot_device_services": {
+			"services": []any{
+				map[string]any{"id": []any{json.Number("123")}},
+				map[string]any{"id": []any{json.Number("789")}},
+			},
+		},
+	}
+	lookupKeys := map[string]map[string]string{
+		"zia_firewall_filtering_network_service": {"123": "service_one", "789": "service_two"},
+	}
+	context := setBlockBindingContext(map[string]int{"services.id": 0})
+	minted := substituteReferenceTokens(items, context, "zia_firewall_filtering_network_service_groups", lookupKeys)
+	if len(minted) != 2 {
+		t.Fatalf("minted = %#v, want both members' tokens", minted)
+	}
+	binding, err := DeriveGeneratedBindings(context, items, lookupKeys, "zia_firewall_filtering_network_service_groups")
+	if err != nil {
+		t.Fatalf("DeriveGeneratedBindings: %v", err)
+	}
+	fields := binding.Resources["zia_firewall_filtering_network_service_groups.iot_device_services"].(map[string]any)
+	expression := fields["services"].(map[string]any)["expression"].(string)
+	if !strings.Contains(expression, `["service_one"]`) || !strings.Contains(expression, `["service_two"]`) {
+		t.Fatalf("expression = %q, want both members resolved in one block binding", expression)
+	}
+	if err := assertMintedTokensCovered(minted, binding, "zia_firewall_filtering_network_service_groups"); err != nil {
+		t.Errorf("assertMintedTokensCovered = %v, want both covered", err)
+	}
+}
+
+// TestHclDeploymentsMintNoTokens pins the JSON-only contract at the
+// producer: an HCL-format deployment's config keeps literal IDs entirely.
+func TestHclDeploymentsMintNoTokens(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "sample_item")
+	options.Deployment = testDeployment(workspace, true)
+	options.References = map[string]TransformReferenceSpec{
+		"group_id": {NameField: "name", Referent: "sample_group"},
+	}
+	options.BindingContext = BindingContext{
+		Mode:      deployment.ReferenceBindingCrossState,
+		Derived:   map[string]bool{},
+		Generated: map[string]bool{"sample_group": true, "sample_item": true},
+		ResourceRoots: map[string]string{
+			"sample_group": "sample_group", "sample_item": "sample_item",
+		},
+		References: options.References,
+	}
+	options.Result = PullTransformResult{
+		Drops:     []string{},
+		Items:     map[string]map[string]any{"item": {"group_id": "group-1", "name": "Item"}},
+		Originals: map[string]map[string]any{"item": {"id": "item-1", "name": "Item"}},
+	}
+	options.LookupOverrides = map[string]*TransformLookupData{
+		"sample_group": {ByID: map[string]string{"group-1": "Group"}, KeyByID: map[string]string{"group-1": "group_key"}},
+	}
+	compiled, err := CompileTransformArtifacts(options)
+	if err != nil {
+		t.Fatalf("CompileTransformArtifacts: %v", err)
+	}
+	if !strings.Contains(compiled.ConfigText, `"group-1"`) || strings.Contains(compiled.ConfigText, "sample_group.group_key") {
+		t.Fatalf("config = %q, want the literal ID retained for an HCL deployment", compiled.ConfigText)
+	}
+}

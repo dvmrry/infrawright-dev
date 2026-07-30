@@ -55,6 +55,12 @@
   resolve tokens to the same names raw IDs showed, and retiring a book
   that committed tokens still decode through is refused, naming the
   dependents.
+- Tokens are a JSON-tfvars contract: HCL-format deployments keep literal
+  IDs entirely (only JSON configs can be leaf-verified by the totality
+  gate), and a token-shaped value appearing in an HCL config is refused at
+  generation rather than passed through. Detection at JSON reference
+  leaves is shape-based, so a token stranded by a pack referent
+  reassignment (old prefix) is caught and refused, not skipped.
 - Totality is enforced leaf-by-leaf at both ends: transform refuses to
   publish a minted token its own derivation did not cover, and gen-env
   refuses to render a root while any committed token lacks a covering

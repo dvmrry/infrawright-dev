@@ -255,3 +255,63 @@ func TestInnocentDottedStringKeepsProbeActive(t *testing.T) {
 		t.Errorf("expression_bindings.tf = %q, want no resolver machinery for an old-shape root", bindings)
 	}
 }
+
+// TestForeignReferentTokenRefused pins the re-review's sharpest finding: a
+// pack referent reassignment strands committed tokens carrying the OLD
+// referent prefix. Detection is shape-based at reference leaves, so a
+// foreign token with no covering binding is a loud refusal, never an
+// invisible passthrough to a string-typed provider field.
+func TestForeignReferentTokenRefused(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokenise(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"app_one": map[string]any{
+			"segment_group_id": "zpa_application_server.stale_key",
+		}},
+	})
+	if err := os.Remove(filepath.Join(config, "zpa_application_segment.generated.expressions.json")); err != nil {
+		t.Fatalf("remove bindings: %v", err)
+	}
+
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot, Root: syntheticRootForTopology(t),
+		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
+	})
+	if err == nil || !strings.Contains(err.Error(), "zpa_application_server.stale_key") {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want a refusal naming the foreign token", err)
+	}
+}
+
+// TestHclConfigWithTokenShapedValueRefused pins the JSON-only contract at
+// the render side: an HCL-format config carrying a token-shaped value is
+// refused outright -- no book, no binding mode, no silent lane.
+func TestHclConfigWithTokenShapedValueRefused(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	writeJSONFile(t, fixture.deploymentPath, map[string]any{
+		"overlay":       fixture.workspace,
+		"tfvars_format": "hcl",
+		"roots": map[string]any{
+			"zpa": map[string]any{"cross_state_references": true},
+		},
+	})
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	hcl := "items = {\n  app_one = {\n    segment_group_id = \"zpa_segment_group.segment_one\"\n  }\n}\n"
+	if err := os.WriteFile(filepath.Join(config, "zpa_application_segment.auto.tfvars"), []byte(hcl), 0o666); err != nil {
+		t.Fatalf("write hcl config: %v", err)
+	}
+
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot, Root: syntheticRootForTopology(t),
+		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
+	})
+	if err == nil || !strings.Contains(err.Error(), "JSON tfvars only") {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want the HCL token refusal", err)
+	}
+}

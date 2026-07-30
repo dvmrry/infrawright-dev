@@ -110,12 +110,17 @@ shipped).
 
 ### Task 3: envgen — render purity: readers and resolvers only
 
-> **Reframed by the maintainer mid-execution (governs over anything
-> contradicting it elsewhere in this plan):** the renderer must not
+> **Reframed by the maintainer mid-execution:** the renderer must not
 > generate or own any lookup maps. It emits only remote-state readers and
 > resolver expressions. All key→ID truth lives in the producing state
 > outputs. No semantic sidecars, no locally maintained maps, render mode
 > only.
+>
+> *Superseded in part by the maintainer's settled fallback contract
+> (recorded in the Interfaces section below): the resolver's fallback arm
+> reads the committed book at plan time. "Owns no lookup maps" means the
+> renderer inlines no values — state is authoritative truth, the book is
+> the chosen fallback, the renderer owns neither.*
 
 **Files:**
 - Modify: `go/internal/envgen/environment_generator.go`,

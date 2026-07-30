@@ -1983,7 +1983,18 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
-	minted := substituteReferenceTokens(options.Result.Items, options.BindingContext, options.ResourceType, keyMaps)
+	// Tokens are a JSON-format contract: only JSON tfvars can be
+	// leaf-verified end to end by the render-time totality gate, so
+	// HCL-format deployments keep literal IDs entirely (and envgen refuses
+	// token-shaped values that appear in an HCL config by other means).
+	tfvarsFormat, err := deployment.DeploymentTfvarsFormat(options.Deployment)
+	if err != nil {
+		return CompiledTransformArtifacts{}, err
+	}
+	var minted []mintedReferenceToken
+	if tfvarsFormat == "json" {
+		minted = substituteReferenceTokens(options.Result.Items, options.BindingContext, options.ResourceType, keyMaps)
+	}
 
 	configText, err := renderDeploymentTfvars(
 		options.Deployment, options.Result.Items, options.References,

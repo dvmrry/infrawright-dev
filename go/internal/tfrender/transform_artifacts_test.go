@@ -586,11 +586,12 @@ func TestBatchCompilationUsesNewLookupResultsForBindingsAndComments(t *testing.T
 
 	referrerPaths := mustComputePaths(t, referrer)
 	configText := readFileText(t, referrerPaths.Config)
-	// The committed value is the qualified token minted from the fresh
-	// same-batch lookup (never the stale on-disk one), and the display
-	// comment still resolves through the book.
-	if !regexp.MustCompile(`group_id\s+= "sample_group\.new_key"\s+# Fresh Group`).MatchString(configText) {
-		t.Fatalf("config text %q does not match /group_id\\s+= \"sample_group.new_key\"\\s+# Fresh Group/", configText)
+	// HCL-format deployments keep literal IDs by design -- tokens are a
+	// JSON-format contract, because only JSON configs can be leaf-verified
+	// by the render-time totality gate. The comment still resolves through
+	// the fresh same-batch lookup, never the stale on-disk one.
+	if !regexp.MustCompile(`group_id\s+= "new-id"\s+# Fresh Group`).MatchString(configText) {
+		t.Fatalf("config text %q does not match /group_id\\s+= \"new-id\"\\s+# Fresh Group/", configText)
 	}
 	bindingsText := readFileText(t, referrerPaths.GeneratedBindings)
 	if !strings.Contains(bindingsText, "data.terraform_remote_state.sample_root.outputs.infrawright_reference_ids.sample_group[\\\"new_key\\\"]") {
