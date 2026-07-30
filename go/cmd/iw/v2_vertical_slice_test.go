@@ -25,6 +25,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
+	"github.com/dvmrry/infrawright-dev/go/internal/transform"
 )
 
 const (
@@ -924,6 +925,51 @@ func v2WriteCheckpointDeployment(t *testing.T, directory, overlay, moduleDirecto
 	return path
 }
 
+// v2ReferenceClosure expands a resource-type set through the packs' declared
+// reference edges, mirroring gen-env's cross-state dependency closure over
+// singleton roots.
+func v2ReferenceClosure(t *testing.T, repositoryRoot string, resourceTypes []string) []string {
+	t.Helper()
+	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("load full-profile metadata for reference closure: %v", err)
+	}
+	references := transform.MergedTransformReferences(root)
+	selected := map[string]bool{}
+	pending := append([]string(nil), resourceTypes...)
+	for _, resourceType := range pending {
+		selected[resourceType] = true
+	}
+	for len(pending) > 0 {
+		current := pending[0]
+		pending = pending[1:]
+		for _, raw := range references[current] {
+			specification, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			referent, ok := specification["referent"].(string)
+			if !ok || selected[referent] {
+				continue
+			}
+			if _, active := root.Resources[referent]; !active {
+				continue
+			}
+			selected[referent] = true
+			pending = append(pending, referent)
+		}
+	}
+	closure := make([]string, 0, len(selected))
+	for resourceType := range selected {
+		closure = append(closure, resourceType)
+	}
+	sort.Strings(closure)
+	return closure
+}
+
 func v2ResourceTypesFromConfig(t *testing.T, directory, suffix string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(directory)
@@ -1331,13 +1377,36 @@ func v2VerifyDemoEnvironmentSemantics(
 
 	environmentDirectory := filepath.Join(overlay, "envs", v2Tenant)
 	rootTypes := v2DirectoryNames(t, environmentDirectory)
-	v2RequireStrings(t, "generated demo environment roots", rootTypes, wantResourceTypes)
+	// Selecting a referrer generates its referent roots too: gen-env expands
+	// the selection through the cross-state dependency closure, because a
+	// remote-state reference is only satisfiable if the referent root exists.
+	// The expected root set is therefore the closure of the demo corpus under
+	// the packs' declared references, computed here from the same merged
+	// reference data the engine reads -- not a restated list that pins
+	// whatever the packs declared on the day the test was written.
+	v2RequireStrings(
+		t,
+		"generated demo environment roots",
+		rootTypes,
+		v2ReferenceClosure(t, repositoryRoot, wantResourceTypes),
+	)
 	passed := 0
 	for _, resourceType := range rootTypes {
 		resourceType := resourceType
 		if t.Run("demo_environment_"+resourceType, func(t *testing.T) {
 			environmentRoot := filepath.Join(environmentDirectory, resourceType)
-			expectedRuns := []string{"empty_plan", "config_plan"}
+			// Three shapes, matching what gen-env actually emitted for the
+			// root: a root with expression bindings runs config_plan alone; a
+			// root with tenant config runs both plans; a referent root pulled
+			// in by the cross-state closure with no tenant config of its own
+			// has nothing to config-plan and runs empty_plan alone.
+			expectedRuns := []string{"empty_plan"}
+			configPath := filepath.Join(configDirectory, resourceType+".auto.tfvars.json")
+			if _, err := os.Stat(configPath); err == nil {
+				expectedRuns = []string{"empty_plan", "config_plan"}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("os.Stat(%q) error = %v, want nil or not-exist", configPath, err)
+			}
 			if _, err := os.Stat(filepath.Join(environmentRoot, "expression_bindings.tf")); err == nil {
 				expectedRuns = []string{"config_plan"}
 			} else if !os.IsNotExist(err) {
@@ -1479,10 +1548,21 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	v2RunSuccessfully(t, workspace, goBinary, transformArguments, environment)
 	wantConfigPath := filepath.Join(root, "demo", "config", v2Tenant, v2ResourceType+".auto.tfvars.json")
 	wantImportsPath := filepath.Join(root, "demo", "imports", v2Tenant, v2ResourceType+"_imports.tf")
-	requireRecordedFetchTree(t, "v2 checkpoint transform", treeBytes(t, overlay), map[string][]byte{
+	wantTransformTree := map[string][]byte{
 		filepath.ToSlash(filepath.Join("config", v2Tenant, v2ResourceType+".auto.tfvars.json")): v2ReadFile(t, wantConfigPath),
 		filepath.ToSlash(filepath.Join("imports", v2Tenant, v2ResourceType+"_imports.tf")):      v2ReadFile(t, wantImportsPath),
-	})
+	}
+	// A type the packs declare as a reference referent also emits its ID-to-key
+	// lookup sidecar, and the committed demo corpus carries that artifact.
+	// Expected from the corpus rather than restated here, so the expectation
+	// follows the declared references instead of pinning their absence.
+	wantLookupPath := filepath.Join(root, "demo", "config", v2Tenant, v2ResourceType+".lookup.json")
+	if _, err := os.Stat(wantLookupPath); err == nil {
+		wantTransformTree[filepath.ToSlash(filepath.Join("config", v2Tenant, v2ResourceType+".lookup.json"))] = v2ReadFile(t, wantLookupPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("os.Stat(%q) error = %v, want nil or not-exist", wantLookupPath, err)
+	}
+	requireRecordedFetchTree(t, "v2 checkpoint transform", treeBytes(t, overlay), wantTransformTree)
 
 	moduleGenerateArguments := append([]string{
 		"modules", "generate", "--out", moduleDirectory,
@@ -1505,6 +1585,12 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	generatedManifest := []string{
 		filepath.ToSlash(filepath.Join("config", v2Tenant, v2ResourceType+".auto.tfvars.json")),
 		filepath.ToSlash(filepath.Join("envs", v2Tenant, v2ResourceType, "README.md")),
+	}
+	if _, err := os.Stat(wantLookupPath); err == nil {
+		generatedManifest = append(generatedManifest,
+			filepath.ToSlash(filepath.Join("config", v2Tenant, v2ResourceType+".lookup.json")))
+	}
+	generatedManifest = append(generatedManifest,
 		filepath.ToSlash(filepath.Join("envs", v2Tenant, v2ResourceType, "main.tf")),
 		filepath.ToSlash(filepath.Join("envs", v2Tenant, v2ResourceType, "tests", "smoke.tftest.hcl")),
 		filepath.ToSlash(filepath.Join("imports", v2Tenant, v2ResourceType+"_imports.tf")),
@@ -1515,7 +1601,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 		filepath.ToSlash(filepath.Join("modules", v2ResourceType, "tests", "sample.auto.tfvars.json")),
 		filepath.ToSlash(filepath.Join("modules", v2ResourceType, "variables.tf")),
 		filepath.ToSlash(filepath.Join("modules", v2ResourceType, "versions.tf")),
-	}
+	)
 	v2RequireTreeManifest(t, "v2 checkpoint generated overlay", treeBytes(t, overlay), generatedManifest)
 	environmentRoot := filepath.Join(overlay, "envs", v2Tenant, v2ResourceType)
 	smokeTestPath := filepath.Join(environmentRoot, "tests", "smoke.tftest.hcl")
