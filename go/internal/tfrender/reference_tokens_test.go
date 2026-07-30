@@ -9,6 +9,8 @@ package tfrender
 
 import (
 	"encoding/json"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -474,5 +476,43 @@ func TestDeriveHclCommentsResolvesTokenDisplay(t *testing.T) {
 	key := HclTfvarsCommentKey("app_one", "segment_group_id", nil)
 	if got := comments[key]; got != "Segment One" {
 		t.Errorf("comment = %q, want Segment One", got)
+	}
+}
+
+// TestRemoveLookupRefusedWhileTokensDependOnIt pins the book's
+// load-bearing role: once committed configs reference a type by token, its
+// lookup sidecar is the only decoder those tokens have, and inferred-
+// lifecycle removal must refuse -- loudly, naming a dependent -- instead of
+// stranding them.
+func TestRemoveLookupRefusedWhileTokensDependOnIt(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "sample_group")
+	options.LookupNameField = nil
+	options.RemoveLookupWhenAbsent = true
+	paths := mustComputePaths(t, options)
+	dependent := filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars.json")
+	writeFileMkdir(t, dependent, `{"items":{"one":{"group_id":"sample_group.some_key"}}}`)
+
+	_, err := CompileTransformArtifacts(options)
+	if err == nil || !strings.Contains(err.Error(), "sample_referrer.auto.tfvars.json") ||
+		!strings.Contains(err.Error(), "token") {
+		t.Fatalf("CompileTransformArtifacts error = %v, want a refusal naming the token-bearing dependent", err)
+	}
+}
+
+// TestRemoveLookupProceedsWithoutTokenDependents pins the unchanged case:
+// with no committed token referencing the type, inferred-lifecycle removal
+// compiles exactly as before.
+func TestRemoveLookupProceedsWithoutTokenDependents(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "sample_group")
+	options.LookupNameField = nil
+	options.RemoveLookupWhenAbsent = true
+	paths := mustComputePaths(t, options)
+	dependent := filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars.json")
+	writeFileMkdir(t, dependent, `{"items":{"one":{"group_id":"raw-id-1"}}}`)
+
+	if _, err := CompileTransformArtifacts(options); err != nil {
+		t.Fatalf("CompileTransformArtifacts error = %v, want nil without token dependents", err)
 	}
 }

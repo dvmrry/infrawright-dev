@@ -1519,6 +1519,38 @@ func loadLookup(file string) (*TransformLookupData, error) {
 	return &data, nil
 }
 
+// tokenDependents reports the committed config artifacts in
+// configDirectory that carry a qualified reference token for resourceType.
+// The scan is textual (a quoted string opening with "<resourceType>."), the
+// same signal the renderer keys on, so both format variants of tfvars are
+// served and a refusal errs toward keeping the book.
+func tokenDependents(configDirectory, resourceType string) ([]string, error) {
+	entries, err := os.ReadDir(configDirectory)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	needle := `"` + resourceType + `.`
+	var dependents []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() ||
+			!(strings.HasSuffix(name, ".auto.tfvars.json") || strings.HasSuffix(name, ".auto.tfvars")) {
+			continue
+		}
+		raw, err := os.ReadFile(path.Join(configDirectory, name))
+		if err != nil {
+			return nil, err
+		}
+		if strings.Contains(string(raw), needle) {
+			dependents = append(dependents, name)
+		}
+	}
+	return canonjson.SortedStrings(dependents), nil
+}
+
 // resolveLookup ports resolveLookup from
 // the original implementation. See TransformArtifactCompileOptions's
 // LookupOverrides doc comment for why no separate "overrides provided"
@@ -1750,6 +1782,21 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	_, lookupText, err := compileLookup(options)
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
+	}
+	// Once committed configs reference this type by token, its book is the
+	// only decoder those tokens have: inferred-lifecycle removal must refuse
+	// while any dependent survives, not strand them.
+	if lookupText == nil && options.RemoveLookupWhenAbsent {
+		dependents, err := tokenDependents(path.Dir(paths.Config), options.ResourceType)
+		if err != nil {
+			return CompiledTransformArtifacts{}, err
+		}
+		if len(dependents) > 0 {
+			return CompiledTransformArtifacts{}, fmt.Errorf(
+				"cannot remove %s's lookup sidecar: committed config still references it by token (%s); re-run transform for the dependents or restore the referent before retiring its book",
+				options.ResourceType, strings.Join(dependents, ", "),
+			)
+		}
 	}
 
 	var template *string
