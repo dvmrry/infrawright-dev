@@ -102,6 +102,12 @@ type AssessSavedPlansReportOptions struct {
 	Mode           AssessmentMode
 	Request        AssessmentReportRequest
 	GuidanceSource *AssessmentGuidanceSource
+
+	// SchemaTypes carries the active packs' set-typed attributes into both the
+	// classifier and the guidance walk. The zero value compares every array by
+	// position, so an assessment assembled without it behaves exactly as it did
+	// before schema types existed.
+	SchemaTypes PlanSchemaTypes
 }
 
 type capturedAssessmentOptions struct {
@@ -1186,6 +1192,9 @@ func runSavedPlanAssessment[T any](
 					Members:  append([]string{}, root.Members...),
 					Plan:     planObject,
 					Findings: append([]PlanFinding{}, classification.Findings...),
+					// Taken from the options the findings above were classified
+					// under, never rebuilt, so the two walks cannot diverge.
+					SchemaTypes: classifyOptions.SchemaTypes,
 				},
 			))
 		}
@@ -1326,7 +1335,10 @@ func AssessSavedPlansReport(
 		// Adoption is the one caller that can neither clear refresh drift
 		// before the gate nor be helped by refusing on it. Every other
 		// entry point keeps the strict zero value.
-		ClassifyPlanOptions{TolerateRefreshDrift: mode == AssertAdoptable},
+		ClassifyPlanOptions{
+			TolerateRefreshDrift: mode == AssertAdoptable,
+			SchemaTypes:          options.SchemaTypes,
+		},
 		func(core SavedPlanAssessmentCore, guidance []AssessmentGuidanceGroup) (SavedPlanAssessmentReport, error) {
 			return buildReportWithIsolatedGuidance(
 				func(isolated []AssessmentGuidanceGroup) (SavedPlanAssessmentReport, error) {

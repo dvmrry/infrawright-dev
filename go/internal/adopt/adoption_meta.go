@@ -457,7 +457,24 @@ func AdoptionIdentityItem(meta AdoptionMetadata, raw any, resourceType string) (
 	return item, nil
 }
 
-// DeriveAdoptionKey ports deriveAdoptionKey.
+// DeriveAdoptionKey ports deriveAdoptionKey, with one deliberate extension
+// over the ported behavior: an absent key field is treated exactly like a
+// present-but-empty one.
+//
+// The two are the same statement from the API. ZIA omits empty fields on the
+// wire, so a predefined url category carries no configured_name key at all
+// while a custom one carries a real name -- the very shape key_field +
+// fallback exists for. Erroring on absence made that wire-format detail fatal
+// to an entire fetch (a downstream run failed 235 of 235 items) even though
+// the identical item spelled configured_name:"" adopts cleanly through the
+// id_<slug> fallback below.
+//
+// The cost, stated openly: a mistyped key_field no longer errors -- every
+// item quietly takes the id_<slug> fallback instead. That trade is
+// deliberate. The failure it buys is loud in a different register (every
+// readable key in the generated tree collapses to id_...), while the failure
+// it removes blocked correct configurations on data the operator does not
+// control.
 func DeriveAdoptionKey(item map[string]any, meta AdoptionMetadata) (string, error) {
 	if meta.ConstantKey != nil {
 		if *meta.ConstantKey == "" {
@@ -469,7 +486,9 @@ func DeriveAdoptionKey(item map[string]any, meta AdoptionMetadata) (string, erro
 	for index, field := range meta.KeyFields {
 		value, found := adoptionPathValue(item, field)
 		if !found {
-			return "", fmt.Errorf("key field %s missing from item; set adopt.key_field or override key_field", adoptionJSONString(field))
+			// Contributes the empty part a present-but-empty value would;
+			// whether the whole key is empty is decided after the join.
+			continue
 		}
 		part, err := tfrender.PythonTransformStringForAdopt(value)
 		if err != nil {
@@ -483,7 +502,7 @@ func DeriveAdoptionKey(item map[string]any, meta AdoptionMetadata) (string, erro
 	}
 	id, present := item["id"]
 	if !present || id == nil {
-		return "", fmt.Errorf("derived key is empty for %s (value(s) %s have no ASCII letters/digits) and item has no 'id' to fall back on", adoptionJSONValue(meta.KeyFields), adoptionJSONValue(parts))
+		return "", fmt.Errorf("derived key is empty for %s (value(s) %s absent or without ASCII letters/digits) and item has no 'id' to fall back on", adoptionJSONValue(meta.KeyFields), adoptionJSONValue(parts))
 	}
 	rendered, err := tfrender.PythonTransformStringForAdopt(id)
 	if err != nil {

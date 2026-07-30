@@ -252,14 +252,81 @@ func knownHoldPaths(
 	return output, nil
 }
 
-// transformBindingContext ports transformBindingContext.
+// setBlockFieldIndexes reports, for each declared reference field, the index
+// of the first dotted segment that names a set-nested block in the referrer's
+// provider schema. Fields that never cross a set block are absent. The walk
+// stops at the first attribute segment: whatever follows an attribute is
+// value shape, not schema traversal.
+func setBlockFieldIndexes(
+	schema metadata.JsonObject,
+	resourceType string,
+	references map[string]tfrender.TransformReferenceSpec,
+) (map[string]int, error) {
+	output := map[string]int{}
+	rootBlock, err := metadata.TerraformBlockForSchema(schema, resourceType)
+	if err != nil {
+		return nil, err
+	}
+	for field := range references {
+		segments := strings.Split(field, ".")
+		current := rootBlock
+		label := resourceType
+		for index, segment := range segments {
+			attributes, err := metadata.TerraformAttributesForBlock(current, label)
+			if err != nil {
+				return nil, err
+			}
+			if _, isAttribute := attributes[segment]; isAttribute {
+				break
+			}
+			blockTypes, err := metadata.TerraformBlockTypesForBlock(current, label)
+			if err != nil {
+				return nil, err
+			}
+			rawBlockType, isBlock := blockTypes[segment]
+			if !isBlock {
+				break
+			}
+			blockType, err := metadata.TerraformRequireObject(rawBlockType, label+".block_types."+segment)
+			if err != nil {
+				return nil, err
+			}
+			// Single-collapsed blocks descend, whatever their nesting mode.
+			// This mirrors the schema-path validator's blockCursor exactly:
+			// TerraformBlockIsSingle wins before the set switch, so a
+			// max_items=1 set block projects to one object, traverses by
+			// name with no index, and needs no complete-leaf treatment.
+			// Classifying it as a set here while the validator classifies
+			// it as single would make the producer skip bindings the
+			// validator accepts -- the same two-halves disagreement this
+			// map exists to remove, pointed the other way.
+			if !metadata.TerraformBlockIsSingle(blockType) {
+				if nesting, _ := blockType["nesting_mode"].(string); nesting == "set" {
+					output[field] = index
+					break
+				}
+			}
+			child, err := metadata.TerraformRequireObject(blockType["block"], label+".block_types."+segment+".block")
+			if err != nil {
+				return nil, err
+			}
+			current = child
+			label += "." + segment
+		}
+	}
+	return output, nil
+}
+
+// transformBindingContext ports transformBindingContext, extended with the
+// schema-derived set-block field map (see BindingContext.SetBlockFields).
 func transformBindingContext(
 	dep deployment.Deployment,
 	root metadata.LoadedPackRoot,
 	resource metadata.LoadedResourceMetadata,
 	resourceRoots map[string]string,
 	references map[string]tfrender.TransformReferenceSpec,
-) tfrender.BindingContext {
+	schema metadata.JsonObject,
+) (tfrender.BindingContext, error) {
 	generated := map[string]bool{}
 	derived := map[string]bool{}
 	for _, loaded := range root.Resources {
@@ -270,13 +337,18 @@ func transformBindingContext(
 			}
 		}
 	}
-	return tfrender.BindingContext{
-		Mode:          deployment.DeploymentReferenceBindingMode(dep, resource.Provider),
-		Generated:     generated,
-		Derived:       derived,
-		ResourceRoots: resourceRoots,
-		References:    references,
+	setBlockFields, err := setBlockFieldIndexes(schema, resource.Type, references)
+	if err != nil {
+		return tfrender.BindingContext{}, err
 	}
+	return tfrender.BindingContext{
+		Mode:           deployment.DeploymentReferenceBindingMode(dep, resource.Provider),
+		Generated:      generated,
+		Derived:        derived,
+		ResourceRoots:  resourceRoots,
+		References:     references,
+		SetBlockFields: setBlockFields,
+	}, nil
 }
 
 // jsToFixed1 reproduces JS Number.prototype.toFixed(1) for the slim-input
@@ -555,11 +627,15 @@ func RunTransformBatch(options RunTransformBatchOptions) (TransformBatchResult, 
 			if err != nil {
 				return err
 			}
+			bindingContext, err := transformBindingContext(
+				options.Deployment, options.Root, resource,
+				topology.Topology.ResourceRoots, references, schema,
+			)
+			if err != nil {
+				return err
+			}
 			if _, err := tfrender.WriteTransformArtifacts(tfrender.TransformArtifactCompileOptions{
-				BindingContext: transformBindingContext(
-					options.Deployment, options.Root, resource,
-					topology.Topology.ResourceRoots, references,
-				),
+				BindingContext:         bindingContext,
 				Deployment:             options.Deployment,
 				LookupNameField:        lookupNameField,
 				RemoveLookupWhenAbsent: transformHasInferredLookupLifecycle(options.Root, resource),

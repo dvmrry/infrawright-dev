@@ -89,6 +89,23 @@ func newAssessmentCommandFixture(t *testing.T) assessmentCommandFixture {
 	writeAssessmentCommandJSON(t, filepath.Join(fixture.packs, "sample", "registry.json"), map[string]any{
 		assessmentCommandResource: map[string]any{"generate": true, "product": "sample"},
 	})
+	// A materialised pack always ships the provider schema for the resource
+	// types it registers, and the assessment reads it to tell a set attribute
+	// from an ordered list. Registering a type without a schema builds a pack
+	// production cannot produce.
+	writeAssessmentCommandJSON(
+		t,
+		filepath.Join(fixture.packs, "sample", "schemas", "provider", "sample.json"),
+		map[string]any{"resource_schemas": map[string]any{
+			assessmentCommandResource: map[string]any{"block": map[string]any{
+				"attributes": map[string]any{
+					"name":    map[string]any{"type": "string", "optional": true},
+					"members": map[string]any{"type": []any{"set", "string"}, "optional": true},
+					"ordered": map[string]any{"type": []any{"list", "string"}, "optional": true},
+				},
+			}},
+		}},
+	)
 	writeAssessmentCommandJSON(t, fixture.profile, map[string]any{
 		"kind": "infrawright.pack-set", "version": 1,
 		"packs": []any{"sample"}, "shared": []any{},

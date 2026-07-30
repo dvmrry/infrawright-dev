@@ -484,7 +484,7 @@
         },
         "paths": {
           "type": "array",
-          "description": "Concrete plan-space paths. Numeric list indexes are retained, for example rules[0].id.",
+          "description": "Concrete plan-space paths. Numeric list indexes are retained, for example rules[0].id. A set-typed attribute appears once under its own name, with no index, because a set has no positions.",
           "items": {
             "type": "string"
           }
@@ -581,7 +581,7 @@
     "change": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One differing leaf. Every field is required so a consumer never has to distinguish an absent key from an inapplicable one.",
+      "description": "One difference: a leaf value that moved, or a set attribute whose membership moved. Every field is required so a consumer never has to distinguish an absent key from an inapplicable one.",
       "required": [
         "path",
         "kind",
@@ -598,27 +598,28 @@
         },
         "kind": {
           "enum": [
-            "scalar"
+            "scalar",
+            "set"
           ],
-          "description": "scalar is the only kind emitted today. Reporting Terraform set membership as its own kind is an additive change a consumer can branch on without a version bump."
+          "description": "scalar is one value that moved; read before and after. set is one Terraform set attribute whose membership moved; read added and removed, and expect before and after to be null because no single pair of values describes it. A set kind is emitted only where the provider schema declares the attribute a set; without that evidence the array is compared by position and reported as scalar leaves."
         },
         "sensitive": {
           "type": "boolean",
           "description": "The plan marked this value sensitive. Content is withheld rather than the entry being dropped, so a reader still learns the value moved."
         },
         "before": {
-          "description": "Null for a sensitive change."
+          "description": "Null for a sensitive change and for a set change."
         },
         "after": {
-          "description": "Null for a sensitive change."
+          "description": "Null for a sensitive change and for a set change."
         },
         "added": {
           "type": "array",
-          "description": "Empty for a scalar change; reserved for set membership."
+          "description": "Members that entered a set. Empty for a scalar change and for a sensitive set change, whose delta is withheld."
         },
         "removed": {
           "type": "array",
-          "description": "Empty for a scalar change; reserved for set membership."
+          "description": "Members that left a set. Empty for a scalar change and for a sensitive set change, whose delta is withheld."
         }
       }
     }
