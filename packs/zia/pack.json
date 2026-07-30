@@ -73,10 +73,300 @@
     "zia": "zscaler/zia"
   },
   "references": {
+    "zia_bandwidth_classes": {
+      "url_categories": {
+        "referent": "zia_url_categories",
+        "name_field": "configured_name"
+      }
+    },
+    "zia_bandwidth_control_rule": {
+      "bandwidth_classes.id": {
+        "referent": "zia_bandwidth_classes",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      }
+    },
+    "zia_casb_dlp_rules": {
+      "dlp_engines.id": {
+        "referent": "zia_dlp_engines",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      }
+    },
+    "zia_casb_malware_rules": {
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      }
+    },
+    "zia_cloud_app_control_rule": {
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      }
+    },
+    "zia_cloud_nss_feed": {
+      "dlp_dictionaries.id": {
+        "referent": "zia_dlp_dictionaries",
+        "name_field": "name"
+      },
+      "dlp_engines.id": {
+        "referent": "zia_dlp_engines",
+        "name_field": "name"
+      },
+      "nw_services.id": {
+        "referent": "zia_firewall_filtering_network_service",
+        "name_field": "name"
+      },
+      "url_categories.id": {
+        "referent": "zia_url_categories",
+        "name_field": "configured_name"
+      }
+    },
+    "zia_dlp_web_rules": {
+      "dlp_engines.id": {
+        "referent": "zia_dlp_engines",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "url_categories.id": {
+        "referent": "zia_url_categories",
+        "name_field": "configured_name"
+      },
+      "workload_groups.id": {
+        "referent": "zia_workload_groups",
+        "name_field": "name"
+      }
+    },
+    "zia_file_type_control_rules": {
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "url_categories": {
+        "referent": "zia_url_categories",
+        "name_field": "configured_name"
+      }
+    },
+    "zia_firewall_dns_rule": {
+      "dest_ip_groups.id": {
+        "referent": "zia_firewall_filtering_destination_groups",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "src_ip_groups.id": {
+        "referent": "zia_firewall_filtering_ip_source_groups",
+        "name_field": "name"
+      }
+    },
+    "zia_firewall_filtering_network_service_groups": {
+      "services.id": {
+        "referent": "zia_firewall_filtering_network_service",
+        "name_field": "name"
+      }
+    },
+    "zia_firewall_filtering_rule": {
+      "dest_ip_groups.id": {
+        "referent": "zia_firewall_filtering_destination_groups",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "nw_application_groups.id": {
+        "referent": "zia_firewall_filtering_network_application_groups",
+        "name_field": "name"
+      },
+      "nw_service_groups.id": {
+        "referent": "zia_firewall_filtering_network_service_groups",
+        "name_field": "name"
+      },
+      "nw_services.id": {
+        "referent": "zia_firewall_filtering_network_service",
+        "name_field": "name"
+      },
+      "src_ip_groups.id": {
+        "referent": "zia_firewall_filtering_ip_source_groups",
+        "name_field": "name"
+      },
+      "workload_groups.id": {
+        "referent": "zia_workload_groups",
+        "name_field": "name"
+      }
+    },
+    "zia_firewall_ips_rule": {
+      "dest_ip_groups.id": {
+        "referent": "zia_firewall_filtering_destination_groups",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "nw_service_groups.id": {
+        "referent": "zia_firewall_filtering_network_service_groups",
+        "name_field": "name"
+      },
+      "nw_services.id": {
+        "referent": "zia_firewall_filtering_network_service",
+        "name_field": "name"
+      },
+      "src_ip_groups.id": {
+        "referent": "zia_firewall_filtering_ip_source_groups",
+        "name_field": "name"
+      }
+    },
+    "zia_forwarding_control_rule": {
+      "dest_ip_groups.id": {
+        "referent": "zia_firewall_filtering_destination_groups",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "nw_application_groups.id": {
+        "referent": "zia_firewall_filtering_network_application_groups",
+        "name_field": "name"
+      },
+      "nw_service_groups.id": {
+        "referent": "zia_firewall_filtering_network_service_groups",
+        "name_field": "name"
+      },
+      "nw_services.id": {
+        "referent": "zia_firewall_filtering_network_service",
+        "name_field": "name"
+      },
+      "src_ip_groups.id": {
+        "referent": "zia_firewall_filtering_ip_source_groups",
+        "name_field": "name"
+      }
+    },
+    "zia_ftp_control_policy": {
+      "url_categories": {
+        "referent": "zia_url_categories",
+        "name_field": "configured_name"
+      }
+    },
+    "zia_location_management": {
+      "extranet.id": {
+        "referent": "zia_extranet",
+        "name_field": "name"
+      }
+    },
+    "zia_nat_control_rules": {
+      "dest_ip_groups.id": {
+        "referent": "zia_firewall_filtering_destination_groups",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "nw_service_groups.id": {
+        "referent": "zia_firewall_filtering_network_service_groups",
+        "name_field": "name"
+      },
+      "nw_services.id": {
+        "referent": "zia_firewall_filtering_network_service",
+        "name_field": "name"
+      },
+      "src_ip_groups.id": {
+        "referent": "zia_firewall_filtering_ip_source_groups",
+        "name_field": "name"
+      }
+    },
+    "zia_sandbox_rules": {
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "url_categories": {
+        "referent": "zia_url_categories",
+        "name_field": "configured_name"
+      }
+    },
+    "zia_ssl_inspection_rules": {
+      "dest_ip_groups.id": {
+        "referent": "zia_firewall_filtering_destination_groups",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "url_categories": {
+        "referent": "zia_url_categories",
+        "name_field": "configured_name"
+      },
+      "workload_groups.id": {
+        "referent": "zia_workload_groups",
+        "name_field": "name"
+      }
+    },
+    "zia_traffic_capture_rules": {
+      "dest_ip_groups.id": {
+        "referent": "zia_firewall_filtering_destination_groups",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "nw_application_groups.id": {
+        "referent": "zia_firewall_filtering_network_application_groups",
+        "name_field": "name"
+      },
+      "nw_service_groups.id": {
+        "referent": "zia_firewall_filtering_network_service_groups",
+        "name_field": "name"
+      },
+      "nw_services.id": {
+        "referent": "zia_firewall_filtering_network_service",
+        "name_field": "name"
+      },
+      "src_ip_groups.id": {
+        "referent": "zia_firewall_filtering_ip_source_groups",
+        "name_field": "name"
+      },
+      "workload_groups.id": {
+        "referent": "zia_workload_groups",
+        "name_field": "name"
+      }
+    },
     "zia_url_filtering_rules": {
+      "http_header_action_profiles.id": {
+        "referent": "zia_http_header_action_profile",
+        "name_field": "name"
+      },
+      "http_header_profiles.id": {
+        "referent": "zia_http_header_profile",
+        "name_field": "name"
+      },
+      "labels.id": {
+        "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
       "url_categories": {
         "name_field": "configured_name",
         "referent": "zia_url_categories"
+      },
+      "workload_groups.id": {
+        "referent": "zia_workload_groups",
+        "name_field": "name"
       }
     }
   },
