@@ -91,7 +91,9 @@ skip zia_url_filtering_and_cloud_app_settings (no <REPOSITORY>/packs/_shared/zsc
 skip zia_user_management (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_user_management.json)
 skip zia_virtual_service_edge_cluster (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_virtual_service_edge_cluster.json)
 skip zia_virtual_service_edge_node (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_virtual_service_edge_node.json)
-skip zia_workload_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_workload_groups.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_workload_groups.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_workload_groups.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_workload_groups_imports.tf
 NOTE bindings: zia_dlp_web_rules.dlp_engines.id skipped; lookup for zia_dlp_engines is missing
 NOTE bindings: zia_dlp_web_rules.fictional_dlp_web_rule.url_categories.id[0] value "6001" skipped; id is absent from zia_url_categories lookup
 NOTE bindings: zia_dlp_web_rules: 0 bound, 2 skipped (id_absent=1, missing_lookup=1)
@@ -102,7 +104,8 @@ wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_ssl_inspection_rules.auto.tfv
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_ssl_inspection_rules_imports.tf
 skip zia_traffic_capture_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_capture_rules.json)
 NOTE bindings: zia_url_filtering_rules.tests_vcr0001.url_categories[0] value "ANY" skipped; id is absent from zia_url_categories lookup
-NOTE bindings: zia_url_filtering_rules: 0 bound, 1 skipped (id_absent=1)
+NOTE bindings: zia_url_filtering_rules: 3 bound, 1 skipped (id_absent=1)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_filtering_rules.generated.expressions.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_filtering_rules.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_url_filtering_rules_imports.tf
 skip zpa_app_connector_assistant_schedule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_app_connector_assistant_schedule.json)
