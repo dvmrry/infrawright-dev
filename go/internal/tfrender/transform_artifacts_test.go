@@ -180,10 +180,19 @@ func TestRenderTransformLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderTransformLookup: %v", err)
 	}
+	// id_by_key keeps one row per item key even where key_by_id collapses
+	// colliding IDs to the last sorted key: alpha and omega genuinely share
+	// CUSTOM_01, so a hand-written token naming either key decodes to the
+	// right ID.
 	want := "{\n" +
 		"  \"by_id\": {\n" +
 		"    \"CUSTOM_01\": \"Omega\",\n" +
 		"    \"CUSTOM_02\": \"<unknown>\"\n" +
+		"  },\n" +
+		"  \"id_by_key\": {\n" +
+		"    \"alpha\": \"CUSTOM_01\",\n" +
+		"    \"beta\": \"CUSTOM_02\",\n" +
+		"    \"omega\": \"CUSTOM_01\"\n" +
 		"  },\n" +
 		"  \"key_by_id\": {\n" +
 		"    \"CUSTOM_01\": \"omega\",\n" +
@@ -577,8 +586,11 @@ func TestBatchCompilationUsesNewLookupResultsForBindingsAndComments(t *testing.T
 
 	referrerPaths := mustComputePaths(t, referrer)
 	configText := readFileText(t, referrerPaths.Config)
-	if !regexp.MustCompile(`group_id\s+= "new-id"\s+# Fresh Group`).MatchString(configText) {
-		t.Fatalf("config text %q does not match /group_id\\s+= \"new-id\"\\s+# Fresh Group/", configText)
+	// The committed value is the qualified token minted from the fresh
+	// same-batch lookup (never the stale on-disk one), and the display
+	// comment still resolves through the book.
+	if !regexp.MustCompile(`group_id\s+= "sample_group\.new_key"\s+# Fresh Group`).MatchString(configText) {
+		t.Fatalf("config text %q does not match /group_id\\s+= \"sample_group.new_key\"\\s+# Fresh Group/", configText)
 	}
 	bindingsText := readFileText(t, referrerPaths.GeneratedBindings)
 	if !strings.Contains(bindingsText, "data.terraform_remote_state.sample_root.outputs.infrawright_reference_ids.sample_group[\\\"new_key\\\"]") {

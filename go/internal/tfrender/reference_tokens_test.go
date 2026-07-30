@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 )
 
@@ -217,5 +218,261 @@ func TestDeriveGeneratedBindingsTokenInSetBlock(t *testing.T) {
 		", 456] }]"
 	if got := binding["expression"]; got != want {
 		t.Errorf("expression = %q, want %q", got, want)
+	}
+}
+
+// substitutionContext is tokenTopLevelContext extended with a second,
+// dotted non-set reference so one context exercises the scalar, dotted and
+// guard paths of the P1 substitution.
+func substitutionContext() BindingContext {
+	context := tokenTopLevelContext()
+	context.Generated["zpa_server_group"] = true
+	context.References["nested.server_group_id"] = TransformReferenceSpec{NameField: "name", Referent: "zpa_server_group"}
+	context.ResourceRoots["zpa_server_group"] = "zpa_custom"
+	return context
+}
+
+// TestSubstituteReferenceTokensScalarNumberAndDotted pins the P1 rewrite at
+// its three basic shapes: a top-level scalar string ID, a json.Number ID
+// (deliberately becoming a string token), and a dotted non-set path.
+func TestSubstituteReferenceTokensScalarNumberAndDotted(t *testing.T) {
+	items := map[string]map[string]any{
+		"app_one": {
+			"segment_group_id": "sg-1",
+			"nested":           map[string]any{"server_group_id": json.Number("77")},
+		},
+		"app_two": {"segment_group_id": json.Number("42")},
+	}
+	lookupKeys := map[string]map[string]string{
+		"zpa_segment_group": {"sg-1": "segment_one", "42": "segment_two"},
+		"zpa_server_group":  {"77": "srv_one"},
+	}
+	substituteReferenceTokens(items, substitutionContext(), "zpa_application_segment", lookupKeys)
+	if got := items["app_one"]["segment_group_id"]; got != "zpa_segment_group.segment_one" {
+		t.Errorf("scalar = %#v, want token", got)
+	}
+	if got := items["app_two"]["segment_group_id"]; got != "zpa_segment_group.segment_two" {
+		t.Errorf("number scalar = %#v, want string token", got)
+	}
+	nested := items["app_one"]["nested"].(map[string]any)
+	if got := nested["server_group_id"]; got != "zpa_server_group.srv_one" {
+		t.Errorf("dotted leaf = %#v, want token", got)
+	}
+}
+
+// TestSubstituteReferenceTokensListMixing pins element-wise rewriting: known
+// IDs become tokens in place while sentinels, unknown IDs and zero sentinels
+// ride along untouched, in their original positions.
+func TestSubstituteReferenceTokensListMixing(t *testing.T) {
+	items := map[string]map[string]any{
+		"app_one": {"segment_group_id": []any{"ANY", "sg-1", "sg-missing", json.Number("0")}},
+	}
+	lookupKeys := map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}}
+	substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment", lookupKeys)
+	got := items["app_one"]["segment_group_id"].([]any)
+	want := []any{"ANY", "zpa_segment_group.segment_one", "sg-missing", json.Number("0")}
+	if len(got) != len(want) {
+		t.Fatalf("list = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("list[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestSubstituteReferenceTokensSetBlockMembers pins the set-nested shape:
+// the same leaves renderSetBlockLeaf resolves must be rewritten inside each
+// concrete member, through the list-of-members fan-out.
+func TestSubstituteReferenceTokensSetBlockMembers(t *testing.T) {
+	items := map[string]map[string]any{
+		"iot_device_services": {
+			"services": []any{
+				map[string]any{"id": []any{json.Number("123"), json.Number("456")}},
+			},
+		},
+	}
+	lookupKeys := map[string]map[string]string{
+		"zia_firewall_filtering_network_service": {"123": "service_one"},
+	}
+	substituteReferenceTokens(
+		items,
+		setBlockBindingContext(map[string]int{"services.id": 0}),
+		"zia_firewall_filtering_network_service_groups",
+		lookupKeys,
+	)
+	member := items["iot_device_services"]["services"].([]any)[0].(map[string]any)
+	ids := member["id"].([]any)
+	if ids[0] != "zia_firewall_filtering_network_service.service_one" {
+		t.Errorf("ids[0] = %#v, want token", ids[0])
+	}
+	if ids[1] != json.Number("456") {
+		t.Errorf("ids[1] = %#v, want untouched unknown id", ids[1])
+	}
+}
+
+// TestSubstituteReferenceTokensGuards pins every field-level gate shared
+// with DeriveGeneratedBindings: a missing lookup, a self-reference, disabled
+// binding mode, and an unbindable (non-generated) referent must each leave
+// the value untouched.
+func TestSubstituteReferenceTokensGuards(t *testing.T) {
+	makeItems := func() map[string]map[string]any {
+		return map[string]map[string]any{"app_one": {"segment_group_id": "sg-1"}}
+	}
+	assertUntouched := func(t *testing.T, items map[string]map[string]any) {
+		t.Helper()
+		if got := items["app_one"]["segment_group_id"]; got != "sg-1" {
+			t.Errorf("value = %#v, want untouched raw ID", got)
+		}
+	}
+	t.Run("missing lookup", func(t *testing.T) {
+		items := makeItems()
+		substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment",
+			map[string]map[string]string{"zpa_segment_group": nil})
+		assertUntouched(t, items)
+	})
+	t.Run("self reference", func(t *testing.T) {
+		items := makeItems()
+		substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_segment_group",
+			map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}})
+		assertUntouched(t, items)
+	})
+	t.Run("disabled mode", func(t *testing.T) {
+		items := makeItems()
+		context := tokenTopLevelContext()
+		context.Mode = deployment.ReferenceBindingDisabled
+		substituteReferenceTokens(items, context, "zpa_application_segment",
+			map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}})
+		assertUntouched(t, items)
+	})
+	t.Run("unbindable referent", func(t *testing.T) {
+		items := makeItems()
+		context := tokenTopLevelContext()
+		delete(context.Generated, "zpa_segment_group")
+		substituteReferenceTokens(items, context, "zpa_application_segment",
+			map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}})
+		assertUntouched(t, items)
+	})
+}
+
+// TestSubstituteReferenceTokensIdempotent pins re-run stability: a second
+// pass over already-tokenised items changes nothing, so re-running transform
+// or adopt over committed tokens can never flap the artifact.
+func TestSubstituteReferenceTokensIdempotent(t *testing.T) {
+	items := map[string]map[string]any{"app_one": {"segment_group_id": "sg-1"}}
+	lookupKeys := map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}}
+	substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment", lookupKeys)
+	first := items["app_one"]["segment_group_id"]
+	substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment", lookupKeys)
+	if got := items["app_one"]["segment_group_id"]; got != first {
+		t.Errorf("second pass changed %#v to %#v", first, got)
+	}
+	if first != "zpa_segment_group.segment_one" {
+		t.Errorf("token = %#v, want zpa_segment_group.segment_one", first)
+	}
+}
+
+// TestSubstituteReferenceTokensUnsafeKeyLeavesID pins the interpolation
+// guard at the substitution layer: a referent key carrying a template
+// sequence must never be minted into a committed token; the raw ID stays
+// and the derive layer keeps reporting it.
+func TestSubstituteReferenceTokensUnsafeKeyLeavesID(t *testing.T) {
+	items := map[string]map[string]any{"app_one": {"segment_group_id": "sg-1"}}
+	lookupKeys := map[string]map[string]string{"zpa_segment_group": {"sg-1": "seg${ment"}}
+	substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment", lookupKeys)
+	if got := items["app_one"]["segment_group_id"]; got != "sg-1" {
+		t.Errorf("value = %#v, want untouched raw ID for an unsafe key", got)
+	}
+}
+
+// TestDeriveGeneratedBindingsTokenWithUnsafeKey pins the derive-layer
+// interpolation guard for tokens (the carry-forward from Task 2's review):
+// a token whose embedded key carries a template sequence is skipped under
+// unsafe_key, exactly like an ID resolving to that key.
+func TestDeriveGeneratedBindingsTokenWithUnsafeKey(t *testing.T) {
+	items := map[string]map[string]any{"app_one": {"segment_group_id": "zpa_segment_group.seg${ment"}}
+	lookupKeys := map[string]map[string]string{"zpa_segment_group": {"sg-1": "seg${ment"}}
+	result, err := DeriveGeneratedBindings(tokenTopLevelContext(), items, lookupKeys, "zpa_application_segment")
+	if err != nil {
+		t.Fatalf("DeriveGeneratedBindings: %v", err)
+	}
+	if len(result.Resources) != 0 {
+		t.Errorf("resources = %#v, want nothing bound for an unsafe key", result.Resources)
+	}
+	wantNotes := []string{
+		`zpa_application_segment.app_one.segment_group_id value "zpa_segment_group.seg${ment" skipped; referent key contains a template interpolation`,
+		"zpa_application_segment: 0 bound, 1 skipped (unsafe_key=1)",
+	}
+	if !stringSlicesEqual(result.Notes, wantNotes) {
+		t.Fatalf("notes = %v, want %v", result.Notes, wantNotes)
+	}
+}
+
+// TestRenderTransformLookupEmitsIDByKey pins the producer-side book
+// extension the plan-time fallback expression indexes: the sidecar carries
+// id_by_key alongside key_by_id, both derived from the same rows.
+func TestRenderTransformLookupEmitsIDByKey(t *testing.T) {
+	items := map[string]map[string]any{"segment_one": {"id": "sg-1", "name": "Segment One"}}
+	text, err := RenderTransformLookup(items, map[string]map[string]any{}, "name")
+	if err != nil {
+		t.Fatalf("RenderTransformLookup: %v", err)
+	}
+	parsed, err := canonjson.ParseDataJSONLosslessly(text)
+	if err != nil {
+		t.Fatalf("parse lookup: %v", err)
+	}
+	data, err := ParseLookupSidecar(parsed)
+	if err != nil {
+		t.Fatalf("ParseLookupSidecar: %v", err)
+	}
+	if got := data.IDByKey["segment_one"]; got != "sg-1" {
+		t.Errorf("id_by_key[segment_one] = %q, want sg-1", got)
+	}
+	if got := data.KeyByID["sg-1"]; got != "segment_one" {
+		t.Errorf("key_by_id[sg-1] = %q, want segment_one", got)
+	}
+}
+
+// TestParseLookupSidecarInvertsWhenIDByKeyAbsent pins migration coverage
+// for sidecars written before id_by_key existed: the parser derives the
+// inverse from key_by_id so every committed book decodes both directions.
+func TestParseLookupSidecarInvertsWhenIDByKeyAbsent(t *testing.T) {
+	data, err := ParseLookupSidecar(map[string]any{
+		"by_id":     map[string]any{"sg-1": "Segment One"},
+		"key_by_id": map[string]any{"sg-1": "segment_one"},
+	})
+	if err != nil {
+		t.Fatalf("ParseLookupSidecar: %v", err)
+	}
+	if got := data.IDByKey["segment_one"]; got != "sg-1" {
+		t.Errorf("inverted id_by_key[segment_one] = %q, want sg-1", got)
+	}
+}
+
+// TestDeriveHclCommentsResolvesTokenDisplay pins the comment path over
+// tokenised values (pulled forward from plan Task 4 to keep HCL trees
+// readable the moment tokens land): a token resolves key -> id -> display
+// through the book instead of rendering "<unknown>".
+func TestDeriveHclCommentsResolvesTokenDisplay(t *testing.T) {
+	items := map[string]map[string]any{
+		"app_one": {"segment_group_id": "zpa_segment_group.segment_one"},
+	}
+	references := map[string]TransformReferenceSpec{
+		"segment_group_id": {NameField: "name", Referent: "zpa_segment_group"},
+	}
+	overrides := map[string]*TransformLookupData{
+		"zpa_segment_group": {
+			ByID:    map[string]string{"sg-1": "Segment One"},
+			KeyByID: map[string]string{"sg-1": "segment_one"},
+			IDByKey: map[string]string{"segment_one": "sg-1"},
+		},
+	}
+	comments, err := deriveHclComments("", items, references, overrides)
+	if err != nil {
+		t.Fatalf("deriveHclComments: %v", err)
+	}
+	key := HclTfvarsCommentKey("app_one", "segment_group_id", nil)
+	if got := comments[key]; got != "Segment One" {
+		t.Errorf("comment = %q, want Segment One", got)
 	}
 }

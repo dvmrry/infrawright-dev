@@ -108,7 +108,14 @@ shipped).
   flags; run `go test ./go/internal/tfrender/ ./go/cmd/iw/`; commit
   (`tfrender: derive bindings from tokens directly`).
 
-### Task 3: envgen — total expression local + token fallback
+### Task 3: envgen — render purity: readers and resolvers only
+
+> **Reframed by the maintainer mid-execution (governs over anything
+> contradicting it elsewhere in this plan):** the renderer must not
+> generate or own any lookup maps. It emits only remote-state readers and
+> resolver expressions. All key→ID truth lives in the producing state
+> outputs. No semantic sidecars, no locally maintained maps, render mode
+> only.
 
 **Files:**
 - Modify: `go/internal/envgen/environment_generator.go`,
@@ -117,30 +124,60 @@ shipped).
   `environment_generator_test.go`
 
 **Interfaces:**
-- Produces: envgen reads the referent's lookup sidecar (new reader; path
-  via the existing config-dir helpers) to invert `key_by_id` for
-  fallback; a tokenised leaf whose binding was dropped by the state
-  filter is rewritten to its sidecar ID in the emitted local.
+- Produces: for any root whose loaded config contains reference tokens,
+  gen-env emits (a) the `terraform_remote_state` reader for each
+  referent root and (b) **lookup-first resolver expressions**
+  (maintainer's preferred ordering — state truth wins whenever it
+  exists, the sidecar literal is purely a fallback that retires
+  naturally as referents get applied):
+
+  `try(data.terraform_remote_state.<referent_root>.outputs.infrawright_reference_ids.<referent>["<key>"], local.<book>.<referent>["<key>"])`
+
+- The fallback arm reads the committed lookup sidecar **at plan time**
+  via a `fileexists()`-guarded `jsondecode(file(...))` local — the
+  renderer emits only expressions and never inlines a value from any
+  map (render purity holds). The sidecar gains a producer-side
+  `id_by_key` map (trivial extension in the compile step that already
+  writes `key_by_id`), so the plan-time expression indexes directly by
+  key instead of inverting in HCL.
+- Failure semantics (measured 2026-07-30): try() arm order is
+  irrelevant to the null-state case — the reader is read during plan
+  regardless, and an absent LOCAL state file hard-errors the read
+  (`defaults` does not rescue it). On azurerm a missing blob is
+  expected to read as empty state (matching `state pull`'s
+  synthesized-empty behavior), in which case the fallback arm serves
+  unapplied referents automatically and this design is complete with no
+  unknown failure modes. **One live downstream confirmation required
+  before this task's review closes:** the azurerm remote_state reader
+  on a missing blob succeeds with empty outputs. Contingency if it
+  hard-errors instead: gate *reader emission* (not value substitution)
+  behind the existing backend state probe — probe consults state, the
+  sanctioned truth source, so render purity still holds — and the
+  resolver for an absent referent is emitted as the fallback arm alone,
+  converging to the lookup on the next generation after apply.
+  Local-backend bootstrap = apply referent first or accept the loud
+  error (documented corner).
 
 - [ ] **Step 1: failing tests.**
-  - state-aware fallback over tokenised config: binding dropped →
-    emitted local carries the **ID literal** (from the sidecar), not the
-    token; note text unchanged in spirit ("fell back to the literal
-    value")
-  - tokenised leaf with **no binding and no sidecar entry** →
-    generation aborts naming the token (the total-ness invariant; today
-    this would silently pass `var.items` through at
-    `environment_generator.go:458`)
-  - root with tokens but zero surviving bindings still emits the local
-    (never the bare `var.<name>` passthrough)
+  - tokenised config → emitted local resolves every token leaf via the
+    remote-state expression; reader blocks present; **no sidecar file is
+    read** (fixture provides none)
+  - root with tokens never passes bare `var.<name>` to the module
+    (the `environment_generator.go:458` passthrough is unreachable when
+    tokens exist)
+  - token whose referent root is outside the topology → refused with
+    the existing malformed-evidence error class (validation gates
+    unchanged)
   - untokenised (old-shape) config → byte-identical output to today
-    (no-flag-day regression)
+    (no-flag-day regression; bindings-file path keeps working as the
+    migration bridge)
 - [ ] **Step 2: verify failure. Step 3: implement.** Token scan over
-  loaded config items (same reference-leaf traversal); fallback
-  resolution inverts `key_by_id`; the `expressionLocal` emission becomes
-  unconditional when any tokenised leaf exists. **Step 4: verify pass +
-  package suite. Step 5: commit** (`envgen: resolve every reference
-  token before the module boundary`).
+  loaded config items (same reference-leaf classification as the
+  derivation layer); resolver emission through the existing
+  expression-binding machinery — tokens are just another source of
+  bindings whose expressions are computed from the token itself, no map
+  consulted. **Step 4: verify pass + package suite. Step 5: commit**
+  (`envgen: resolve reference tokens against remote state only`).
 
 ### Task 4: guards and display
 

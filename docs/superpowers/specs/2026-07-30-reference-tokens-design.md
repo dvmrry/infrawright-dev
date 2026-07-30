@@ -154,10 +154,21 @@ v1.15.4):**
    `infrawright_expression_bound_items` local exists only where bindings
    exist (`environment_generator.go:458`: roots without bindings pass
    `var.<name>` straight to the module); with tokens, every tokenised
-   leaf must be rewritten before the module boundary — to the
-   state-lookup expression when the referent's state is usable, to the
-   sidecar ID on fallback. An unresolvable token (no expression, no
-   sidecar entry) aborts generation loudly with the token named.
+   leaf must be rewritten before the module boundary.
+
+   **Render purity (maintainer direction, 2026-07-30 — supersedes the
+   earlier sidecar-fallback idea):** the renderer generates and owns no
+   lookup maps. It emits only remote-state readers and resolver
+   expressions; all key→ID truth lives in the producing state outputs.
+   The resolver for a token is computed from the token itself
+   (`<referent>.<key>` → the canonical
+   `infrawright_reference_ids.<referent>["<key>"]` selector) — no
+   sidecar is consulted at render time, and there is no render-side ID
+   fallback. A referent whose state is absent or lacks the key fails
+   loudly at plan time naming the state/key; bootstrap is referent-first
+   apply ordering. The sidecar remains a *producing-side* artifact
+   (token minting at transform/adopt, display comments) and never a
+   render input.
 3. **Module variables keep provider-strict types, deliberately.** The
    module boundary is the final guard, and it is loud: measured — an
    unresolved token reaching the module fails plan with
