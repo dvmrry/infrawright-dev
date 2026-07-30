@@ -53,9 +53,11 @@ package envgen
 // convention), this file's functions are shallow and sequential, so they
 // use ordinary Go (T, error) returns throughout -- no panic/recover here.
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -545,6 +547,119 @@ func renderRootExpressionBindings(label string, bindingsByType map[string][]Expr
 		return "", nil
 	}
 	return strings.Join(sections, "\n\n") + "\n", nil
+}
+
+// canonicalRemoteStateSelectorPattern matches exactly the remote-state
+// selector shape the binding grammar admits (see
+// ExpressionRemoteStateReferences), capturing the referent type and the
+// quoted key. Renderer-side resolver wrapping relies on this strictness:
+// the grammar guarantees no other text can match.
+var canonicalRemoteStateSelectorPattern = regexp.MustCompile(
+	`data\.terraform_remote_state\.[A-Za-z_][A-Za-z0-9_]*\.outputs\.infrawright_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[("(?:[^"\\]|\\.)*")\]`,
+)
+
+// referenceTokensPresent reports whether any member's committed config
+// carries a qualified reference token for one of this root's referents. The
+// scan is textual -- a quoted string opening with `<referent>.` -- so it
+// serves JSON and HCL tfvars uniformly. The committed pack corpus contains
+// no dotted identifier-shaped tenant ID (audited 2026-07-30), so a false
+// positive requires a non-reference string value that happens to open with
+// an exact referent type and a dot; the cost of one is byte churn only --
+// wrapping resolves identically for old-shape bindings, since the book
+// carries the same IDs the literals held.
+func referenceTokensPresent(
+	dep deployment.Deployment,
+	tenant string,
+	members []string,
+	referentRoots map[string]bool,
+) (bool, error) {
+	if len(referentRoots) == 0 {
+		return false, nil
+	}
+	for _, resourceType := range members {
+		config, err := configFile(dep, tenant, resourceType)
+		if err != nil {
+			return false, err
+		}
+		raw, err := os.ReadFile(config)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return false, err
+		}
+		text := string(raw)
+		for referent := range referentRoots {
+			if strings.Contains(text, `"`+referent+`.`) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// wrapResolverFallbacks rewrites every canonical remote-state selector in
+// the surviving generated bindings into the lookup-first resolver form --
+// try(<selector>, local.infrawright_reference_book_<referent>[<key>]) -- so
+// state truth wins whenever it exists and the committed book serves any
+// referent not yet applied, retiring automatically once it is. Operator
+// bindings are never wrapped: an operator who wrote a remote-state
+// reference by hand is asserting intent, and that assertion keeps failing
+// loudly.
+func wrapResolverFallbacks(
+	bindingsByType map[string][]ExpressionBinding,
+	operatorIdentitiesByType map[string]map[string]bool,
+) {
+	for resourceType, bindings := range bindingsByType {
+		operators := operatorIdentitiesByType[resourceType]
+		for i, binding := range bindings {
+			if operators[bindingIdentity(binding)] {
+				continue
+			}
+			bindings[i].Expression = canonicalRemoteStateSelectorPattern.ReplaceAllString(
+				binding.Expression,
+				`try(${0}, local.infrawright_reference_book_${1}[${2}])`,
+			)
+		}
+	}
+}
+
+// referenceBookLocals renders one plan-time book local per referent the
+// wrapped resolvers name: a fileexists-guarded read of the committed lookup
+// sidecar, preferring its id_by_key map and inverting key_by_id for books
+// written before that field existed. The renderer emits only this
+// expression -- the values stay in the committed artifact and are read
+// where Terraform runs, never inlined here.
+func referenceBookLocals(
+	dep deployment.Deployment,
+	tenant, environmentDirectory string,
+	referentTypes []string,
+) (string, error) {
+	if len(referentTypes) == 0 {
+		return "", nil
+	}
+	lines := []string{"locals {"}
+	for _, referent := range referentTypes {
+		paths, err := tfrender.ComputeTransformArtifactPaths(dep, referent, tenant)
+		if err != nil {
+			return "", err
+		}
+		relative := nodePathRelative(environmentDirectory, paths.Lookup)
+		// The path rides inside a live "${path.module}/..." interpolation, so
+		// it must not itself need escaping; deployment layouts that would are
+		// refused rather than mis-quoted.
+		if strings.ContainsAny(relative, "\"\\$%") {
+			return "", fmt.Errorf("lookup sidecar path %s cannot be embedded in a reference book expression", relative)
+		}
+		quoted := `"${path.module}/` + relative + `"`
+		book := "jsondecode(file(" + quoted + "))"
+		lines = append(lines,
+			fmt.Sprintf("  infrawright_reference_book_%s = fileexists(%s) ? try(%s.id_by_key, { for id, k in %s.key_by_id : k => id }) : {}",
+				referent, quoted, book, book),
+		)
+	}
+	lines = append(lines, "}", "")
+	return strings.Join(lines, "\n"), nil
 }
 
 // configFile ports the local configFile helper from
@@ -1427,11 +1542,26 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		if err := validateRemoteStateReferences(remoteStateValidation, selectedRoot.Label, remoteStateReferences); err != nil {
 			return EnvironmentGenerationResult{}, err
 		}
+		tokensPresent, err := referenceTokensPresent(
+			options.Deployment, options.Tenant, members,
+			crossState.DependenciesByRoot[selectedRoot.Label],
+		)
+		if err != nil {
+			return EnvironmentGenerationResult{}, err
+		}
+		if tokensPresent && len(bindingsByType) == 0 {
+			return EnvironmentGenerationResult{}, fmt.Errorf(
+				"root %s: committed config carries reference tokens but no expression bindings; re-run transform/adopt so gen-env can emit resolvers -- a token must never reach the module's type boundary unresolved",
+				selectedRoot.Label,
+			)
+		}
 		// Every gate has now run against the full merged set. Only here, with
 		// the evidence proven well formed, may bindings be dropped for want of
 		// state -- and the reference list is rebuilt from the survivors so no
-		// data block outlives its binding.
-		if probe != nil {
+		// data block outlives its binding. A tokenised root is exempt: its
+		// resolvers carry the book fallback in-language, so there is nothing
+		// valid to degrade to and no reason to consult state at render time.
+		if probe != nil && !tokensPresent {
 			if err := filterStatelessBindings(bindingsByType, operatorIdentitiesByType, probe, onDiagnostic); err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
@@ -1441,6 +1571,13 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 					return EnvironmentGenerationResult{}, err
 				}
 			}
+		}
+		// The wrap happens after every consumer of the canonical selector
+		// grammar has parsed the unwrapped expressions (topology validation,
+		// reference extraction): from here on the strings are renderer
+		// output, not evidence.
+		if tokensPresent {
+			wrapResolverFallbacks(bindingsByType, operatorIdentitiesByType)
 		}
 
 		remoteRootSet := map[string]bool{}
@@ -1485,6 +1622,22 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			rendered, err := renderRootExpressionBindings(selectedRoot.Label, bindingsByType, topology)
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
+			}
+			if tokensPresent {
+				referentTypeSet := map[string]bool{}
+				for _, reference := range remoteStateReferences {
+					referentTypeSet[reference.ResourceType] = true
+				}
+				books, err := referenceBookLocals(
+					options.Deployment, options.Tenant, directory,
+					canonjson.SortedStrings(mapKeysBoolSetGeneric(referentTypeSet)),
+				)
+				if err != nil {
+					return EnvironmentGenerationResult{}, err
+				}
+				if books != "" {
+					rendered = books + "\n" + rendered
+				}
 			}
 			formatted, err := options.FormatHcl(rendered)
 			if err != nil {
