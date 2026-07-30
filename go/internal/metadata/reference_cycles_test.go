@@ -198,8 +198,16 @@ func TestCommittedPackReferencesRemainAcyclic(t *testing.T) {
 			declaredFields += len(fields.(JsonObject))
 		}
 	}
-	if declaredFields != 7 {
-		t.Fatalf("declared reference fields = %d, want 7", declaredFields)
+	// A floor, deliberately not an equality. The invariant this test owns is
+	// that the committed packs' declared references load and stay acyclic
+	// (LoadPackRoot validates cycles above); the count only guards against a
+	// regression that silently loads zero references and passes vacuously.
+	// Pinning the exact number made every pack-side reference addition -- data
+	// the engine does not own -- an engine test failure, which is a layering
+	// defect: downstream consumers vendoring these tests against their own
+	// packs could never declare a reference at all.
+	if declaredFields < 7 {
+		t.Fatalf("declared reference fields = %d, want at least the 7 present when this floor was set", declaredFields)
 	}
 }
 
