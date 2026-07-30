@@ -1,8 +1,11 @@
 # Terraform Expression Bindings
 
-> **Reference tokens.** Declared reference fields commit as qualified
-> tokens (`"<referent_type>.<key>"`) rather than tenant IDs whenever the
-> referent's lookup book knows the ID; gen-env renders each token as a
+> **Reference tokens (JSON tfvars only).** In JSON-format deployments,
+> declared reference fields commit as qualified tokens
+> (`"<referent_type>.<key>"`) rather than tenant IDs whenever the
+> referent's lookup book knows the ID; HCL-format deployments keep
+> literal IDs, and a token-shaped value in an HCL config is refused at
+> generation. gen-env renders each token as a
 > lookup-first resolver — `try(<remote-state lookup>, <book literal>)` —
 > whose fallback reads the committed `<referent>.lookup.json` at plan
 > time. IDs live in exactly two places: tfstate, and that book. See

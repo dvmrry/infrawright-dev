@@ -797,39 +797,37 @@ func mapKeysAny(m map[string]any) []string {
 }
 
 // assertTokenLeavesCovered is the render-time totality gate: every
-// committed token must have a covering binding -- leaf-granular for JSON
-// configs, value-granular for HCL -- or generation refuses, naming the
-// token. Without this, an unbound token would pass the root's opaque
-// variable and, on a string-typed provider field, flow to the provider as
-// a literal.
-func assertTokenLeavesCovered(label string, leaves []committedTokenLeaf, bindingsByType map[string][]ExpressionBinding) error {
+// committed token must have a covering binding that actually RESOLVES it.
+// A generated binding covers a token leaf only when its expression carries
+// that token's canonical selector -- path adjacency alone is not enough,
+// or a stale binding at the same path could silently resolve a different
+// referent or key than the committed value (adversarial-review finding).
+// Operator-owned bindings are exempt: an operator replacing a token's leaf
+// by hand is asserting intent, exactly as with any other override.
+func assertTokenLeavesCovered(
+	label string,
+	leaves []committedTokenLeaf,
+	bindingsByType map[string][]ExpressionBinding,
+	operatorIdentitiesByType map[string]map[string]bool,
+) error {
 	for _, leaf := range leaves {
 		bindings := bindingsByType[leaf.ResourceType]
+		operators := operatorIdentitiesByType[leaf.ResourceType]
+		needle := "infrawright_reference_ids." + leaf.Referent + `["` + leaf.Key + `"]`
 		covered := false
-		if leaf.Path != "" {
-			for _, binding := range bindings {
-				if binding.Key == leaf.ItemKey && tfrender.BindingPathCovers(binding.Path, leaf.Path) {
-					covered = true
-					break
-				}
+		for _, binding := range bindings {
+			if binding.Key != leaf.ItemKey || !tfrender.BindingPathCovers(binding.Path, leaf.Path) {
+				continue
 			}
-		} else {
-			needle := "infrawright_reference_ids." + leaf.Referent + `["` + leaf.Key + `"]`
-			for _, binding := range bindings {
-				if strings.Contains(binding.Expression, needle) {
-					covered = true
-					break
-				}
+			if operators[bindingIdentity(binding)] || strings.Contains(binding.Expression, needle) {
+				covered = true
+				break
 			}
 		}
 		if !covered {
-			where := leaf.ResourceType
-			if leaf.ItemKey != "" {
-				where = leaf.ResourceType + "." + leaf.ItemKey + "." + leaf.Path
-			}
 			return fmt.Errorf(
-				"root %s: committed token %q at %s has no covering binding; re-run transform/adopt (a stale or divergent token must never reach the module boundary unresolved)",
-				label, leaf.Token, where,
+				"root %s: committed token %q at %s.%s.%s has no binding that resolves it; re-run transform/adopt (a stale or divergent token must never reach the module boundary unresolved)",
+				label, leaf.Token, leaf.ResourceType, leaf.ItemKey, leaf.Path,
 			)
 		}
 	}
@@ -1819,7 +1817,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		// unbound token would pass the root's opaque variable and -- on a
 		// string-typed provider field -- flow to the provider as a literal.
 		if tokensPresent {
-			if err := assertTokenLeavesCovered(selectedRoot.Label, tokenLeaves, bindingsByType); err != nil {
+			if err := assertTokenLeavesCovered(selectedRoot.Label, tokenLeaves, bindingsByType, operatorIdentitiesByType); err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
 		}

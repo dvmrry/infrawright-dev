@@ -315,3 +315,36 @@ func TestHclConfigWithTokenShapedValueRefused(t *testing.T) {
 		t.Fatalf("GenerateEnvironmentRoots error = %v, want the HCL token refusal", err)
 	}
 }
+
+// TestStaleBindingAtTokenPathRefused pins round-3's re-aimed finding: a
+// generated binding at the token's own path that resolves a DIFFERENT
+// referent or key must not count as coverage -- path adjacency alone would
+// let a stale binding silently resolve the wrong value. Operator overrides
+// remain exempt by identity.
+func TestStaleBindingAtTokenPathRefused(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokenise(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	// Same item, same path -- but the expression resolves a different key
+	// than the committed token names.
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.generated.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["some_other_key"]`,
+				},
+			},
+		},
+	})
+
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot, Root: syntheticRootForTopology(t),
+		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
+	})
+	if err == nil || !strings.Contains(err.Error(), "no binding that resolves it") {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want the stale-binding refusal", err)
+	}
+}

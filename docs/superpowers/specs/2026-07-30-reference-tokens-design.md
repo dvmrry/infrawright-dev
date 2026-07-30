@@ -6,8 +6,11 @@
 
 ## Invariant (hard) and mechanism (open)
 
-**Hard:** committed config never contains a raw tenant ID for a declared
-reference field whose referent's key is known. IDs live in exactly two
+**Hard:** committed JSON-tfvars config never contains a raw tenant ID for
+a declared reference field whose referent's key is known (tokens are a
+JSON-format contract: HCL-format deployments keep literal IDs entirely,
+and token-shaped values appearing in HCL configs are refused at
+generation). IDs live in exactly two
 places: tfstate, and the lookup sidecar the engine keeps for itself.
 
 **Open (resolved by this spec, not by fiat):** the token spelling. Bare
