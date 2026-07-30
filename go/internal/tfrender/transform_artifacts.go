@@ -721,6 +721,11 @@ type generatedBindingsBuilder struct {
 	bound        int
 	skipped      int
 	reasons      map[string]int
+	// keySets caches each referent's key_by_id value set, built on first
+	// token lookup for that referent. resolve runs once per candidate value
+	// and keyMap is the same map object across every call for one referent,
+	// so this is keyed by referent (not rebuilt per value).
+	keySets map[string]map[string]struct{}
 }
 
 func (b *generatedBindingsBuilder) count(reason string, amount int) {
@@ -734,17 +739,75 @@ func (b *generatedBindingsBuilder) note(format string, args ...any) {
 	b.notes = append(b.notes, fmt.Sprintf(format, args...))
 }
 
-// resolve ports deriveGeneratedBindings's local `resolve` closure.
+// keySetFor returns the set of keys keyMap's ID->key entries map onto for
+// the given referent, building and caching it the first time a token is
+// seen for that referent. A token is validated by key membership alone, so
+// this set -- not the ID->key map itself -- is the only structure a token
+// lookup ever consults.
+func (b *generatedBindingsBuilder) keySetFor(referent string, keyMap map[string]string) map[string]struct{} {
+	if set, ok := b.keySets[referent]; ok {
+		return set
+	}
+	set := make(map[string]struct{}, len(keyMap))
+	for _, referentKey := range keyMap {
+		set[referentKey] = struct{}{}
+	}
+	if b.keySets == nil {
+		b.keySets = map[string]map[string]struct{}{}
+	}
+	b.keySets[referent] = set
+	return set
+}
+
+// tokenShaped reports whether ident has the qualified-token shape (an
+// identifier segment, a dot, a remainder) without regard to which referent
+// it names. It classifies a value that fails the spec.Referent prefix
+// check as a mismatched token rather than a plain ID: provider tenant IDs
+// in this pipeline are never dotted, so a dotted, identifier-prefixed
+// value is exhaustively a token for some other referent, never a
+// coincidental ID.
+func tokenShaped(ident string) bool {
+	dot := strings.IndexByte(ident, '.')
+	return dot > 0 && identifierSegmentPattern.MatchString(ident[:dot])
+}
+
+// resolve ports deriveGeneratedBindings's local `resolve` closure, extended
+// to consume the qualified reference token ("<spec.Referent>.<key>") the P1
+// substitution pass commits in place of a raw tenant ID. A token is
+// recognised by an exact "<spec.Referent>." prefix, stripped verbatim --
+// never a general dot split, because a referent's key may itself contain
+// dots -- and validated by key membership in key_by_id's value set (never
+// an ID->key hop; the key is already in the value). Old-shape raw IDs
+// remain valid indefinitely: the migration path this file's task brief
+// requires.
 func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap map[string]string, key, fieldPath string, value any) (*string, error) {
 	ident, err := pythonTransformString(value)
 	if err != nil {
 		return nil, err
 	}
-	referentKey, ok := keyMap[ident]
-	if !ok {
-		b.count("id_absent", 1)
-		b.note("%s.%s.%s value %s skipped; id is absent from %s lookup", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+	var referentKey string
+	ownPrefix := spec.Referent + "."
+	switch {
+	case strings.HasPrefix(ident, ownPrefix):
+		tokenKey := ident[len(ownPrefix):]
+		if _, known := b.keySetFor(spec.Referent, keyMap)[tokenKey]; !known {
+			b.count("token_key_unknown", 1)
+			b.note("%s.%s.%s value %s skipped; token key is unknown to %s", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+			return nil, nil
+		}
+		referentKey = tokenKey
+	case tokenShaped(ident):
+		b.count("token_referent_mismatch", 1)
+		b.note("%s.%s.%s value %s skipped; token does not name %s", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
 		return nil, nil
+	default:
+		found, ok := keyMap[ident]
+		if !ok {
+			b.count("id_absent", 1)
+			b.note("%s.%s.%s value %s skipped; id is absent from %s lookup", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+			return nil, nil
+		}
+		referentKey = found
 	}
 	if strings.Contains(referentKey, "${") || strings.Contains(referentKey, "%{") {
 		b.count("unsafe_key", 1)
