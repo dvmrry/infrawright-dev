@@ -370,7 +370,7 @@ func TestCrossStateModeEmitsSingletonOutputsAndRemoteStateConsumers(t *testing.T
 	mustMatch(t, overlay, `data\.terraform_remote_state\.zpa_segment_group`)
 	smoke := readFileString(t, filepath.Join(outputRoot, "tenant", "zpa_application_segment", "tests", "smoke.tftest.hcl"))
 	mustMatch(t, smoke, `override_data`)
-	mustMatch(t, smoke, `infrawright-test-reference-id`)
+	mustMatch(t, smoke, `"20090001"`)
 	mustMatch(t, smoke, `run "config_plan"`)
 	mustNotMatch(t, smoke, `run "empty_plan"`)
 
