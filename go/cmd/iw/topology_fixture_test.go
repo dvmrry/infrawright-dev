@@ -119,3 +119,39 @@ func prepareBlockC4Fixture(t *testing.T, workspace string) blockC4Fixture {
 	}
 	return fixture
 }
+
+func prepareResourceAuthorityFixture(t *testing.T, workspace string) blockC4Fixture {
+	t.Helper()
+	fixture := prepareBlockC4Fixture(t, workspace)
+	writeBlockC4JSON(t, filepath.Join(fixture.packs, "alpha", "pack.json"), map[string]any{
+		"pin":               "1.0.0",
+		"provider_prefixes": map[string]any{"alpha_": "alpha"},
+		"provider_sources":  map[string]any{"alpha": "example/alpha"},
+		"references": map[string]any{
+			"alpha_resource": map[string]any{
+				"sample_id": map[string]any{"name_field": "id", "referent": "sample_resource"},
+			},
+		},
+		"vendor": "alpha",
+	})
+	writeBlockC4JSON(t, filepath.Join(fixture.packs, "alpha", "registry.json"), map[string]any{
+		"alpha_resource": map[string]any{"generate": true, "product": "alpha"},
+	})
+	writeBlockC4JSON(t, filepath.Join(fixture.packs, "alpha", "schemas", "provider", "alpha.json"), map[string]any{
+		"provider": map[string]any{"block": map[string]any{}, "version": 0},
+		"resource_schemas": map[string]any{
+			"alpha_resource": map[string]any{
+				"block": map[string]any{
+					"attributes": map[string]any{
+						"id": map[string]any{"computed": true, "type": "string"},
+					},
+				},
+			},
+		},
+	})
+	writeBlockC4JSON(t, fixture.profile, map[string]any{
+		"kind": "infrawright.pack-set", "version": 1,
+		"packs": []any{"alpha", "sample"}, "shared": []any{},
+	})
+	return fixture
+}

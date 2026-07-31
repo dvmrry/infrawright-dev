@@ -43,6 +43,20 @@ func writeCompiledShowTerraform(t *testing.T, fixture blockC4Fixture, showJSON s
 		"exit 0\n"), 0o700)
 }
 
+func writeCompiledApplyFailureTerraform(t *testing.T, fixture blockC4Fixture, showJSON string) {
+	t.Helper()
+	writeBlockC4File(t, fixture.terraform, []byte("#!/bin/sh\n"+
+		"printf 'cwd=%s\\n' \"$PWD\" >> \"$FAKE_TF_LOG\"\n"+
+		"printf 'arg=%s\\n' \"$@\" >> \"$FAKE_TF_LOG\"\n"+
+		"if [ \"$2\" = \"show\" ]; then\n"+
+		"  printf '%s' "+assessmentCommandShellLiteral(showJSON)+"\n"+
+		"elif [ \"$1\" = \"apply\" ]; then\n"+
+		"  printf '%s\\n' 'fake terraform apply failure' >&2\n"+
+		"  exit 19\n"+
+		"fi\n"+
+		"exit 0\n"), 0o700)
+}
+
 func createCompiledSavedPlan(t *testing.T, binary string, fixture blockC4Fixture) {
 	t.Helper()
 	arguments := append([]string{
@@ -179,6 +193,46 @@ func TestCompiledSafetyCommandMatrix(t *testing.T) {
 			path := filepath.Join(fixture.envDir, name)
 			if _, err := os.Stat(path); !os.IsNotExist(err) {
 				t.Errorf("os.Stat(%q) error = %v, want os.ErrNotExist after compiled apply", path, err)
+			}
+		}
+	})
+
+	t.Run("apply failure preserves saved plans", func(t *testing.T) {
+		fixture := prepareBlockC4Fixture(t, filepath.Join(t.TempDir(), "workspace"))
+		createCompiledSavedPlan(t, binary, fixture)
+		if err := os.Remove(fixture.log); err != nil {
+			t.Fatalf("os.Remove(%q) error = %v, want nil", fixture.log, err)
+		}
+		noOp := assessmentCommandPlan(map[string]any{
+			"actions": []any{"no-op"}, "after": map[string]any{}, "before": map[string]any{},
+		})
+		writeCompiledApplyFailureTerraform(t, fixture, noOp)
+		arguments := append([]string{
+			"apply", "--tenant", "tenant", "--resource", "sample_resource",
+			"--terraform", fixture.terraform,
+		}, compiledSafetyMetadataArguments(fixture)...)
+		requireRunResult(t,
+			runCompiledSafetyCommand(t, binary, fixture, arguments,
+				"BUILD_SOURCEBRANCH=refs/heads/main"),
+			1, "", "== apply tenant/sample_resource\n"+
+				"fake terraform apply failure\n"+
+				"error: Terraform command did not complete successfully\n"+
+				"  code: TERRAFORM_COMMAND_FAILED\n"+
+				"  category: domain\n"+
+				"  retryable: no\n",
+		)
+
+		log, err := os.ReadFile(fixture.log)
+		if err != nil {
+			t.Fatalf("os.ReadFile(%q) error = %v, want nil", fixture.log, err)
+		}
+		if !regexp.MustCompile(`(?m)^arg=apply$`).Match(log) {
+			t.Errorf("compiled failed-apply Terraform log = %q, want an exact apply argv entry", log)
+		}
+		for _, name := range []string{"tfplan", "tfplan.sources"} {
+			path := filepath.Join(fixture.envDir, name)
+			if _, err := os.Stat(path); err != nil {
+				t.Errorf("os.Stat(%q) error = %v, want saved plan artifact to survive failed apply", path, err)
 			}
 		}
 	})

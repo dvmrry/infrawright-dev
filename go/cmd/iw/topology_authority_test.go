@@ -160,24 +160,38 @@ func TestV2TopologyAuthority(t *testing.T) {
 func TestV2MetadataCommandAuthority(t *testing.T) {
 	root := repoRoot(t)
 	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-metadata")
-	fixture := prepareBlockC4Fixture(t, filepath.Join(t.TempDir(), "workspace"))
+	fixture := prepareResourceAuthorityFixture(t, filepath.Join(t.TempDir(), "workspace"))
 
 	resourceCases := []struct {
 		name string
 		args []string
+		want string
 	}{
-		{name: "default", args: []string{"resources"}},
-		{name: "reference order", args: []string{"resources", "--order", "references"}},
-		{name: "provider selector", args: []string{"resources", "--resource", "sample"}},
+		{name: "default", args: []string{"resources"}, want: "alpha_resource\nsample_resource\n"},
+		{name: "reference order", args: []string{"resources", "--order", "references"}, want: "sample_resource\nalpha_resource\n"},
+		{name: "provider selector", args: []string{"resources", "--resource", "sample"}, want: "sample_resource\n"},
 	}
+	resourceOutputs := make(map[string][]byte, len(resourceCases))
 	for _, testCase := range resourceCases {
 		t.Run("resources/"+testCase.name, func(t *testing.T) {
 			arguments := append(append([]string(nil), testCase.args...),
 				"--root", fixture.packs,
 				"--profile", fixture.profile,
 			)
-			requireRunResult(t, runV2TopologyCommand(t, binary, fixture, arguments), 0, "sample_resource\n", "")
+			result := runV2TopologyCommand(t, binary, fixture, arguments)
+			resourceOutputs[testCase.name] = append([]byte(nil), result.stdout...)
+			requireRunResult(t, result, 0, testCase.want, "")
 		})
+	}
+	for left := 0; left < len(resourceCases); left++ {
+		for right := left + 1; right < len(resourceCases); right++ {
+			leftCase := resourceCases[left]
+			rightCase := resourceCases[right]
+			if bytes.Equal(resourceOutputs[leftCase.name], resourceOutputs[rightCase.name]) {
+				t.Errorf("resources %q and %q outputs = %q, want pairwise-distinct authority outcomes",
+					leftCase.name, rightCase.name, resourceOutputs[leftCase.name])
+			}
+		}
 	}
 
 	deploymentCases := []struct {

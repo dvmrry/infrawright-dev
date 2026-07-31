@@ -125,10 +125,7 @@ check-schema-parity: ## Published assessment schema matches the copy the engine 
 check-distribution: check-pack-set check-config check-examples check-modules check-tfvars-fmt check-pack check-schema-parity ## Active distribution without selecting its runtime test suite
 
 check-retired-runtime: ## Reject reintroduction of the retired Node/Python runtime surface
-	@set -eu; \
-	for path in node-tests .node-test package.json package-lock.json pnpm-lock.yaml yarn.lock tsconfig.json pyproject.toml requirements.txt setup.py setup.cfg tox.ini; do \
-		test ! -e "$$path" || { echo "retired runtime surface reintroduced: $$path" >&2; exit 1; }; \
-	done
+	cd go && $(GO) test -count=1 -run '^TestRetiredRuntime' ./cmd/iw
 
 check: check-retired-runtime dist/iw check-distribution test-go ## Complete Go distribution and runtime gate
 
