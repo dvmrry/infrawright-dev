@@ -11,13 +11,6 @@ import (
 // The result is historical compatibility output only; it is deliberately not a
 // v2 source-analysis or readiness input.
 func DeriveLegacySourceOperationRegistry(options LegacyOptions) (map[string]any, error) {
-	if options.SourceFacts != nil {
-		for _, key := range []string{"files", "functions", "resource_registrations", "resource_references", "identifier_references", "read_callbacks", "selector_calls", "package_calls", "raw_rest_calls"} {
-			if _, ok := options.SourceFacts[key].([]any); !ok {
-				return nil, fmt.Errorf("malformed source facts: expected arrays for %s", key)
-			}
-		}
-	}
 	provider, err := legacyProviderFromSchema(options.SchemaData, options.ProviderSource)
 	if err != nil {
 		return nil, err
@@ -45,32 +38,9 @@ func DeriveLegacySourceOperationRegistry(options LegacyOptions) (map[string]any,
 		resources = append(resources, resource)
 	}
 	resources = legacySorted(resources)
-	var filesByResource map[string][]string
-	if options.SourceFacts != nil {
-		filesByResource, err = legacyResourceFiles(options.SourceRoot, resources, options.ResourcePrefix)
-		if err != nil {
-			return nil, err
-		}
-		for resource, files := range legacyFactsFiles(options.SourceRoot, resources, options.SourceFacts) {
-			set := map[string]bool{}
-			for _, file := range filesByResource[resource] {
-				set[file] = true
-			}
-			for _, file := range files {
-				set[file] = true
-			}
-			merged := make([]string, 0, len(set))
-			for file := range set {
-				merged = append(merged, file)
-			}
-			sortLegacyPaths(options.SourceRoot, merged)
-			filesByResource[resource] = merged
-		}
-	} else {
-		filesByResource, err = legacyResourceFiles(options.SourceRoot, resources, options.ResourcePrefix)
-		if err != nil {
-			return nil, err
-		}
+	filesByResource, err := legacyResourceFiles(options.SourceRoot, resources, options.ResourcePrefix)
+	if err != nil {
+		return nil, err
 	}
 	operations := legacyOperations(options.OpenAPI)
 	sdkEvidence, sdkUnresolved, err := ExtractSDKPaths(options.SDKRoot)
@@ -89,30 +59,18 @@ func DeriveLegacySourceOperationRegistry(options LegacyOptions) (map[string]any,
 		if len(absolute) > 0 {
 			withFiles++
 		}
-		var identifiers map[string]bool
-		var sdkCalls, packageCalls, rawCalls []map[string]any
-		var graphql bool
-		if options.SourceFacts != nil {
-			identifiers, sdkCalls, packageCalls, rawCalls, graphql = legacyFactsEvidenceFull(options.SourceRoot, absolute, options.SourceFacts)
-		} else {
-			identifiers, sdkCalls, packageCalls, rawCalls, graphql = legacyTextEvidence(options.SourceRoot, absolute)
-		}
+		identifiers, sdkCalls, packageCalls, rawCalls, graphql := legacyTextEvidence(options.SourceRoot, absolute)
 		hits := []legacyHit{}
 		unresolved, actions := []any{}, []any{}
 		schema := legacyObject(schemas[resource])
 		if options.SDKRoot != "" {
-			var allCalls []map[string]any
-			if options.SourceFacts != nil {
-				allCalls = legacySDKCallsFromFacts(options.SourceRoot, absolute, options.SourceFacts, false)
-			} else {
-				var texts []string
-				for _, file := range absolute {
-					if data, readErr := osRead(file); readErr == nil {
-						texts = append(texts, data)
-					}
+			var texts []string
+			for _, file := range absolute {
+				if data, readErr := osRead(file); readErr == nil {
+					texts = append(texts, data)
 				}
-				allCalls = SDKClientCalls(strings.Join(texts, "\n"), false)
 			}
+			allCalls := SDKClientCalls(strings.Join(texts, "\n"), false)
 			for _, call := range allCalls {
 				symbol := legacyString(call["client_symbol"])
 				evidence, found := sdkEvidence[symbol]
@@ -208,9 +166,6 @@ func DeriveLegacySourceOperationRegistry(options LegacyOptions) (map[string]any,
 		listing, listAmbiguous := legacySelect(unique, "list")
 		relation, relationAmbiguous := legacyRelationshipHit(unique, resource, options.ResourcePrefix)
 		source := map[string]any{"candidate_count": len(unique), "files": files}
-		if options.SourceFacts != nil {
-			source["evidence_backend"] = "ast_facts"
-		}
 		if len(sdkCalls) > 0 {
 			symbols := make([]any, 0, min(20, len(sdkCalls)))
 			for _, call := range sdkCalls[:min(20, len(sdkCalls))] {

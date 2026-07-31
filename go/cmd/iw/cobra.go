@@ -224,15 +224,12 @@ var cobraFlagDescriptions = map[string]string{
 	"--schema":                  "Terraform provider schema path",
 	"--sdk-file":                "module-qualified SDK source file",
 	"--sdk-root":                "SDK module and local source root",
-	"--source-facts":            "precomputed source-facts path",
-	"--source-facts-compare":    "source-facts comparison path",
 	"--source-manifest":         "qualified source manifest path",
 	"--source-root":             "provider source root directory",
 	"--state-aware":             "inspect Terraform state before binding references or staging imports",
 	"--tenant":                  "deployment tenant label",
 	"--terraform":               "Terraform executable path",
 	"--work-dir":                "private provider-probe work directory",
-	"--ast-tool-dir":            "legacy AST tool directory",
 }
 
 func cobraFlagDescription(name string) string {
