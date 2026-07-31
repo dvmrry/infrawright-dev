@@ -316,7 +316,6 @@ func transformArtifactOptions(
 	resource metadata.LoadedResourceMetadata,
 	result tfrender.PullTransformResult,
 	resourceRoots map[string]string,
-	runResourceTypes []string,
 	write func(string),
 ) (tfrender.TransformArtifactCompileOptions, error) {
 	references := transformrun.TransformReferenceSpecs(options.Root, resource)
@@ -348,11 +347,8 @@ func transformArtifactOptions(
 		References:             references,
 		ResourceType:           resource.Type,
 		Result:                 result,
-		// This run's own scope: a referent whose book is shrinking must not
-		// refuse over a referrer this same run is about to rewrite.
-		RunResourceTypes: runResourceTypes,
-		Tenant:           options.Tenant,
-		VariableName:     "items",
+		Tenant:                 options.Tenant,
+		VariableName:           "items",
 	}, nil
 }
 
@@ -457,7 +453,7 @@ func RunAdoptBatch(options RunAdoptBatchOptions) (AdoptBatchResult, error) {
 				adoptErr = assertNoPendingMoves(options.Deployment, resourceType, options.Tenant)
 			}
 			if adoptErr == nil {
-				artifact, artifactErr := transformArtifactOptions(options, resource, projected, bindingTopology.Topology.ResourceRoots, selection.ResourceTypes, write)
+				artifact, artifactErr := transformArtifactOptions(options, resource, projected, bindingTopology.Topology.ResourceRoots, write)
 				if artifactErr == nil {
 					_, artifactErr = tfrender.WriteTransformArtifacts(artifact)
 				}

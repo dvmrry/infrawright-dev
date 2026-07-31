@@ -643,11 +643,6 @@ func RunTransformBatch(options RunTransformBatchOptions) (TransformBatchResult, 
 				Override:               resource.Override,
 				References:             references,
 				ResourceType:           resourceType,
-				// Referents are processed before their referrers, so a referent
-				// whose book is shrinking sees every referrer's config still
-				// holding the departing key. This run rewrites them moments
-				// later; the shrinkage guard needs to know that.
-				RunResourceTypes: selection.ResourceTypes,
 				Result: tfrender.PullTransformResult{
 					Items:     transformed.Items,
 					Originals: transformed.Originals,

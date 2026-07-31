@@ -224,21 +224,8 @@ type TransformArtifactCompileOptions struct {
 	References             map[string]TransformReferenceSpec
 	ResourceType           string
 	Result                 PullTransformResult
-	// RunResourceTypes is every resource type the current transform/adopt run
-	// will rewrite the committed config of, this type included. Empty means
-	// "this type alone".
-	//
-	// It exists for the book-key-shrinkage guard, which must distinguish a
-	// dependent this run is about to repair from one it would strand.
-	// Referents are processed before their referrers (transform.referenceOrder),
-	// so at the moment a referent's shrinking book compiles, every referrer's
-	// committed config still names the departing key -- and refusing there
-	// would deadlock: transforming the referrer first re-mints the same key
-	// from the still-committed book. A dependent inside the run is transient;
-	// one outside it is the stranding this guard exists to prevent.
-	RunResourceTypes []string
-	Tenant           string
-	VariableName     string
+	Tenant                 string
+	VariableName           string
 }
 
 // CompiledTransformArtifacts is the Go analogue of the opaque
@@ -1691,13 +1678,17 @@ func loadLookup(file string) (*TransformLookupData, error) {
 	if text == nil {
 		return nil, nil
 	}
+	// Books are read from two possible locations (current and legacy), and
+	// since the key-shrinkage guard they are read during compiles that never
+	// mention the book otherwise. A bare parse error names neither which file
+	// nor which of the two paths it came from, so the exact path is attached.
 	value, err := canonjson.ParseDataJSONLosslessly(*text)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	data, err := ParseLookupSidecar(value)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	return &data, nil
 }
@@ -1858,24 +1849,39 @@ func tokenKeyDependents(
 // orphaned token stops decoding, and every render-time gate goes blind to it
 // (adversarial-review finding, round 5).
 //
+// No dependent is exempt, including one the same run also selects. An
+// exemption is only sound inside a successfully preflighted, rollback-capable
+// publication transaction, and this repository has no such invocation path:
+// the transform and adopt runners compile and publish each type immediately
+// and independently and continue past a later member that skips or fails
+// (round-3 re-review's deterministic repro), and even the batch helper's
+// rollback is best-effort. A selection-scoped exemption therefore published
+// the new book and then simply did not repair the dependent.
+//
+// The cost is a real deadlock: renaming a referent item refuses until the
+// referrer's committed reference is updated, and re-transforming the referrer
+// first re-mints the same departing key from the still-committed book, so the
+// operator must break the tie by hand. That is accepted deliberately -- loud
+// and self-consistent beats quiet and stranded -- and is documented in the
+// design spec's residuals. The message below states the manual remedy and
+// claims no automatic one.
+//
 // Residual, deliberately named rather than claimed away: this guards the
 // pipeline's own writes. A book deleted or edited by hand outside the pipeline
-// is not covered, and neither is a dependent whose own transform is skipped
-// within the same run for want of a pull file.
+// is not covered.
 func assertNoBookKeyStranding(
 	configDirectory, resourceType string,
 	fresh *TransformLookupData,
-	runResourceTypes []string,
 ) error {
 	dropped, err := droppedBookKeys(configDirectory, resourceType, fresh)
 	if err != nil || len(dropped) == 0 {
 		return err
 	}
-	rewritten := map[string]bool{resourceType: true}
-	for _, member := range runResourceTypes {
-		rewritten[member] = true
-	}
-	dependents, err := tokenKeyDependents(configDirectory, resourceType, dropped, rewritten)
+	// Only this type's own config is out of scope, and not as an exemption: a
+	// type never mints a token naming itself (bindableReference refuses a
+	// self-reference outright), so a self-prefixed value in its own config is
+	// by construction not a token this book decodes for anyone.
+	dependents, err := tokenKeyDependents(configDirectory, resourceType, dropped, map[string]bool{resourceType: true})
 	if err != nil || len(dependents) == 0 {
 		return err
 	}
@@ -1886,8 +1892,8 @@ func assertNoBookKeyStranding(
 		}
 	}
 	return fmt.Errorf(
-		"cannot publish %s's lookup sidecar: it would drop key(s) committed config still references by token — %s; re-run transform for those dependents in the same run as %s, or restore the referent item whose key is leaving the book",
-		resourceType, strings.Join(stranded, "; "), resourceType,
+		"cannot publish %s's lookup sidecar: it would drop key(s) committed config still references by token — %s; nothing published. Re-running transform for those dependents first will NOT help (they re-mint the same key from the still-committed book): either restore the referent item whose key is leaving the book, or update each dependent's committed reference to the new key by hand (or delete that config and re-transform it after this one succeeds)",
+		resourceType, strings.Join(stranded, "; "),
 	)
 }
 
@@ -2260,7 +2266,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	// applies key by key.
 	if lookupText != nil && freshLookup != nil {
 		if err := assertNoBookKeyStranding(
-			path.Dir(paths.Config), options.ResourceType, freshLookup, options.RunResourceTypes,
+			path.Dir(paths.Config), options.ResourceType, freshLookup,
 		); err != nil {
 			return CompiledTransformArtifacts{}, err
 		}
@@ -2420,13 +2426,6 @@ func CompileTransformArtifactBatch(items []TransformArtifactCompileOptions) ([]C
 		lookups[item.ResourceType] = data
 	}
 
-	// Every member of a batch is published together, so each member's config
-	// is rewritten by this same run: the book-key-shrinkage guard must treat
-	// them all as repairable dependents, not stranded ones.
-	batchTypes := make([]string, 0, len(items))
-	for _, item := range items {
-		batchTypes = append(batchTypes, item.ResourceType)
-	}
 	compiled := make([]CompiledTransformArtifacts, len(items))
 	for i, item := range items {
 		configDirectory := path.Dir(allPaths[i].Config)
@@ -2438,7 +2437,6 @@ func CompileTransformArtifactBatch(items []TransformArtifactCompileOptions) ([]C
 			merged[k] = v
 		}
 		item.LookupOverrides = merged
-		item.RunResourceTypes = append(append([]string{}, item.RunResourceTypes...), batchTypes...)
 		result, err := CompileTransformArtifacts(item)
 		if err != nil {
 			return nil, err
