@@ -259,6 +259,7 @@ func writeRecordedFetchPack(t *testing.T) recordedFetchPack {
 		filepath.Join(pack, "registry.json"): "{\n" +
 			"  \"" + recordedFetchResourceType + "\": {\n" +
 			"    \"fetch\": {\"pagination\": \"single\", \"path\": \"recordedFixture\"},\n" +
+			"    \"generate\": true,\n" +
 			"    \"product\": \"zia\"\n" +
 			"  }\n" +
 			"}\n",
@@ -288,6 +289,15 @@ func reviewerZIAOnlyPack(t *testing.T, repositoryRoot string) recordedFetchPack 
 	links := map[string]string{
 		filepath.Join(packsRoot, "zia"):      filepath.Join(repositoryRoot, "packs", "zia"),
 		filepath.Join(sharedRoot, "zscaler"): filepath.Join(repositoryRoot, "packs", "_shared", "zscaler"),
+	}
+	for _, target := range links {
+		if _, err := os.Stat(target); err != nil {
+			if os.IsNotExist(err) {
+				t.Logf("committed ZIA fixture path %q is unavailable; using reduced zia fixture", target)
+				return writeRecordedFetchPack(t)
+			}
+			t.Fatalf("os.Stat(%q) failed: %v", target, err)
+		}
 	}
 	for link, target := range links {
 		if err := os.Symlink(target, link); err != nil {

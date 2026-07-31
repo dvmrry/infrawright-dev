@@ -4,9 +4,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
@@ -26,6 +28,45 @@ func repoRoot(t *testing.T) string {
 			t.Fatal("unable to locate the repository root (packs/full.packset.json)")
 		}
 		current = parent
+	}
+}
+
+func requireCommittedProfileAvailable(t *testing.T, root, profile string) {
+	t.Helper()
+	profilePath := filepath.Join(root, "packs", profile+".packset.json")
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error: %v", profilePath, err)
+	}
+	var selection struct {
+		Packs  []string `json:"packs"`
+		Shared []string `json:"shared"`
+	}
+	if err := json.Unmarshal(data, &selection); err != nil {
+		t.Fatalf("json.Unmarshal(%q) error: %v", profilePath, err)
+	}
+	missing := make([]string, 0)
+	for _, pack := range selection.Packs {
+		if _, err := os.Stat(filepath.Join(root, "packs", pack)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, pack)
+				continue
+			}
+			t.Fatalf("os.Stat(pack %q) error: %v", pack, err)
+		}
+	}
+	for _, shared := range selection.Shared {
+		if _, err := os.Stat(filepath.Join(root, "packs", "_shared", shared)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, "_shared/"+shared)
+				continue
+			}
+			t.Fatalf("os.Stat(shared %q) error: %v", shared, err)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Skipf("committed %s profile requires unavailable pack paths: %v", profile, missing)
 	}
 }
 

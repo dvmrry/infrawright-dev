@@ -21,10 +21,11 @@ func TestCobraTreeCarriesCompleteCommandSurface(t *testing.T) {
 	}
 	sort.Strings(got)
 	want := []string{
-		"adopt", "apply", "assert-adoptable", "assert-clean", "check-pack",
-		"check-pack-set", "clean-plans", "deployment", "fetch", "fetch-diag",
+		"adopt", "apply", "assert-adoptable", "assert-clean", "check-config",
+		"check-pack", "check-pack-set", "clean-plans", "deployment", "fetch",
+		"fetch-diag",
 		"gen-env", "modules", "openapi-map", "plan", "plan-roots",
-		"provider-probe", "reconcile", "resources", "roots",
+		"provider-probe", "reconcile", "refresh", "resources", "roots",
 		"scope-paths", "source-evidence-eval", "source-operation-map",
 		"stage-imports", "transform", "transform-adopt-parity", "unstage-imports",
 	}
@@ -50,9 +51,7 @@ func TestCobraTreeExposesSafetyAndAuthoringFlags(t *testing.T) {
 	root := newCobraRoot()
 	checks := map[string][]string{
 		"apply":                {"allow-destroy", "allow-non-main", "allow-plan-changes", "policy", "terraform"},
-		"gen-env":              {"terraform"},
-		"modules generate":     {"terraform"},
-		"modules validate":     {"terraform"},
+		"gen-env":              {"state-aware", "terraform"},
 		"source-operation-map": {"allow-unverified-source", "artifact-dir", "source-manifest", "provider-file", "sdk-root"},
 		"provider-probe":       {"debug-traceback", "work-dir"},
 	}
@@ -69,9 +68,31 @@ func TestCobraTreeExposesSafetyAndAuthoringFlags(t *testing.T) {
 	}
 }
 
+// TestModulesVerbsRejectTerraformExecutable pins the inverse of the check
+// above: module generation renders HCL from pack metadata and never executes
+// Terraform, so --terraform must be rejected outright rather than accepted and
+// silently ignored.
+func TestModulesVerbsRejectTerraformExecutable(t *testing.T) {
+	root := newCobraRoot()
+	for _, path := range []string{"modules generate", "modules validate"} {
+		t.Run(strings.ReplaceAll(path, " ", "_"), func(t *testing.T) {
+			command, _, err := root.Find(strings.Fields(path))
+			if err != nil {
+				t.Fatalf("root.Find(%q) error: %v", path, err)
+			}
+			if command.Flags().Lookup("terraform") != nil {
+				t.Errorf("%s still exposes --terraform", path)
+			}
+			if err := command.ParseFlags([]string{"--terraform", "/definitely/missing/terraform"}); err == nil {
+				t.Errorf("%s ParseFlags(--terraform) succeeded; want an unknown-flag rejection", path)
+			}
+		})
+	}
+}
+
 func TestTopologyTerraformCompatibilityFlagsParseWithoutExecutableAccess(t *testing.T) {
 	root := newCobraRoot()
-	for _, path := range []string{"gen-env", "modules generate", "modules validate"} {
+	for _, path := range []string{"gen-env"} {
 		t.Run(strings.ReplaceAll(path, " ", "_"), func(t *testing.T) {
 			command, _, err := root.Find(strings.Fields(path))
 			if err != nil {
@@ -208,6 +229,8 @@ func TestEveryCobraStringFlagRejectsEmptyUnlessExplicitlyAllowed(t *testing.T) {
 		"iw clean-plans --tenant":      true,
 		"iw scope-paths --path":        true,
 		"iw plan --tenant":             true,
+		"iw refresh --tenant":          true,
+		"iw check-config --tenant":     true,
 		"iw assert-clean --tenant":     true,
 		"iw assert-adoptable --tenant": true,
 		"iw apply --tenant":            true,
@@ -257,8 +280,12 @@ func TestTerraformPreflightUsesResolvedCobraCommandAndEffectiveFlags(t *testing.
 		wantPreflight bool
 	}{
 		{name: "ordinary plan", arguments: []string{"plan"}, wantPreflight: true},
-		{name: "gen env", arguments: []string{"gen-env"}, wantPreflight: true},
-		{name: "modules generate", arguments: []string{"modules", "generate"}, wantPreflight: true},
+		// gen-env resolves a Terraform executable only under --state-aware, and
+		// `modules generate` never resolves one at all, so neither is gated in
+		// its ordinary form.
+		{name: "gen env", arguments: []string{"gen-env"}},
+		{name: "gen env state aware", arguments: []string{"gen-env", "--state-aware"}, wantPreflight: true},
+		{name: "modules generate", arguments: []string{"modules", "generate"}},
 		{name: "help", arguments: []string{"plan", "--help"}},
 		{name: "help consumed as value", arguments: []string{"plan", "--tenant", "--help"}, wantPreflight: true},
 		{name: "unknown before help", arguments: []string{"plan", "--unknown", "--help"}},

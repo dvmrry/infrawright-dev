@@ -6,7 +6,7 @@ terraform {
     }
     zpa = {
       source  = "zscaler/zpa"
-      version = "4.4.6"
+      version = "4.4.9"
     }
     zcc = {
       source  = "zscaler/zcc"

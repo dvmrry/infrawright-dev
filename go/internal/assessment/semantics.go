@@ -286,7 +286,7 @@ func validateAssessmentStructure(report map[string]any, validation *assessmentVa
 		validation.add("/kind", "const", "must be equal to constant")
 	}
 	if value, present := report["schema_version"]; present {
-		if integer, ok := jsonIntegerValue(value); !ok || integer != 1 {
+		if integer, ok := jsonIntegerValue(value); !ok || integer != 2 {
 			validation.add("/schema_version", "const", "must be equal to constant")
 		}
 	}
@@ -502,10 +502,10 @@ func validateReportFinding(value any, path string, validation *assessmentValidat
 		return
 	}
 	requiredProperties(finding, path, []string{
-		"status", "source", "address", "resource_type", "actions", "paths",
+		"status", "source", "address", "resource_type", "actions", "paths", "changes",
 	}, validation)
 	additionalProperties(finding, path, stringSet(
-		"status", "source", "address", "resource_type", "actions", "paths",
+		"status", "source", "address", "resource_type", "actions", "paths", "changes",
 	), validation)
 	if status, present := finding["status"]; present && status != "clean" &&
 		status != "clean_with_tolerated_drift" && status != "blocked" {
@@ -526,6 +526,126 @@ func validateReportFinding(value any, path string, validation *assessmentValidat
 	}
 	if paths, present := finding["paths"]; present {
 		validateStringArray(paths, path+"/paths", false, false, "", validation)
+	}
+	if changes, present := finding["changes"]; present {
+		validateReportChanges(changes, path+"/changes", findingPathSet(finding), validation)
+	}
+}
+
+// findingPathSet collects the finding's declared paths so a change can be held
+// to them. A nil result means paths were absent or malformed -- already
+// reported by the paths validation, so change membership stays quiet rather
+// than reporting the same defect twice.
+func findingPathSet(finding map[string]any) map[string]struct{} {
+	raw, present := finding["paths"].([]any)
+	if !present {
+		return nil
+	}
+	paths := make(map[string]struct{}, len(raw))
+	for _, value := range raw {
+		text, ok := value.(string)
+		if !ok {
+			return nil
+		}
+		paths[text] = struct{}{}
+	}
+	return paths
+}
+
+func validateReportChanges(
+	value any,
+	path string,
+	findingPaths map[string]struct{},
+	validation *assessmentValidation,
+) {
+	changes, ok := value.([]any)
+	if !ok {
+		validation.add(path, "type", "must be array")
+		return
+	}
+	for index, rawChange := range changes {
+		validateReportChange(
+			rawChange, fmt.Sprintf("%s/%d", path, index), findingPaths, validation,
+		)
+	}
+}
+
+// validateReportChange holds the emitted change to the same strictness as the
+// rest of the report: every field is required, so a consumer never has to
+// distinguish an absent key from an inapplicable one, and Kind alone says
+// which value pair to read.
+func validateReportChange(
+	value any,
+	path string,
+	findingPaths map[string]struct{},
+	validation *assessmentValidation,
+) {
+	change, ok := value.(map[string]any)
+	if !ok {
+		validation.add(path, "type", "must be object")
+		return
+	}
+	keys := []string{"path", "kind", "sensitive", "before", "after", "added", "removed"}
+	requiredProperties(change, path, keys, validation)
+	additionalProperties(change, path, stringSet(keys...), validation)
+	if pathValue, present := change["path"]; present {
+		text, ok := pathValue.(string)
+		if !ok {
+			validation.add(path+"/path", "type", "must be string")
+		} else if findingPaths != nil {
+			// Every change describes one of the finding's own paths. A change
+			// naming anything else is evidence about a path the finding does
+			// not claim, which a reader has no way to place.
+			if _, declared := findingPaths[text]; !declared {
+				validation.add(path+"/path", "enum", "must be one of the finding's paths")
+			}
+		}
+	}
+	// Kept in step with the kind enum in
+	// docs/schemas/saved-plan-assessment.schema.json. This validator runs on
+	// every successful report, so a kind the published schema allows but this
+	// list omits does not merely fail validation somewhere -- it makes the
+	// report unpublishable.
+	if kind, present := change["kind"]; present &&
+		kind != string(ScalarChange) && kind != string(SetChange) {
+		validation.add(path+"/kind", "enum", "must be equal to one of the allowed values")
+	}
+	if sensitive, present := change["sensitive"]; present {
+		if _, ok := sensitive.(bool); !ok {
+			validation.add(path+"/sensitive", "type", "must be boolean")
+		}
+	}
+	for _, field := range []string{"added", "removed"} {
+		if members, present := change[field]; present {
+			if _, ok := members.([]any); !ok {
+				validation.add(path+"/"+field, "type", "must be array")
+			}
+		}
+	}
+	// Kind says which value pair to read, so the other pair has to be empty.
+	// Without this a scalar change could ship set members and a set change a
+	// before/after pair, and a reader honouring kind would silently ignore
+	// half the evidence in the record.
+	if change["kind"] == "scalar" {
+		for _, field := range []string{"added", "removed"} {
+			if members, ok := change[field].([]any); ok && len(members) > 0 {
+				validation.add(path+"/"+field, "maxItems", "must be empty for a scalar change")
+			}
+		}
+	}
+	// A sensitive change must not carry content. This is the one rule here
+	// that protects something rather than describing it.
+	if sensitive, ok := change["sensitive"].(bool); ok && sensitive {
+		for _, field := range []string{"before", "after"} {
+			if content, present := change[field]; present && content != nil {
+				validation.add(path+"/"+field, "const", "must be null for a sensitive change")
+			}
+		}
+		for _, field := range []string{"added", "removed"} {
+			if members, ok := change[field].([]any); ok && len(members) > 0 {
+				validation.add(path+"/"+field, "maxItems", "must be empty for a sensitive change")
+			}
+		}
 	}
 }
 

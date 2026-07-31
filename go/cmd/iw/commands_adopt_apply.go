@@ -158,10 +158,6 @@ func (loaders *lazyAdoptionLoaders) stateLoader(request adopt.AdoptionStateReque
 	return loaders.state(request)
 }
 
-func adoptCommand(arguments []string) (int, error) {
-	return adoptCommandWithDependencies(arguments, defaultBlockDCommandDependencies())
-}
-
 func adoptCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
 	return executeStandaloneCobra(newAdoptCobraCommand(dependencies), arguments)
 }
@@ -305,10 +301,6 @@ func (adapter *lazyImportStagingTerraform) ListState(request adopt.ImportStaging
 	return loaded.ListState(request)
 }
 
-func stageImportsCommand(arguments []string) (int, error) {
-	return stageImportsCommandWithDependencies(arguments, defaultBlockDCommandDependencies())
-}
-
 func stageImportsCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
 	return executeStandaloneCobra(newImportStagingCobraCommand("stage-imports", dependencies), arguments)
 }
@@ -364,10 +356,6 @@ func stageImportsCommandInput(parsed commandInput, dependencies blockDCommandDep
 		Tenant: options.tenant, Terraform: terraform, Workspace: workspace,
 	})
 	return 0, err
-}
-
-func unstageImportsCommand(arguments []string) (int, error) {
-	return unstageImportsCommandWithDependencies(arguments, defaultBlockDCommandDependencies())
 }
 
 func unstageImportsCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
@@ -521,10 +509,6 @@ func resolveCommandPath(workspace, value string) string {
 		return filepath.Clean(value)
 	}
 	return filepath.Join(workspace, value)
-}
-
-func applyCommand(arguments []string) (int, error) {
-	return applyCommandWithDependencies(arguments, defaultBlockDCommandDependencies())
 }
 
 func applyCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {

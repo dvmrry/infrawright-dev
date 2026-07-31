@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -199,7 +200,8 @@ func TestFetchResourceEnvelopesFailClosedWhenMissingOrNonList(t *testing.T) {
 }
 
 func TestCommittedCASBPagersHandleFullBoundariesAndWriteDeterministicBytes(t *testing.T) {
-	packRoot := loadFullRoot(t)
+	requireCollectorPackSelection(t, metadata.PackSelection{Packs: []string{"zia"}, Shared: []string{"zscaler"}})
+	packRoot := installedCollectorRoot(t)
 	run := func(directory string, items []any, resourceType string) (bytes string, searches []string) {
 		var pages [2][]any
 		if len(items) == 1_000 {
@@ -280,7 +282,8 @@ type ziaAdoptionFixture struct {
 }
 
 func TestZiaAdoptionClassifiersReceiveExactFetchShapedSystemFields(t *testing.T) {
-	packRoot := loadFullRoot(t)
+	requireCollectorPackSelection(t, metadata.PackSelection{Packs: []string{"zia"}, Shared: []string{"zscaler"}})
+	packRoot := installedCollectorRoot(t)
 	fixturePath := filepath.Join(repoRoot(t), "tests", "fixtures", "zia-adoption-classification-v4.8.0.json")
 	data, err := os.ReadFile(fixturePath)
 	if err != nil {
@@ -351,9 +354,20 @@ func TestZiaAdoptionClassifiersReceiveExactFetchShapedSystemFields(t *testing.T)
 }
 
 func TestBatchSharesOneAPIAuthSkipsOptionalWritesPythonBytesInvalidatesStaleSkips(t *testing.T) {
-	packRoot := loadFullRoot(t)
+	packRoot := syntheticCollectorRegistryRoot(t, map[string]map[string]any{
+		"alpha": {
+			"alpha_optional": map[string]any{"product": "alpha", "fetch": map[string]any{
+				"optional_http_statuses": []int{403}, "pagination": "single", "path": "optional",
+			}},
+		},
+		"beta": {
+			"beta_group": map[string]any{"product": "beta", "fetch": map[string]any{
+				"pagination": "single", "path": "group",
+			}},
+		},
+	})
 	directory := t.TempDir()
-	stale := filepath.Join(directory, "zia_extranet.json")
+	stale := filepath.Join(directory, "alpha_optional.json")
 	if err := os.WriteFile(stale, []byte("stale\n"), 0o644); err != nil {
 		t.Fatalf("write stale file: %v", err)
 	}
@@ -363,12 +377,12 @@ func TestBatchSharesOneAPIAuthSkipsOptionalWritesPythonBytesInvalidatesStaleSkip
 	}
 	var acquisitions []string
 	adapters := map[string]CollectorAdapter{
-		"zia": testAdapter("zia", &acquisitions),
-		"zpa": testAdapter("zpa", &acquisitions),
+		"alpha": testAdapter("alpha", &acquisitions),
+		"beta":  testAdapter("beta", &acquisitions),
 	}
 	transport := newQueueTransport(t,
 		jsonResponse(t, map[string]any{}, 403),
-		jsonResponse(t, map[string]any{"list": []any{map[string]any{"id": int64(9_007_199_254_740_992)}}, "totalPages": 1}, 200),
+		jsonResponse(t, []any{map[string]any{"id": int64(9_007_199_254_740_992)}}, 200),
 	)
 	var diagnostics []string
 	result, err := FetchResources(FetchResourcesOptions{
@@ -379,36 +393,36 @@ func TestBatchSharesOneAPIAuthSkipsOptionalWritesPythonBytesInvalidatesStaleSkip
 		OnDiagnostic:    func(message string) { diagnostics = append(diagnostics, message) },
 		OutputDirectory: directory,
 		Root:            packRoot,
-		Selectors:       []string{"zia_extranet", "zpa_segment_group"},
+		Selectors:       []string{"alpha_optional", "beta_group"},
 		Transport:       transport,
 	})
 	if err != nil {
 		t.Fatalf("FetchResources: %v", err)
 	}
-	if !equalStrings(acquisitions, []string{"zia"}) {
-		t.Errorf("acquisitions = %v, want [zia] (OneAPI auth is shared across products)", acquisitions)
+	if !equalStrings(acquisitions, []string{"alpha"}) {
+		t.Errorf("acquisitions = %v, want [alpha] (OneAPI auth is shared across products)", acquisitions)
 	}
-	if !equalStrings(result.Processed, []string{"zpa_segment_group"}) {
-		t.Errorf("processed = %v, want [zpa_segment_group]", result.Processed)
+	if !equalStrings(result.Processed, []string{"beta_group"}) {
+		t.Errorf("processed = %v, want [beta_group]", result.Processed)
 	}
 	if len(result.Failed) != 0 {
 		t.Errorf("failed = %v, want none", result.Failed)
 	}
-	if _, skipped := result.Skipped["zia_extranet"]; !skipped || len(result.Skipped) != 1 {
-		t.Errorf("skipped = %v, want exactly {zia_extranet: ...}", result.Skipped)
+	if _, skipped := result.Skipped["alpha_optional"]; !skipped || len(result.Skipped) != 1 {
+		t.Errorf("skipped = %v, want exactly {alpha_optional: ...}", result.Skipped)
 	}
 	if _, err := os.Lstat(stale); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("os.Lstat(stale zia_extranet.json) error = %v, want os.ErrNotExist", err)
+		t.Errorf("os.Lstat(stale alpha_optional.json) error = %v, want os.ErrNotExist", err)
 	}
 	if content, err := os.ReadFile(unselected); err != nil || string(content) != "retain\n" {
 		t.Errorf("os.ReadFile(unselected.json) = (%q, %v), want unchanged bytes", content, err)
 	}
-	written, err := os.ReadFile(filepath.Join(directory, "zpa_segment_group.json"))
+	written, err := os.ReadFile(filepath.Join(directory, "beta_group.json"))
 	if err != nil {
-		t.Fatalf("read zpa_segment_group.json: %v", err)
+		t.Fatalf("read beta_group.json: %v", err)
 	}
 	if want := "[\n  {\n    \"id\": 9007199254740992\n  }\n]\n"; string(written) != want {
-		t.Errorf("zpa_segment_group.json = %q, want %q", written, want)
+		t.Errorf("beta_group.json = %q, want %q", written, want)
 	}
 	if !containsSubstring(diagnostics, "1 resource(s) SKIPPED") {
 		t.Errorf("diagnostics = %v, want a message mentioning '1 resource(s) SKIPPED'", diagnostics)
@@ -416,52 +430,59 @@ func TestBatchSharesOneAPIAuthSkipsOptionalWritesPythonBytesInvalidatesStaleSkip
 }
 
 func TestSharedOneAPIAuthFailureIsolatedIntoEverySelectedProductResult(t *testing.T) {
-	packRoot := loadFullRoot(t)
+	packRoot := syntheticCollectorRegistryRoot(t, map[string]map[string]any{
+		"alpha": {
+			"alpha_settings": map[string]any{"product": "alpha", "fetch": map[string]any{"pagination": "single", "path": "settings"}},
+		},
+		"beta": {
+			"beta_group": map[string]any{"product": "beta", "fetch": map[string]any{"pagination": "single", "path": "group"}},
+		},
+	})
 	directory := t.TempDir()
 	staleDestinations := []string{
-		filepath.Join(directory, "zia_advanced_settings.json"),
-		filepath.Join(directory, "zpa_segment_group.json"),
+		filepath.Join(directory, "alpha_settings.json"),
+		filepath.Join(directory, "beta_group.json"),
 	}
 	for _, destination := range staleDestinations {
 		if err := os.WriteFile(destination, []byte("stale\n"), 0o644); err != nil {
 			t.Fatalf("os.WriteFile(%q) error = %v, want nil", destination, err)
 		}
 	}
-	zpaAcquires := 0
-	rejecting := testAdapter("zia", nil)
+	betaAcquires := 0
+	rejecting := testAdapter("alpha", nil)
 	rejecting.Acquire = func(CollectorAcquireInput) (CollectorAuthContext, error) {
 		return CollectorAuthContext{}, NewHTTPStatusError("token request failed: HTTP 401", 401)
 	}
-	zpa := testAdapter("zpa", nil)
-	zpa.Acquire = func(CollectorAcquireInput) (CollectorAuthContext, error) {
-		zpaAcquires++
+	beta := testAdapter("beta", nil)
+	beta.Acquire = func(CollectorAcquireInput) (CollectorAuthContext, error) {
+		betaAcquires++
 		return sharedAuth, nil
 	}
 	var diagnostics []string
 	result, err := FetchResources(FetchResourcesOptions{
-		Adapters:        map[string]CollectorAdapter{"zia": rejecting, "zpa": zpa},
+		Adapters:        map[string]CollectorAdapter{"alpha": rejecting, "beta": beta},
 		Context:         sharedContext,
 		Environment:     Environment{},
 		Mode:            AuthModeOneAPI,
 		OnDiagnostic:    func(message string) { diagnostics = append(diagnostics, message) },
 		OutputDirectory: directory,
 		Root:            packRoot,
-		Selectors:       []string{"zia_advanced_settings", "zpa_segment_group"},
+		Selectors:       []string{"alpha_settings", "beta_group"},
 		Transport:       newQueueTransport(t),
 	})
 	if err != nil {
 		t.Fatalf("FetchResources: %v", err)
 	}
-	if zpaAcquires != 0 {
-		t.Errorf("zpaAcquires = %d, want 0 (shared OneAPI identity should short-circuit)", zpaAcquires)
+	if betaAcquires != 0 {
+		t.Errorf("betaAcquires = %d, want 0 (shared OneAPI identity should short-circuit)", betaAcquires)
 	}
-	wantFailed := []string{"zia_advanced_settings", "zpa_segment_group"}
+	wantFailed := []string{"alpha_settings", "beta_group"}
 	failedKeys := sortedMapKeysOf(result.Failed)
 	if !equalStrings(failedKeys, wantFailed) {
 		t.Errorf("failed keys = %v, want %v", failedKeys, wantFailed)
 	}
-	if !strings.HasPrefix(result.Failed["zpa_segment_group"], "auth failed:") {
-		t.Errorf("failed[zpa_segment_group] = %q, want an 'auth failed:' prefix", result.Failed["zpa_segment_group"])
+	if !strings.HasPrefix(result.Failed["beta_group"], "auth failed:") {
+		t.Errorf("failed[beta_group] = %q, want an 'auth failed:' prefix", result.Failed["beta_group"])
 	}
 	if !containsSubstring(diagnostics, "HTTP 401/403") {
 		t.Errorf("diagnostics = %v, want a hint mentioning HTTP 401/403", diagnostics)
@@ -502,6 +523,21 @@ func writeRegistryJSON(t *testing.T, packsRoot, product string, registry map[str
 	if err := os.WriteFile(filepath.Join(packsRoot, product, "registry.json"), data, 0o644); err != nil {
 		t.Fatalf("write registry.json: %v", err)
 	}
+}
+
+func syntheticCollectorRegistryRoot(t *testing.T, registries map[string]map[string]any) metadata.LoadedPackRoot {
+	t.Helper()
+	packsRoot := filepath.Join(t.TempDir(), "packs")
+	products := make([]string, 0, len(registries))
+	for product := range registries {
+		products = append(products, product)
+	}
+	sort.Strings(products)
+	for _, product := range products {
+		writePackJSON(t, packsRoot, product)
+		writeRegistryJSON(t, packsRoot, product, registries[product])
+	}
+	return loadRootFromPacksDir(t, packsRoot)
 }
 
 func TestBoundedResourceWorkersOverlapWithoutChangingBytesOutcomesAuthDiagnostics(t *testing.T) {
@@ -958,7 +994,13 @@ func TestFetchInvalidationRefusesDirectoryBeforeResourceRequests(t *testing.T) {
 }
 
 func TestFetchInvalidationUnlinksSymlinkWithoutTouchingTarget(t *testing.T) {
-	root := loadFullRoot(t)
+	root := syntheticCollectorRegistryRoot(t, map[string]map[string]any{
+		"sample": {
+			"sample_optional": map[string]any{"product": "sample", "fetch": map[string]any{
+				"optional_http_statuses": []int{403}, "pagination": "single", "path": "optional",
+			}},
+		},
+	})
 	directory := t.TempDir()
 	output := filepath.Join(directory, "pulls")
 	if err := os.Mkdir(output, 0o755); err != nil {
@@ -968,26 +1010,26 @@ func TestFetchInvalidationUnlinksSymlinkWithoutTouchingTarget(t *testing.T) {
 	if err := os.WriteFile(target, []byte("retain\n"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v, want nil", target, err)
 	}
-	destination := filepath.Join(output, "zia_extranet.json")
+	destination := filepath.Join(output, "sample_optional.json")
 	if err := os.Symlink(target, destination); err != nil {
 		t.Skipf("os.Symlink(%q, %q) unavailable: %v", target, destination, err)
 	}
 
 	result, err := FetchResources(FetchResourcesOptions{
-		Adapters:        map[string]CollectorAdapter{"zia": testAdapter("zia", nil)},
+		Adapters:        map[string]CollectorAdapter{"sample": testAdapter("sample", nil)},
 		Context:         sharedContext,
 		Environment:     Environment{},
 		Mode:            AuthModeOneAPI,
 		OutputDirectory: output,
 		Root:            root,
-		Selectors:       []string{"zia_extranet"},
+		Selectors:       []string{"sample_optional"},
 		Transport:       newQueueTransport(t, jsonResponse(t, map[string]any{}, 403)),
 	})
 	if err != nil {
 		t.Fatalf("FetchResources() error = %v, want nil", err)
 	}
-	if _, skipped := result.Skipped["zia_extranet"]; !skipped {
-		t.Errorf("FetchResources().Skipped = %v, want zia_extranet", result.Skipped)
+	if _, skipped := result.Skipped["sample_optional"]; !skipped {
+		t.Errorf("FetchResources().Skipped = %v, want sample_optional", result.Skipped)
 	}
 	if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("os.Lstat(%q) error = %v, want os.ErrNotExist", destination, err)
@@ -1113,7 +1155,11 @@ func TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError(t *testing.T)
 }
 
 func TestFetchConcurrencyRejectsInvalidLibraryValues(t *testing.T) {
-	packRoot := loadFullRoot(t)
+	packRoot := syntheticCollectorRegistryRoot(t, map[string]map[string]any{
+		"sample": {
+			"sample_settings": map[string]any{"product": "sample", "fetch": map[string]any{"pagination": "single", "path": "settings"}},
+		},
+	})
 	// Only the integer-representable invalid values from the Node test
 	// are ported (0, -1, 65): the Node source additionally covers 1.5 and
 	// NaN, both structurally unrepresentable as Go's *int concurrency
@@ -1122,20 +1168,20 @@ func TestFetchConcurrencyRejectsInvalidLibraryValues(t *testing.T) {
 	// behavior left to port for them (see this port's report).
 	for _, concurrency := range []int{0, -1, 65} {
 		acquisitions := 0
-		adapter := testAdapter("zia", nil)
+		adapter := testAdapter("sample", nil)
 		adapter.Acquire = func(CollectorAcquireInput) (CollectorAuthContext, error) {
 			acquisitions++
 			return sharedAuth, nil
 		}
 		_, err := FetchResources(FetchResourcesOptions{
-			Adapters:        map[string]CollectorAdapter{"zia": adapter},
+			Adapters:        map[string]CollectorAdapter{"sample": adapter},
 			Concurrency:     intPtr(concurrency),
 			Context:         sharedContext,
 			Environment:     Environment{},
 			Mode:            AuthModeOneAPI,
 			OutputDirectory: t.TempDir(),
 			Root:            packRoot,
-			Selectors:       []string{"zia_advanced_settings"},
+			Selectors:       []string{"sample_settings"},
 			Transport:       newQueueTransport(t),
 		})
 		if err == nil || !strings.Contains(err.Error(), "fetch concurrency must be a positive integer") {
@@ -1197,9 +1243,21 @@ func TestBoundedSchedulingRotatesProductsInsteadOfDrainingOneProductFirst(t *tes
 	if len(transport.requests) < 2 {
 		t.Fatalf("concurrency 2: requests = %v, want at least 2", transport.requests)
 	}
-	firstTwo := map[string]struct{}{transport.requests[0]: {}, transport.requests[1]: {}}
-	want := map[string]struct{}{"/api/alpha-a": {}, "/api/beta-a": {}}
-	if !reflect.DeepEqual(firstTwo, want) {
-		t.Errorf("concurrency 2: first two dispatched requests = %v, want one from each product (%v)", firstTwo, want)
+	// No ordering assertion here. Rotation is asserted directly against
+	// runFetchWorkers in scheduler_test.go, because the order requests reach
+	// the transport is not the order work was handed out: everything between
+	// take() returning and the HTTP call is unsynchronised, so a worker can
+	// take beta-a, be descheduled, and let another worker issue alpha-b first
+	// under perfect rotation. Asserting it here failed on loaded CI runners
+	// while the property still held.
+	//
+	// What this case still covers is that concurrency changes nothing
+	// observable: every request is issued exactly once, and the same set as
+	// the serial run above.
+	if !equalStrings(canonjson.SortedStrings(transport.requests), canonjson.SortedStrings(paths)) {
+		t.Errorf(
+			"concurrency 2: requests = %v, want the same set the serial run issued (%v)",
+			transport.requests, paths,
+		)
 	}
 }

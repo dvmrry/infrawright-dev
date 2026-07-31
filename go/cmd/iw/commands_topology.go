@@ -21,6 +21,8 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
+	"github.com/dvmrry/infrawright-dev/go/internal/stateprobe"
+	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
 	"github.com/spf13/cobra"
 )
@@ -104,11 +106,6 @@ func selectedDeploymentPath(parsed commandInput) (string, error) {
 	return deployment.DeploymentPath(deployment.DeploymentPathOptions{})
 }
 
-// resourcesCommand ports resourcesCommand.
-func resourcesCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newResourcesCobraCommand(), arguments)
-}
-
 func newResourcesCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "resources", short: "List generated resources",
@@ -189,11 +186,6 @@ func rootQueryCliOptionsInput(parsed commandInput) (rootQueryOptions, error) {
 	return options, nil
 }
 
-// rootsCommand ports rootsCommand.
-func rootsCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newRootQueryCobraCommand("roots", "Emit root topology", rootsInput), arguments)
-}
-
 func newRootQueryCobraCommand(use, short string, run func(commandInput) (int, error)) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: use, short: short,
@@ -236,11 +228,6 @@ func rootsInput(parsed commandInput) (int, error) {
 	}
 	fmt.Fprint(os.Stdout, rendered)
 	return 0, nil
-}
-
-// scopePathsCommand ports scopePathsCommand.
-func scopePathsCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newScopePathsCobraCommand(), arguments)
 }
 
 func newScopePathsCobraCommand() *cobra.Command {
@@ -320,11 +307,6 @@ func scopePathsInput(parsed commandInput) (int, error) {
 	return 0, nil
 }
 
-// planRootsCommand ports planRootsCommand.
-func planRootsCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newRootQueryCobraCommand("plan-roots", "Enumerate plan roots and artifacts", planRootsInput), arguments)
-}
-
 func planRootsInput(parsed commandInput) (int, error) {
 	options, err := rootQueryCliOptionsInput(parsed)
 	if err != nil {
@@ -357,15 +339,11 @@ func planRootsInput(parsed commandInput) (int, error) {
 	return 0, nil
 }
 
-// genEnvCommand ports genEnv.
-func genEnvCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newGenEnvCobraCommand(), arguments)
-}
-
 func newGenEnvCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "gen-env", short: "Generate tenant environment roots",
-		valueFlags: []string{"--tenant", "--backend", "--resource", "--terraform", "--deployment", "--root", "--profile"},
+		valueFlags: []string{"--tenant", "--backend", "--backend-config", "--resource", "--terraform", "--deployment", "--root", "--profile"},
+		boolFlags:  []string{"--state-aware"},
 		run: func(parsed commandInput) (int, error) {
 			return legacyPlanLifecycleCommand(func() (int, error) {
 				if len(parsed.Positionals) != 0 {
@@ -395,8 +373,8 @@ func genEnvInput(parsed commandInput) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	// --terraform remains accepted as an operator-facing compatibility option;
-	// formatting is performed in process, so its value is intentionally unused.
+	// Formatting is performed in process, so --terraform matters only when
+	// state-aware generation needs to ask Terraform about a referenced root.
 	formatter := modulesgen.NewHCLFormatter()
 	generateOptions := envgen.GenerateEnvironmentRootsOptions{
 		Deployment: loadedDeployment,
@@ -404,12 +382,56 @@ func genEnvInput(parsed commandInput) (int, error) {
 		OnDiagnostic: func(message string) {
 			fmt.Fprintf(os.Stderr, "%s\n", message)
 		},
-		Root:      loadedRoot,
-		Selectors: parsed.Options["--resource"],
-		Tenant:    tenant,
+		Root:       loadedRoot,
+		Selectors:  parsed.Options["--resource"],
+		StateAware: parsed.Flags.Has("--state-aware"),
+		Tenant:     tenant,
 	}
 	if backend, ok := lastCommandOption(parsed, "--backend"); ok {
 		generateOptions.Backend = &backend
+	}
+	if generateOptions.StateAware {
+		// The probe is built through envgen's factory seam after generation
+		// resolves the backend (flag or .backend marker), so a
+		// marker-configured azurerm tenant probes the backend even when
+		// --backend is omitted on this run. Local tenants probe the state
+		// file beside each generated root and resolve no terraform at all.
+		environment := environMap()
+		selectedTerraform, _ := lastCommandOption(parsed, "--terraform")
+		backendConfig, hasBackendConfig := lastCommandOption(parsed, "--backend-config")
+		if hasBackendConfig && !filepath.IsAbs(backendConfig) {
+			// The probe runs Terraform in a scratch directory, so a path
+			// relative to the operator's working directory has to be resolved
+			// here or terraform init cannot find it. iw plan and
+			// stage-imports resolve the same flag the same way against the
+			// invocation directory.
+			resolved, err := filepath.Abs(backendConfig)
+			if err != nil {
+				return 0, err
+			}
+			backendConfig = resolved
+		}
+		generateOptions.StateProbeFor = func(backend *string) (envgen.StateProbe, error) {
+			if backend == nil || *backend == "" || *backend == "local" {
+				return nil, nil
+			}
+			if *backend != "azurerm" {
+				return nil, fmt.Errorf("state-aware generation supports local or azurerm state, not %s", *backend)
+			}
+			if !hasBackendConfig {
+				return nil, fmt.Errorf("state-aware generation against an azurerm backend requires --backend-config (the same file iw plan consumes) so the probe can reach the backend instead of silently falling back on every reference")
+			}
+			executable, err := terraformcmd.ResolveTerraformExecutable(selectedTerraform, environment)
+			if err != nil {
+				return nil, err
+			}
+			return stateprobe.New(stateprobe.Options{
+				BackendConfig:       backendConfig,
+				Environment:         environment,
+				Tenant:              tenant,
+				TerraformExecutable: executable,
+			}), nil
+		}
 	}
 	if _, err := envgen.GenerateEnvironmentRoots(generateOptions); err != nil {
 		return 0, err
@@ -462,11 +484,6 @@ func environMap() map[string]string {
 	return output
 }
 
-// modulesCommand ports moduleOptions + modules.
-func modulesCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newModulesCobraCommand(), arguments)
-}
-
 func newModulesCobraCommand() *cobra.Command {
 	modules := &cobra.Command{
 		Use:   "modules",
@@ -480,7 +497,10 @@ func newModulesCobraCommand() *cobra.Command {
 		verb := verb
 		modules.AddCommand(newTypedCobraCommand(typedCobraCommandSpec{
 			use: verb, short: strings.ToUpper(verb[:1]) + verb[1:] + " Terraform modules",
-			valueFlags: []string{"--resource", "--out", "--deployment", "--root", "--profile", "--terraform"},
+			// No --terraform: module generation renders HCL from pack metadata
+			// and never executes Terraform, so the flag was accepted and then
+			// silently ignored.
+			valueFlags: []string{"--resource", "--out", "--deployment", "--root", "--profile"},
 			run: func(parsed commandInput) (int, error) {
 				return legacyPlanLifecycleCommand(func() (int, error) {
 					if len(parsed.Positionals) != 0 {
@@ -555,8 +575,6 @@ func modulesInput(verb string, parsed commandInput) (int, error) {
 		fmt.Fprintf(os.Stdout, "validated generated module tree %s: %d module(s)\n", outputRoot, len(selected))
 		return 0, nil
 	}
-	// --terraform remains accepted as an operator-facing compatibility option;
-	// generation and validation do not shell out, so its value is unused.
 	generateOptions := modulesgen.GenerateModuleOptions{
 		OutputRoot: outputRoot,
 		FormatHCL:  modulesgen.NewHCLFormatter(),

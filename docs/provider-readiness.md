@@ -72,17 +72,15 @@ make source-operation-map \
   SCHEMA=tmp/provider-schema.json \
   OPENAPI=tmp/openapi.json \
   SOURCE_ROOT=tmp/terraform-provider-example \
-  PROVIDER_SOURCE=registry.terraform.io/example/example \
-  RESOURCE_PREFIX=example \
-  OUT=reports/readiness/example-read-registry.json \
-  DIAGNOSTICS=reports/readiness/example-source-diagnostics.json
+  SOURCE_MANIFEST=tmp/source-manifest.json \
+  ARTIFACT_DIR=reports/readiness/example-source-evidence
 
 make openapi-map \
   SCHEMA=tmp/provider-schema.json \
   OPENAPI=tmp/openapi.json \
   PROVIDER_SOURCE=registry.terraform.io/example/example \
   RESOURCE_PREFIX=example \
-  REGISTRY=reports/readiness/example-read-registry.json \
+  REGISTRY=reports/readiness/example-source-evidence/source-registry.json \
   OUT=reports/readiness/example-openapi-map.json
 ```
 
@@ -90,9 +88,10 @@ This does not replace a real pack registry, but it turns "provider source calls
 OpenAPI operation X" into deterministic read-path evidence. The derived JSON
 uses `read` and, when discoverable, `list` paths so a detail read endpoint is
 not confused with a pack `fetch.path` that enumerates live resources.
-`--out` is a full resource-keyed evidence registry: mapped resources include
-selected operation evidence, while ambiguous and unmapped resources stay present
-with `status` and `reason` so downstream coverage cannot silently drop them.
+`source-registry.json` in the artifact bundle is a full resource-keyed evidence
+registry: mapped resources include selected operation evidence, while ambiguous
+and unmapped resources stay present with `status` and `reason` so downstream
+coverage cannot silently drop them.
 The source evidence contract is documented at
 [`docs/schemas/source-operation-evidence.schema.json`](schemas/source-operation-evidence.schema.json).
 Each operation can carry a `hops` chain, such as provider call ->
@@ -105,34 +104,28 @@ path evidence, relationship resources can use list endpoints as
 GraphQL-backed resources are reported as `graphql_source` instead of being
 buried as ordinary unmapped REST misses.
 
-Before replacing the legacy source scanner with AST-backed evidence, run the
-A/B harness:
+For AST-backed source evidence, run the in-engine source-first analyzer. The
+legacy external-facts A/B harness (`SOURCE_FACTS` plus the standalone
+`tools/source-evidence-ast` collector) is retired; the same AST analysis now
+runs in-process:
 
 ```bash
 make source-evidence-eval \
   SCHEMA=tmp/provider-schema.json \
-  OPENAPI=tmp/openapi.json \
   SOURCE_ROOT=tmp/terraform-provider-example \
-  PROVIDER_SOURCE=registry.terraform.io/example/example \
-  RESOURCE_PREFIX=example \
+  SOURCE_MANIFEST=tmp/source-manifest.json \
   OUT_DIR=reports/readiness/example-source-eval
 ```
 
-The harness writes an artifact bundle:
+Pass `ALLOW_UNVERIFIED_SOURCE=1` (with `PROVIDER_MODULE`, `PROVIDER_FILE`,
+`SDK_ROOT`, and `RESOURCES` bounds) instead of `SOURCE_MANIFEST` for an
+explicitly bounded diagnostic run without qualified provenance.
 
-- `source-facts.json`: AST facts generated from provider source, unless
-  `SOURCE_FACTS=<facts.json>` was supplied.
-- `control-report.json`: legacy text-scanner source mapping.
-- `ast-report.json`: AST-backed source mapping.
-- `source-facts-compare.json`: raw old-vs-AST delta.
-- `source-evidence-eval.json` and `source-evidence-eval.md`: classified
-  evaluation report.
+The analyzer writes the sealed source-first bundle: `source-registry.json`,
+`source-diagnostics.json`, `summary.json`, `summary.md`,
+`input-provenance.json`, and `openapi-diagnostics.json`.
 
-Use `FAIL_ON_REGRESSION=1` in automation. The evaluator treats these as hard
-regressions: `mapped -> unmapped`, mapped read-path changes, and source files
-dropping to zero. New mappings, ambiguity changes, and read/list split changes
-are review-required. Same mapping with a narrower source-file set is usually
-acceptable and often means the AST path avoided a loose text false positive.
+Use `FAIL_ON_REGRESSION=1` in automation to fail on OpenAPI conflicts.
 
 ## SDK Path Evidence
 
@@ -148,8 +141,9 @@ SDK source           const domainsBasePath = "v2/domains"
 OpenAPI              GET /v2/domains/{domain_name}
 ```
 
-`source-operation-map` accepts an optional `--sdk-root` pointing at a vendored
-Go SDK source tree. When provided, the authoring library recovers
+`source-operation-map` accepts an optional `--sdk-root` (`MODULE=DIR` in
+qualified mode, `MODULE@VERSION=DIR` with `--allow-unverified-source`) pointing
+at a vendored Go SDK source tree. When provided, the authoring library recovers
 `(client_symbol, method, path_template)` triples from the simple, common
 shapes:
 
@@ -188,11 +182,9 @@ make source-operation-map \
   SCHEMA=tmp/provider-schema.json \
   OPENAPI=tmp/openapi.json \
   SOURCE_ROOT=tmp/terraform-provider-digitalocean \
-  SDK_ROOT=tmp/terraform-provider-digitalocean/vendor/github.com/digitalocean/godo \
-  PROVIDER_SOURCE=registry.terraform.io/digitalocean/digitalocean \
-  RESOURCE_PREFIX=digitalocean \
-  OUT=reports/readiness/digitalocean-read-registry.json \
-  DIAGNOSTICS=reports/readiness/digitalocean-source-diagnostics.json
+  SDK_ROOT=godo=tmp/terraform-provider-digitalocean/vendor/github.com/digitalocean/godo \
+  SOURCE_MANIFEST=tmp/source-manifest.json \
+  ARTIFACT_DIR=reports/readiness/digitalocean-source-evidence
 ```
 
 ## Surface Warnings
@@ -360,9 +352,11 @@ document" as hundreds of field-level drift questions.
 
 Provider readiness needs version-locked evidence, but the repository should not
 store rendered schemas, provider source trees, SDK source trees, and OpenAPI
-artifacts for every provider version. Instead, store small provider recipes
-under `docs/recipes/providers/` and render the evidence bundle on the consumer
-or CI side for the requested provider version with `make provider-probe`.
+artifacts for every provider version. Instead, author a provider recipe with an
+embedded `source_provenance` manifest (the qualified contract) and render the
+evidence bundle on the consumer or CI side with `make provider-probe`. The
+legacy download-and-clone recipe contract (and the proof-of-concept recipes
+that used it) was retired; a recipe without `source_provenance` is rejected.
 
 The committed recipe should describe how to resolve inputs:
 

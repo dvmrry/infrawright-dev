@@ -318,13 +318,6 @@ func expandResources(selectors []string, index resourceIndex) []string {
 	return canonjson.SortedStrings(selectedList)
 }
 
-// ExpandResourceSet ports expandCatalogResources from
-// the original implementation.
-func ExpandResourceSet(resourceSet metadata.ResourceSet, selectors []string) (types []string, err error) {
-	defer recoverProcessFailure(&err)
-	return expandResources(selectors, indexResourceSet(resourceSet)), nil
-}
-
 // ExpandLoadedResources ports expandLoadedResources from
 // the original implementation: "Expand transform selectors without
 // constructing or persisting a root catalog."

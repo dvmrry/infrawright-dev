@@ -7,12 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 )
 
-const environmentRootsCompatibilitySHA256 = "5672e8f8de2154c6022fd96a14939f1f18c5faa5c9cada63d5c6cfa2f9de0067"
+const environmentRootsCompatibilitySHA256 = "619040911feb448e3b5d78de8702b5e48138a861654aa2c374508f94aeda469c"
 
 type environmentRootsCompatibilityFixture struct {
 	SchemaVersion       int                                  `json:"schema_version"`
@@ -76,7 +79,8 @@ func TestUngroupedEnvironmentRootCompatibility(t *testing.T) {
 	formatter := modulesgen.NewHCLFormatter()
 	if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: deployment, FormatHcl: formatter.FormatHCL, OutputRoot: &outputRoot,
-		Root: committedRootForTopology(t), Selectors: []string{"zia_url_categories"}, Tenant: "tenant",
+		Root:      committedTopologyRoot(t, "zia", metadata.PackSelection{Packs: []string{"zia"}, Shared: []string{"zscaler"}}),
+		Selectors: []string{"zia_url_categories"}, Tenant: "tenant",
 	}); err != nil {
 		t.Fatalf("GenerateEnvironmentRoots() error: %v", err)
 	}
@@ -108,13 +112,34 @@ func TestFullProfileEnvironmentRootCompatibility(t *testing.T) {
 	formatter := modulesgen.NewHCLFormatter()
 	result, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: deployment, FormatHcl: formatter.FormatHCL, OutputRoot: &outputRoot,
-		Root: committedRootForTopology(t), Selectors: []string{}, Tenant: "full-profile-parity",
+		Root: committedTopologyRoot(t, "full", metadata.PackSelection{
+			Packs:  []string{"aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"},
+			Shared: []string{"zscaler"},
+		}), Selectors: []string{}, Tenant: "full-profile-parity",
 	})
 	if err != nil {
 		t.Fatalf("GenerateEnvironmentRoots() error: %v", err)
 	}
-	if got, want := len(result.Roots), 151; got != want {
-		t.Fatalf("generated roots = %d, want %d", got, want)
+	wantLabelSet := map[string]struct{}{}
+	for _, file := range fixture.FullProfile.Manifest {
+		parts := strings.Split(file.Path, "/")
+		if len(parts) < 3 {
+			t.Fatalf("full-profile compatibility path %q has no tenant/root/file shape", file.Path)
+		}
+		wantLabelSet[parts[1]] = struct{}{}
+	}
+	wantLabels := make([]string, 0, len(wantLabelSet))
+	for label := range wantLabelSet {
+		wantLabels = append(wantLabels, label)
+	}
+	sort.Strings(wantLabels)
+	gotLabels := make([]string, len(result.Roots))
+	for index, generatedRoot := range result.Roots {
+		gotLabels[index] = generatedRoot.Label
+	}
+	sort.Strings(gotLabels)
+	if !reflect.DeepEqual(gotLabels, wantLabels) {
+		t.Fatalf("generated root labels = %v, want compatibility fixture labels %v", gotLabels, wantLabels)
 	}
 	tree := snapshotTree(t, outputRoot)
 	if got := len(tree); got != fixture.FullProfile.FileCount {

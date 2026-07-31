@@ -15,7 +15,9 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-var registryResourceKeys = stringSet("adopt", "derive", "fetch", "generate", "product")
+var registryResourceKeys = stringSet(
+	"adopt", "derive", "fetch", "fetch_skip_reason", "generate", "product",
+)
 
 var canonicalResourceType = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
@@ -45,9 +47,9 @@ var unsupportedProviderKeys = stringSet("source", "version")
 var overrideKeys = stringSet(
 	"acknowledged_drops", "defaults", "divide", "drop_if_default", "drops",
 	"html_escape_fields", "identity_fields", "import_id", "invert_bool",
-	"key_field", "merge_blocks", "no_html_unescape", "ranges", "references",
-	"renames", "sample", "skip_if", "skip_if_lte", "sort_lists", "split_csv",
-	"strip_prefix", "value_map",
+	"key_field", "merge_blocks", "module_single_blocks", "no_html_unescape",
+	"ranges", "references", "renames", "sample", "skip_if", "skip_if_lte",
+	"sort_lists", "split_csv", "strip_prefix", "value_map",
 )
 
 // IsCanonicalResourceType reports whether value is a canonical Terraform
@@ -528,9 +530,7 @@ func validateRegistry(value any, source string) JsonObject {
 				failf("%s.generate must be a boolean", label)
 			}
 		}
-		if fetch, ok := entry["fetch"]; ok {
-			validateFetch(fetch, label+".fetch")
-		}
+		validateFetchDeclaration(entry, label)
 		if derive, ok := entry["derive"]; ok {
 			validateDerive(derive, label+".derive")
 		}
@@ -546,6 +546,44 @@ func validateRegistry(value any, source string) JsonObject {
 		}
 	}
 	return data
+}
+
+// validateFetchDeclaration enforces that a resource says, as data, whether the
+// engine can see its live state.
+//
+// A fetch block means it can. `"fetch": false` with a fetch_skip_reason means
+// it deliberately cannot -- a generate-only type, say -- and is the escape
+// hatch that makes the committed-config-implies-fetchable invariant safe to
+// enforce. Without it, the first consumer who legitimately commits config for
+// a gen-only type meets a false positive, and a nuisance gate gets disabled,
+// which is worse than not having one.
+//
+// registry.json is strict JSON, so a comment cannot carry the reason; it has
+// to be a field.
+func validateFetchDeclaration(entry JsonObject, label string) {
+	fetch, hasFetch := entry["fetch"]
+	reason, hasReason := entry["fetch_skip_reason"]
+	if hasFetch {
+		if declared, isBool := fetch.(bool); isBool {
+			if declared {
+				failf(
+					"%s.fetch must be a fetch block or false; true does not describe how to fetch",
+					label,
+				)
+				return
+			}
+			if !hasReason {
+				failf("%s.fetch is false but %s.fetch_skip_reason is missing", label, label)
+				return
+			}
+			requireNonEmptyString(reason, label+".fetch_skip_reason")
+			return
+		}
+		validateFetch(fetch, label+".fetch")
+	}
+	if hasReason {
+		failf("%s.fetch_skip_reason is only valid with \"fetch\": false", label)
+	}
 }
 
 // ValidateRegistry ports validateRegistry from
@@ -600,12 +638,6 @@ func loadRegistry(metadata PackMetadata, packNames []string) LoadedRegistry {
 		}
 	}
 	return LoadedRegistry{Entries: entries, Sources: sources}
-}
-
-// LoadRegistry ports loadRegistry from the original implementation.
-func LoadRegistry(metadata PackMetadata, packNames []string) (registry LoadedRegistry, err error) {
-	defer recoverMetadataError(&err)
-	return loadRegistry(metadata, packNames), nil
 }
 
 func firstNonEmpty(candidate, fallback string) string {
@@ -664,14 +696,6 @@ func validateUnsupportedProviderScopes(metadata PackMetadata, registry LoadedReg
 	}
 }
 
-// ValidateUnsupportedProviderScopes ports
-// validateUnsupportedProviderScopes from the original implementation.
-func ValidateUnsupportedProviderScopes(metadata PackMetadata, registry LoadedRegistry) (err error) {
-	defer recoverMetadataError(&err)
-	validateUnsupportedProviderScopes(metadata, registry)
-	return nil
-}
-
 // validateOverride ports validateOverride from
 // the original implementation.
 func validateOverride(value any, source string) JsonObject {
@@ -685,9 +709,44 @@ func validateOverride(value any, source string) JsonObject {
 	if sorted := canonjson.SortedStrings(unknown); len(sorted) > 0 {
 		failf("unknown override key %s in %s", sorted[0], source)
 	}
+	validateModuleSingleBlocks(data, source)
 	skipFields := validateSkipMatchers(data, source)
 	validateSkipRenameConflicts(data, source, skipFields)
 	return data
+}
+
+// validateModuleSingleBlocks validates the generator-only escape hatch used
+// when a provider's executable behavior still treats a schema-declared list or
+// set block as a singleton. Paths are dotted nested-block names; existence and
+// compatible nesting are checked against the exact schema by modulesgen.
+func validateModuleSingleBlocks(data JsonObject, source string) {
+	raw, exists := data["module_single_blocks"]
+	if !exists {
+		return
+	}
+	paths, ok := raw.([]any)
+	if !ok {
+		failf("%s.module_single_blocks must be an array", source)
+	}
+	if len(paths) == 0 {
+		failf("%s.module_single_blocks must not be empty", source)
+	}
+	seen := make(map[string]struct{}, len(paths))
+	for index, value := range paths {
+		path, ok := value.(string)
+		if !ok || path == "" {
+			failf("%s.module_single_blocks[%d] must be a non-empty dotted block path", source, index)
+		}
+		for _, segment := range strings.Split(path, ".") {
+			if !canonicalResourceType.MatchString(segment) {
+				failf("%s.module_single_blocks[%d] must be a canonical dotted block path", source, index)
+			}
+		}
+		if _, duplicate := seen[path]; duplicate {
+			failf("%s.module_single_blocks contains duplicate path %s", source, jsonQuote(path))
+		}
+		seen[path] = struct{}{}
+	}
 }
 
 // ValidateOverride ports validateOverride from
@@ -753,21 +812,8 @@ func loadOverrides(metadata PackMetadata, packNames []string) LoadedOverrides {
 	return LoadedOverrides{Entries: entries, Sources: sources}
 }
 
-// LoadOverrides ports loadOverrides from the original implementation.
-func LoadOverrides(metadata PackMetadata, packNames []string) (overrides LoadedOverrides, err error) {
-	defer recoverMetadataError(&err)
-	return loadOverrides(metadata, packNames), nil
-}
-
 func providerSchemaPath(metadata PackMetadata, provider string) string {
 	return filepath.Join(manifestForProvider(metadata, provider).Directory, "schemas", "provider", provider+".json")
-}
-
-// ProviderSchemaPath ports providerSchemaPath from
-// the original implementation.
-func ProviderSchemaPath(metadata PackMetadata, provider string) (path string, err error) {
-	defer recoverMetadataError(&err)
-	return providerSchemaPath(metadata, provider), nil
 }
 
 func loadProviderSchema(metadata PackMetadata, provider string) ProviderSchema {

@@ -1,8 +1,8 @@
 package envgen
 
-// reference_topology_test.go ports both tests in
-// the original test corpus verbatim, against the real
-// committed pack root through this repository's metadata and roots packages.
+// reference_topology_test.go ports the original topology corpus against the
+// synthetic pack universe in pack_scope_test.go so the engine contracts do not
+// require any committed provider pack.
 
 import (
 	"os"
@@ -38,23 +38,8 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-func committedRootForTopology(t *testing.T) metadata.LoadedPackRoot {
-	t.Helper()
-	root := repoRoot(t)
-	packsRoot := filepath.Join(root, "packs")
-	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot:   packsRoot,
-		ProfilePath: &profilePath,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot: %v", err)
-	}
-	return loaded
-}
-
 func TestCrossStateTopologyDefaultsToAllDeclaredSingletonEdges(t *testing.T) {
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	tenant := "tenant"
 
 	singletonDeployment := deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}}
@@ -121,7 +106,7 @@ func TestCrossStateTopologyDefaultsToAllDeclaredSingletonEdges(t *testing.T) {
 }
 
 func TestCrossStateTopologyExplicitFalseFiltersOnlyThatProvider(t *testing.T) {
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	tenant := "tenant"
 	dep := deployment.Deployment{
 		Overlay: ".",
@@ -176,7 +161,7 @@ func sortStringsInPlace(values []string) {
 }
 
 func TestCrossStateTopologyRejectsDeclaredRootCycles(t *testing.T) {
-	root := committedRootForTopology(t)
+	root := syntheticRootForTopology(t)
 	tenant := "tenant"
 
 	var manifests []metadata.PackManifest

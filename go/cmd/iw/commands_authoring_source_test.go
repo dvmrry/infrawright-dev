@@ -63,11 +63,6 @@ func TestSourceCommandsRejectModeConflictsBeforeReadsOrPublication(t *testing.T)
 			args: []string{"--source-manifest", "manifest.json"}, want: "--artifact-dir is required",
 		},
 		{
-			name: "qualified rejects legacy destination", command: sourceOperationMapCommandWithDependencies,
-			args: []string{"--source-manifest", "manifest.json", "--artifact-dir", "artifacts", "--out", "registry.json"},
-			want: "--out is not accepted in source-operation-map source-first mode",
-		},
-		{
 			name: "qualified selection comes only from manifest", command: sourceOperationMapCommandWithDependencies,
 			args: []string{"--source-manifest", "manifest.json", "--artifact-dir", "artifacts", "--resources", "example_a"},
 			want: "--resources is not accepted in source-operation-map qualified mode",
@@ -78,39 +73,14 @@ func TestSourceCommandsRejectModeConflictsBeforeReadsOrPublication(t *testing.T)
 			want: "--openapi is not accepted with --allow-unverified-source; unverified OpenAPI state is sealed absent",
 		},
 		{
-			name: "legacy map source facts comparison requires facts", command: sourceOperationMapCommandWithDependencies,
-			args: []string{
-				"--openapi", "openapi.json", "--schema", "schema.json", "--source-root", "source",
-				"--source-facts-compare", "comparison.json",
-			},
-			want: "--source-facts-compare requires --source-facts",
+			name: "legacy map mode is retired", command: sourceOperationMapCommandWithDependencies,
+			args: []string{"--schema", "schema.json", "--openapi", "openapi.json", "--source-root", "source"},
+			want: "source-operation-map requires --source-manifest (qualified) or --allow-unverified-source; the legacy text-scanner mode is retired",
 		},
 		{
-			name: "legacy map rejects repeated sdk roots", command: sourceOperationMapCommandWithDependencies,
-			args: []string{"--sdk-root", "one", "--sdk-root", "two"}, want: "--sdk-root may be passed only once",
-		},
-		{
-			name: "legacy eval requires explicit facts", command: sourceEvidenceEvalCommandWithDependencies,
+			name: "legacy eval mode is retired", command: sourceEvidenceEvalCommandWithDependencies,
 			args: []string{"--out-dir", "artifacts", "--source-root", "source"},
-			want: "--source-facts is required; automatic external AST collection is retired",
-		},
-		{
-			name: "legacy external collector is retired", command: sourceEvidenceEvalCommandWithDependencies,
-			args: []string{"--out-dir", "artifacts", "--source-root", "source", "--source-facts", "facts.json", "--ast-tool-dir", "tool"},
-			want: "--ast-tool-dir requires the retired external source-evidence collector",
-		},
-		{
-			name: "legacy map preserves required input priority", command: sourceOperationMapCommandWithDependencies,
-			args: []string{"--source-facts-compare", "comparison.json"}, want: "--openapi is required",
-		},
-		{
-			name: "legacy eval requires destination first", command: sourceEvidenceEvalCommandWithDependencies,
-			args: nil, want: "--out-dir is required",
-		},
-		{
-			name: "legacy eval requires source root before reads", command: sourceEvidenceEvalCommandWithDependencies,
-			args: []string{"--out-dir", "artifacts", "--source-facts", "facts.json", "--openapi", "openapi.json"},
-			want: "--source-root is required",
+			want: "source-evidence-eval requires --source-manifest (qualified) or --allow-unverified-source; the legacy --source-facts evaluation mode is retired",
 		},
 	}
 	for _, test := range tests {
@@ -187,72 +157,6 @@ func TestUnverifiedSourceGrammarRejectsUnboundedOrUnjoinedInputs(t *testing.T) {
 		"--provider-file", "provider.go", "--provider-file", "provider.go",
 	), dependencies)
 	requireSourceUsageError(t, err, "--provider-file contains duplicate value provider.go")
-}
-
-func TestSourceEvidenceLegacyPublishesCompleteSetBeforeRegressionExit(t *testing.T) {
-	root := t.TempDir()
-	for _, name := range []string{"openapi.json", "schema.json", "facts.json"} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte("{}\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var stdout bytes.Buffer
-	dependencies := defaultAuthoringSourceDependencies()
-	dependencies.core.stdout = &stdout
-	dependencies.validateLegacyAPI = func(map[string]any) error { return nil }
-	deriveCalls := 0
-	dependencies.deriveLegacy = func(options sourceoperation.LegacyOptions) (map[string]any, error) {
-		deriveCalls++
-		return map[string]any{
-			"diagnostics": []any{},
-			"registry":    map[string]any{},
-			"summary":     map[string]any{"resources": float64(0)},
-		}, nil
-	}
-	dependencies.compareLegacy = func(map[string]any, map[string]any) map[string]any {
-		return map[string]any{"changes": []any{}, "summary": map[string]any{}}
-	}
-	dependencies.evaluateLegacy = func(map[string]any, map[string]any) map[string]any {
-		return map[string]any{"changes": []any{}, "summary": map[string]any{"regressions": float64(1)}}
-	}
-	dependencies.renderLegacy = func(map[string]any, ...string) string { return "# evaluation\n" }
-	dependencies.legacyRegression = func(evaluation map[string]any) bool {
-		if !strings.Contains(stdout.String(), "\"regressions\": 1") {
-			t.Fatal("regression decision ran before published evaluation reached stdout")
-		}
-		return true
-	}
-	var published artifactpublish.Options
-	dependencies.publish = func(_ context.Context, options artifactpublish.Options) error {
-		published = options
-		return nil
-	}
-	output := filepath.Join(root, "evaluation")
-	status, err := sourceEvidenceEvalCommandWithDependencies([]string{
-		"--openapi", filepath.Join(root, "openapi.json"),
-		"--schema", filepath.Join(root, "schema.json"),
-		"--source-root", root,
-		"--source-facts", filepath.Join(root, "facts.json"),
-		"--out-dir", output,
-		"--fail-on-regression",
-	}, dependencies)
-	if err != nil || status != 1 {
-		t.Fatalf("sourceEvidenceEvalCommandWithDependencies() = (%d, %v), want (1, nil)", status, err)
-	}
-	if deriveCalls != 2 {
-		t.Fatalf("derive calls = %d, want candidate and control", deriveCalls)
-	}
-	if published.Destination != output || !reflect.DeepEqual(published.Vocabulary.Required, legacyEvaluationVocabulary.Required) {
-		t.Fatalf("published options = %#v", published)
-	}
-	if len(published.Artifacts) != len(legacyEvaluationVocabulary.Required) {
-		t.Fatalf("published artifact count = %d, want %d", len(published.Artifacts), len(legacyEvaluationVocabulary.Required))
-	}
-	for index, name := range legacyEvaluationVocabulary.Required {
-		if published.Artifacts[index].Name != name || len(published.Artifacts[index].Bytes) == 0 {
-			t.Errorf("published artifact[%d] = %#v, want nonempty %q", index, published.Artifacts[index], name)
-		}
-	}
 }
 
 func TestSourceOperationUnverifiedRunsInProcessAndPublishesSealedCore(t *testing.T) {

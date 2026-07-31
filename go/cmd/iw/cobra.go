@@ -224,15 +224,12 @@ var cobraFlagDescriptions = map[string]string{
 	"--schema":                  "Terraform provider schema path",
 	"--sdk-file":                "module-qualified SDK source file",
 	"--sdk-root":                "SDK module and local source root",
-	"--source-facts":            "precomputed source-facts path",
-	"--source-facts-compare":    "source-facts comparison path",
 	"--source-manifest":         "qualified source manifest path",
 	"--source-root":             "provider source root directory",
-	"--state-aware":             "inspect local ephemeral state while staging imports",
+	"--state-aware":             "inspect Terraform state before binding references or staging imports",
 	"--tenant":                  "deployment tenant label",
 	"--terraform":               "Terraform executable path",
 	"--work-dir":                "private provider-probe work directory",
-	"--ast-tool-dir":            "legacy AST tool directory",
 }
 
 func cobraFlagDescription(name string) string {
@@ -291,6 +288,7 @@ func newCobraRootWithTerraformPreflight(preflight func() error) *cobra.Command {
 	root.AddCommand(
 		newCheckPackCobraCommand(defaultMetadataCommandDependencies()),
 		newCheckPackSetCobraCommand(defaultMetadataCommandDependencies()),
+		newCheckConfigCobraCommand(defaultCheckConfigCommandDependencies()),
 		newDeploymentCobraCommand(defaultMetadataCommandDependencies()),
 		newTransformCobraCommand(),
 		newAdoptCobraCommand(defaultBlockDCommandDependencies()),
@@ -303,6 +301,7 @@ func newCobraRootWithTerraformPreflight(preflight func() error) *cobra.Command {
 		newRootQueryCobraCommand("plan-roots", "Enumerate plan roots and artifacts", planRootsInput),
 		newPlanCobraCommand(defaultPlanCommandDependencies()),
 		newCleanPlansCobraCommand(defaultPlanCommandDependencies()),
+		newRefreshCobraCommand(defaultRefreshCommandDependencies()),
 		newAssessmentCobraCommand(assessment.AssertClean),
 		newAssessmentCobraCommand(assessment.AssertAdoptable),
 		newApplyCobraCommand(defaultBlockDCommandDependencies()),
@@ -325,9 +324,13 @@ func newCobraRootWithTerraformPreflight(preflight func() error) *cobra.Command {
 // on every platform without a second, divergent argv parser.
 func cobraCommandRequiresTerraformExecution(command *cobra.Command) (bool, error) {
 	switch command.CommandPath() {
-	case "iw adopt", "iw gen-env", "iw plan", "iw assert-clean", "iw assert-adoptable", "iw apply", "iw modules generate":
+	// `iw modules generate` is deliberately absent: it renders HCL from pack
+	// metadata and never shells out to Terraform, so gating it only made the
+	// command unavailable on unsupported platforms for no reason.
+	case "iw adopt", "iw plan", "iw refresh", "iw assert-clean", "iw assert-adoptable", "iw apply":
 		return true, nil
-	case "iw stage-imports":
+	// gen-env and stage-imports reach Terraform only under --state-aware.
+	case "iw gen-env", "iw stage-imports":
 		enabled, err := command.Flags().GetBool("state-aware")
 		if err != nil {
 			return false, fmt.Errorf("read --state-aware: %w", err)

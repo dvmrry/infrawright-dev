@@ -9,10 +9,6 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-func assessmentArray(values ...any) []any {
-	return values
-}
-
 func completeAssessmentPlan() map[string]any {
 	return map[string]any{
 		"format_version": "1.2",
@@ -987,4 +983,65 @@ func TestValidateAssessmentPlanDoesNotMutateContractOrPlan(t *testing.T) {
 			beforePlan,
 		)
 	}
+}
+
+// TestValidateAssessmentPlanPermitsLegacyReferenceOutputRetirement pins the
+// iw_reference_ids rename transition. A root regenerated after the rename,
+// planned against a state applied before it, retires the legacy
+// infrawright_reference_ids output in the same plan that proves the current
+// one. Exactly that shape -- the legacy name, a lone delete action ending at
+// null, under an active reference contract -- is permitted. Any other change
+// to the legacy name, and any appearance without a contract, keeps failing
+// like every other non-no-op output change.
+func TestValidateAssessmentPlanPermitsLegacyReferenceOutputRetirement(t *testing.T) {
+	retirement := func() map[string]any {
+		return map[string]any{
+			"actions":          []any{"delete"},
+			"before":           map[string]any{"zpa_segment_group": map[string]any{"segment_one": "72059380790653545"}},
+			"after":            nil,
+			"before_sensitive": true,
+			"after_sensitive":  false,
+		}
+	}
+	withLegacyChange := func(change map[string]any) map[string]any {
+		plan := referenceAssessmentPlan("no-op")
+		plan["output_changes"].(map[string]any)[legacyInfrawrightReferenceOutput] = change
+		return plan
+	}
+
+	requireValidAssessmentPlan(
+		t,
+		"ValidateAssessmentPlan(rename transition, contract)",
+		withLegacyChange(retirement()),
+		referenceContract(),
+	)
+
+	requireAssessmentPlanError(
+		t,
+		"ValidateAssessmentPlan(rename transition, nil contract)",
+		withLegacyChange(retirement()),
+		nil,
+		"non-no-op output changes are not supported by saved-plan assessment",
+	)
+
+	update := retirement()
+	update["actions"] = []any{"update"}
+	update["after"] = map[string]any{}
+	requireAssessmentPlanError(
+		t,
+		"ValidateAssessmentPlan(legacy output update, contract)",
+		withLegacyChange(update),
+		referenceContract(),
+		"non-no-op output changes are not supported by saved-plan assessment",
+	)
+
+	partial := retirement()
+	partial["after"] = map[string]any{}
+	requireAssessmentPlanError(
+		t,
+		"ValidateAssessmentPlan(legacy output delete ending non-null, contract)",
+		withLegacyChange(partial),
+		referenceContract(),
+		"non-no-op output changes are not supported by saved-plan assessment",
+	)
 }

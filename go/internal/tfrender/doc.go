@@ -10,8 +10,13 @@
 //     probe-derived vectors used in its place.
 //   - the original implementation: artifact assembly and the
 //     transactional filesystem write path (tfvars in json/hcl format,
-//     imports files, lookup sidecars, generated-bindings sidecars, and
-//     batch publish/rollback semantics) (transform_artifacts.go).
+//     imports files, lookup sidecars, and batch publish/rollback
+//     semantics) (transform_artifacts.go). The generated-bindings sidecar
+//     (.generated.expressions.json) is deliberately NOT part of the write
+//     path as of Task A2 (sidecar minimization, Part A): it is derivable
+//     from committed config, lookups, and schema at render time, so publish
+//     only ever stale-cleans a pre-existing copy, never writes one -- see
+//     PublishCompiledTransformArtifacts and batchArtifactMutations.
 //
 // # Local dependency ports (pending integration)
 //

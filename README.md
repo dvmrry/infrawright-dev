@@ -130,7 +130,7 @@ Make/CLI inventory.
 | Path | Role |
 |------|------|
 | `go/` | operational and authoring `iw` CLI |
-| `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, and schemas |
+| `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, schemas, and optional reviewed pack evidence |
 | `packs/*.packset.json` | exact pack-distribution profiles |
 | `tests/fixtures/` | current cross-package and external-contract corpora |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars[.json]` | generated tenant config; `deployment.json` `tfvars_format` selects `json` by default or opt-in `hcl` |
@@ -191,9 +191,8 @@ make source-operation-map \
   SCHEMA=tmp/grafana-core-schema.json \
   OPENAPI=tmp/grafana-api-merged.json \
   SOURCE_ROOT=tmp/terraform-provider-grafana \
-  PROVIDER_SOURCE=registry.terraform.io/grafana/grafana \
-  RESOURCE_PREFIX=grafana \
-  OUT=reports/readiness/grafana-core-read-registry.json
+  SOURCE_MANIFEST=tmp/grafana-source-manifest.json \
+  ARTIFACT_DIR=reports/readiness/grafana-core-source-evidence
 
 make reconcile \
   RESOURCE=netbox_site \
@@ -216,10 +215,10 @@ fetch-backed surface. For providers that do not have a pack yet,
 `source-operation-map` can derive a temporary read registry from Go provider
 source files that call generated OpenAPI clients. Read `registry_read_coverage`
 for that source-backed evidence; read `registry_fetch_coverage` only for real
-pack enumeration paths. Source evidence entries carry hop chains so a Go port
-or AST-backed analyzer can emit the same JSON contract with stronger source
-evidence; the shipped `tools/source-evidence-ast/` helper is the current
-source-analysis prototype. `special` covers non-CRUD
+pack enumeration paths. Source evidence entries carry hop chains; the
+in-engine source-first analyzer (`iw source-evidence-eval` with
+`--source-manifest` or `--allow-unverified-source`) emits the same JSON
+contract with stronger, AST-backed source evidence. `special` covers non-CRUD
 resources such as parent-scoped allocation actions and parent-field
 relationship assignments.
 `reconcile` then classifies observed API paths as Terraform inputs,

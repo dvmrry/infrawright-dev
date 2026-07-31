@@ -9,64 +9,43 @@ enough to investigate a provider without starting from manual triage.
 
 ## Recipe Shape
 
-Recipes live under `docs/recipes/providers/` and pin:
+A probe recipe is a local JSON file whose `source_provenance` section embeds
+the qualified source-provenance manifest (authoring artifact contract §3.2.1):
+a pinned provider revision with per-file SHA-256 bindings, go.mod/go.sum
+bindings, the Terraform schema binding, every analyzed SDK tree binding, the
+resource selection, and an optional pinned OpenAPI document binding. Recipes
+without `source_provenance` are rejected: the legacy download-and-clone
+contract, which resolved floating inputs at probe time, was retired together
+with the proof-of-concept recipes that used it. The repository intentionally
+commits no recipes; probes run against local, explicitly pinned checkouts.
 
-- `provider_source` and `provider_version`: the Terraform provider schema to
-  inspect.
-- `source`: the matching provider repository and requested Git ref (normally a
-  version tag), or a local source path.
-- `openapi`: the published OpenAPI document, or a local OpenAPI path.
-- `resource_prefix` and `api_prefix`: provider-specific matching hints.
-
-Remote OpenAPI URLs should point at immutable commits or released artifacts, not
-floating branches. The provider schema and source tree are version-pinned, so
-the API contract input should be pinned as well or probe results can drift
-without a recipe change.
-
-If `terraform_schema.path` is omitted, the probe renders a temporary Terraform
-configuration and runs:
-
-```bash
-terraform init -backend=false
-terraform providers schema -json
-```
-
-YAML OpenAPI specs are decoded in-process by the Go probe runtime with unsafe
-tags and duplicate keys rejected. The probe coordinator, source mapper,
-OpenAPI mapper, artifact renderer, and CLI are Go code.
+YAML handling, network fetching, and Terraform schema capture from the legacy
+contract are gone with it: every input reaches the probe as a local file bound
+by the manifest.
 
 ## Running
 
 ```bash
-make provider-probe RECIPE=docs/recipes/providers/github.json
-make provider-probe RECIPE=docs/recipes/providers/digitalocean.json
+make provider-probe \
+  RECIPE=local/provider-probes/example/recipe.json \
+  WORK_DIR=local/provider-probes/example \
+  OUT=reports/provider-probes/example-summary.json \
+  MARKDOWN=reports/provider-probes/example-summary.md
 ```
 
-By default, outputs are written under:
-
-```text
-local/provider-probes/<provider>/artifacts/
-```
-
-The important artifacts are:
+`WORK_DIR` is required; the sealed artifact set is published under
+`<WORK_DIR>/artifacts/`. The important artifacts are:
 
 - `summary.md`: human-readable probe result.
 - `summary.json`: compact machine-readable summary.
 - `source-registry.json`: source-derived read/list evidence.
 - `source-diagnostics.json`: mapper diagnostics for mapped, ambiguous, and
   unmapped resources.
-- `openapi-map.json`: full generic and registry-backed OpenAPI coverage report.
-  Its `surface_map` section is the stable resource-to-API surface contract.
-
-Use `WORK_DIR`, `OUT`, and `MARKDOWN` to copy summaries somewhere explicit:
-
-```bash
-make provider-probe \
-  RECIPE=docs/recipes/providers/github.json \
-  WORK_DIR=local/provider-probes/github \
-  OUT=reports/provider-probes/github-summary.json \
-  MARKDOWN=reports/provider-probes/github-summary.md
-```
+- `input-provenance.json`: the verified input bindings the evidence was
+  computed from.
+- `openapi-diagnostics.json`: OpenAPI document state and conflicts.
+- `openapi-map.json` (optional): generic and registry-backed OpenAPI coverage
+  when the recipe binds an OpenAPI document.
 
 Keep `local/provider-probes/` and any generated `reports/provider-probes/`
 outputs uncommitted unless a PR is explicitly adding sanitized evidence.

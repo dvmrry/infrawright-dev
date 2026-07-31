@@ -318,7 +318,7 @@ func transformArtifactOptions(
 	resourceRoots map[string]string,
 	write func(string),
 ) (tfrender.TransformArtifactCompileOptions, error) {
-	references := transformrun.TransformReferenceSpecsForAdopt(options.Root, resource)
+	references := transformrun.TransformReferenceSpecs(options.Root, resource)
 	lookupNameField, err := transformrun.TransformLookupNameFieldForAdopt(options.Root, resource, options.Deployment)
 	if err != nil {
 		return tfrender.TransformArtifactCompileOptions{}, err
@@ -327,10 +327,18 @@ func transformArtifactOptions(
 	if err != nil {
 		return tfrender.TransformArtifactCompileOptions{}, err
 	}
+	schema, err := options.Root.LoadResourceSchema(resource.Type)
+	if err != nil {
+		return tfrender.TransformArtifactCompileOptions{}, err
+	}
+	bindingContext, err := transformrun.TransformBindingContext(
+		options.Deployment, options.Root, resource, resourceRoots, references, schema,
+	)
+	if err != nil {
+		return tfrender.TransformArtifactCompileOptions{}, err
+	}
 	return tfrender.TransformArtifactCompileOptions{
-		BindingContext: transformrun.TransformBindingContextForAdopt(
-			options.Deployment, options.Root, resource, resourceRoots, references,
-		),
+		BindingContext:         bindingContext,
 		Deployment:             options.Deployment,
 		LookupNameField:        lookupNameField,
 		RemoveLookupWhenAbsent: transformrun.TransformHasInferredLookupLifecycleForAdopt(options.Root, resource),

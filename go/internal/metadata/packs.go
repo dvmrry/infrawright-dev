@@ -688,14 +688,6 @@ func validateSharedDependencies(metadata PackMetadata, packNames []string) {
 	}
 }
 
-// ValidateSharedDependencies ports validateSharedDependencies from
-// the original implementation.
-func ValidateSharedDependencies(metadata PackMetadata, packNames []string) (err error) {
-	defer recoverMetadataError(&err)
-	validateSharedDependencies(metadata, packNames)
-	return nil
-}
-
 func selectionDelta(expected, actual []string) (missing, extra []string) {
 	expectedSet := make(map[string]struct{}, len(expected))
 	for _, name := range expected {
@@ -848,17 +840,6 @@ func manifestForProvider(metadata PackMetadata, provider string) PackManifest {
 func ManifestForProvider(metadata PackMetadata, provider string) (manifest PackManifest, err error) {
 	defer recoverMetadataError(&err)
 	return manifestForProvider(metadata, provider), nil
-}
-
-func packDirectoryForProvider(metadata PackMetadata, provider string) string {
-	return manifestForProvider(metadata, provider).Directory
-}
-
-// PackDirectoryForProvider ports packDirectoryForProvider from
-// the original implementation.
-func PackDirectoryForProvider(metadata PackMetadata, provider string) (directory string, err error) {
-	defer recoverMetadataError(&err)
-	return packDirectoryForProvider(metadata, provider), nil
 }
 
 // ValidatePackAuthoringOptions ports the options bag

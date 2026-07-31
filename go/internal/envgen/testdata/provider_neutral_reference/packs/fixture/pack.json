@@ -1,0 +1,17 @@
+{
+  "pin": "1.0.0",
+  "provider_prefixes": {
+    "fixture_": "fixture"
+  },
+  "provider_sources": {
+    "fixture": "registry.invalid/infrawright/fixture"
+  },
+  "references": {
+    "fixture_consumer": {
+      "source_id": {
+        "name_field": "name",
+        "referent": "fixture_source"
+      }
+    }
+  }
+}

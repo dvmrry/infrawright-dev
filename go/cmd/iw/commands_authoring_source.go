@@ -1,9 +1,9 @@
 package main
 
 // commands_authoring_source.go composes the accepted A1-A3 source-analysis
-// capabilities into the retained legacy CLI and the source-first v2 bundle
-// modes. It owns no evidence inference: qualified and unverified inputs stay
-// separated through sourcebind, sourceanalysis, and sourceoperation.
+// capabilities into the source-first v2 bundle modes. It owns no evidence
+// inference: qualified and unverified inputs stay separated through
+// sourcebind, sourceanalysis, and sourceoperation.
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/artifactpublish"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/contracts"
-	"github.com/dvmrry/infrawright-dev/go/internal/authoring/providerprobe"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceanalysis"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourcebind"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceoperation"
@@ -31,23 +30,9 @@ var sourceBundleVocabulary = artifactpublish.Vocabulary{Required: []string{
 	"openapi-diagnostics.json",
 }}
 
-var legacyEvaluationVocabulary = artifactpublish.Vocabulary{Required: []string{
-	"ast-report.json",
-	"source-facts-compare.json",
-	"control-report.json",
-	"source-evidence-eval.json",
-	"source-evidence-eval.md",
-}}
-
 type authoringSourceDependencies struct {
 	core              authoringCoreDependencies
 	absolutePath      func(string) (string, error)
-	deriveLegacy      func(sourceoperation.LegacyOptions) (map[string]any, error)
-	compareLegacy     func(map[string]any, map[string]any) map[string]any
-	evaluateLegacy    func(sourceoperation.LegacyV1Artifact, sourceoperation.LegacyV1Artifact) sourceoperation.LegacyV1Artifact
-	renderLegacy      func(sourceoperation.LegacyV1Artifact, ...string) string
-	legacyRegression  func(sourceoperation.LegacyV1Artifact) bool
-	validateLegacyAPI func(map[string]any) error
 	loadVerified      func(context.Context, sourcebind.LocalRoots) (sourcebind.VerifiedInputs, error)
 	requireQualified  func(sourcebind.VerifiedInputs) (sourcebind.QualifiedInputs, error)
 	analyzeQualified  func(context.Context, sourcebind.QualifiedInputs) (sourceanalysis.QualifiedEvidence, error)
@@ -63,12 +48,6 @@ func defaultAuthoringSourceDependencies() authoringSourceDependencies {
 	return authoringSourceDependencies{
 		core:              defaultAuthoringCoreDependencies(),
 		absolutePath:      filepath.Abs,
-		deriveLegacy:      sourceoperation.DeriveLegacySourceOperationRegistry,
-		compareLegacy:     sourceoperation.CompareLegacySourceOperationReports,
-		evaluateLegacy:    sourceoperation.EvaluateLegacyV1SourceEvidence,
-		renderLegacy:      sourceoperation.RenderLegacyV1SourceEvidenceMarkdown,
-		legacyRegression:  sourceoperation.LegacyV1FailOnRegressionAfterArtifacts,
-		validateLegacyAPI: providerprobe.ValidateLegacyOpenAPI,
 		loadVerified:      sourcebind.LoadVerified,
 		requireQualified:  sourcebind.RequireQualification,
 		analyzeQualified:  sourceanalysis.Analyze,
@@ -89,10 +68,6 @@ const (
 	sourceModeUnverified
 )
 
-func sourceOperationMapCommand(arguments []string) (int, error) {
-	return sourceOperationMapCommandWithDependencies(arguments, defaultAuthoringSourceDependencies())
-}
-
 func sourceOperationMapCommandWithDependencies(arguments []string, dependencies authoringSourceDependencies) (int, error) {
 	return executeStandaloneCobra(newSourceOperationMapCobraCommand(dependencies), arguments)
 }
@@ -100,10 +75,9 @@ func sourceOperationMapCommandWithDependencies(arguments []string, dependencies 
 func newSourceOperationMapCobraCommand(dependencies authoringSourceDependencies) *cobra.Command {
 	spec := authoringCobraSpec("source-operation-map", "Derive source-backed provider operation evidence",
 		[]string{
-			"--artifact-dir", "--diagnostics", "--openapi", "--out", "--provider-file",
-			"--provider-module", "--provider-source", "--resource-prefix", "--resources",
-			"--schema", "--sdk-file", "--sdk-root", "--source-facts",
-			"--source-facts-compare", "--source-manifest", "--source-root",
+			"--artifact-dir", "--openapi", "--provider-file", "--provider-module",
+			"--resources", "--schema", "--sdk-file", "--sdk-root",
+			"--source-manifest", "--source-root",
 		},
 		[]string{"--provider-file", "--sdk-file", "--sdk-root"},
 		[]string{"--allow-unverified-source"},
@@ -124,7 +98,9 @@ func sourceOperationMapCommandInput(parsed commandInput, dependencies authoringS
 		return 0, err
 	}
 	if mode == sourceModeLegacy {
-		return sourceOperationMapLegacy(parsed, dependencies)
+		// The legacy text-scanner mapping lane was retired with the LegacyV1
+		// provider-probe proof of concept.
+		return 0, usageError("source-operation-map requires --source-manifest (qualified) or --allow-unverified-source; the legacy text-scanner mode is retired")
 	}
 	if err := validateV2SourceOptions(parsed, mode, "source-operation-map", "--artifact-dir"); err != nil {
 		return 0, err
@@ -140,96 +116,6 @@ func sourceOperationMapCommandInput(parsed commandInput, dependencies authoringS
 	return completeSourceBundle(context.Background(), destination, bundle, parsed, mode, false, dependencies)
 }
 
-func sourceOperationMapLegacy(parsed commandInput, dependencies authoringSourceDependencies) (int, error) {
-	if err := rejectOptions(parsed, "legacy source-operation-map", "--artifact-dir", "--provider-file", "--provider-module", "--sdk-file", "--source-manifest"); err != nil {
-		return 0, err
-	}
-	if parsed.Flags.Has("--allow-unverified-source") {
-		return 0, usageError("--allow-unverified-source requires --artifact-dir")
-	}
-	if len(parsed.Options["--sdk-root"]) > 1 {
-		return 0, usageError("--sdk-root may be passed only once")
-	}
-	if err := validateLegacySourceOperationMapInputs(parsed); err != nil {
-		return 0, err
-	}
-	options, err := legacySourceOptions(parsed, dependencies)
-	if err != nil {
-		return 0, err
-	}
-	report, err := dependencies.deriveLegacy(options)
-	if err != nil {
-		return 0, err
-	}
-	if comparisonPath := authoringLastOption(parsed, "--source-facts-compare"); comparisonPath != nil {
-		controlOptions := options
-		controlOptions.SourceFacts = nil
-		control, deriveErr := dependencies.deriveLegacy(controlOptions)
-		if deriveErr != nil {
-			return 0, deriveErr
-		}
-		if writeErr := authoringWriteJSON(dependencies.core, dependencies.compareLegacy(control, report), comparisonPath); writeErr != nil {
-			return 0, writeErr
-		}
-	}
-	if diagnosticsPath := authoringLastOption(parsed, "--diagnostics"); diagnosticsPath != nil {
-		if writeErr := authoringWriteJSON(dependencies.core, map[string]any{
-			"diagnostics": report["diagnostics"],
-			"summary":     report["summary"],
-		}, diagnosticsPath); writeErr != nil {
-			return 0, writeErr
-		}
-	}
-	return 0, authoringWriteJSON(dependencies.core, report["registry"], authoringLastOption(parsed, "--out"))
-}
-
-func legacySourceOptions(parsed commandInput, dependencies authoringSourceDependencies) (sourceoperation.LegacyOptions, error) {
-	openAPIPath, err := authoringRequiredOption(parsed, "--openapi")
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	openAPI, err := authoringReadObject(dependencies.core, openAPIPath)
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	if err := dependencies.validateLegacyAPI(openAPI); err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	schemaPath, err := authoringRequiredOption(parsed, "--schema")
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	schema, err := authoringReadObject(dependencies.core, schemaPath)
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	sourceRoot, err := authoringRequiredOption(parsed, "--source-root")
-	if err != nil {
-		return sourceoperation.LegacyOptions{}, err
-	}
-	options := sourceoperation.LegacyOptions{
-		OpenAPI:        openAPI,
-		SchemaData:     schema,
-		SourceRoot:     sourceRoot,
-		ResourcePrefix: optionOrEmpty(parsed, "--resource-prefix"),
-		ProviderSource: optionOrEmpty(parsed, "--provider-source"),
-		Resources:      sourceResourceFilter(authoringLastOption(parsed, "--resources")),
-		SDKRoot:        optionOrEmpty(parsed, "--sdk-root"),
-	}
-	if factsPath := authoringLastOption(parsed, "--source-facts"); factsPath != nil {
-		facts, readErr := authoringReadObject(dependencies.core, *factsPath)
-		if readErr != nil {
-			return sourceoperation.LegacyOptions{}, readErr
-		}
-		options.SourceFacts = facts
-	}
-	return options, nil
-}
-
-func sourceEvidenceEvalCommand(arguments []string) (int, error) {
-	return sourceEvidenceEvalCommandWithDependencies(arguments, defaultAuthoringSourceDependencies())
-}
-
 func sourceEvidenceEvalCommandWithDependencies(arguments []string, dependencies authoringSourceDependencies) (int, error) {
 	return executeStandaloneCobra(newSourceEvidenceEvalCobraCommand(dependencies), arguments)
 }
@@ -237,9 +123,9 @@ func sourceEvidenceEvalCommandWithDependencies(arguments []string, dependencies 
 func newSourceEvidenceEvalCobraCommand(dependencies authoringSourceDependencies) *cobra.Command {
 	spec := authoringCobraSpec("source-evidence-eval", "Evaluate source-backed provider evidence",
 		[]string{
-			"--ast-tool-dir", "--openapi", "--out-dir", "--provider-file", "--provider-module",
-			"--provider-source", "--resource-prefix", "--resources", "--schema", "--sdk-file",
-			"--sdk-root", "--source-facts", "--source-manifest", "--source-root",
+			"--openapi", "--out-dir", "--provider-file", "--provider-module",
+			"--resources", "--schema", "--sdk-file",
+			"--sdk-root", "--source-manifest", "--source-root",
 		},
 		[]string{"--provider-file", "--sdk-file", "--sdk-root"},
 		[]string{"--allow-unverified-source", "--fail-on-regression"},
@@ -260,7 +146,10 @@ func sourceEvidenceEvalCommandInput(parsed commandInput, dependencies authoringS
 		return 0, err
 	}
 	if mode == sourceModeLegacy {
-		return sourceEvidenceEvalLegacy(parsed, dependencies)
+		// The legacy facts A/B evaluation lane is retired: the in-engine
+		// source-first analysis (sourceanalysis) subsumed the external AST
+		// facts workflow.
+		return 0, usageError("source-evidence-eval requires --source-manifest (qualified) or --allow-unverified-source; the legacy --source-facts evaluation mode is retired")
 	}
 	if err := validateV2SourceOptions(parsed, mode, "source-evidence-eval", "--out-dir"); err != nil {
 		return 0, err
@@ -277,113 +166,6 @@ func sourceEvidenceEvalCommandInput(parsed commandInput, dependencies authoringS
 		context.Background(), destination, bundle, parsed, mode,
 		parsed.Flags.Has("--fail-on-regression"), dependencies,
 	)
-}
-
-func sourceEvidenceEvalLegacy(parsed commandInput, dependencies authoringSourceDependencies) (int, error) {
-	if err := rejectOptions(parsed, "legacy source-evidence-eval", "--provider-file", "--provider-module", "--sdk-file", "--source-manifest"); err != nil {
-		return 0, err
-	}
-	if parsed.Flags.Has("--allow-unverified-source") {
-		return 0, usageError("--allow-unverified-source requires source-first mode")
-	}
-	if len(parsed.Options["--sdk-root"]) > 1 {
-		return 0, usageError("--sdk-root may be passed only once")
-	}
-	if err := validateLegacySourceEvidenceEvalInputs(parsed); err != nil {
-		return 0, err
-	}
-	destination := *authoringLastOption(parsed, "--out-dir")
-	options, err := legacySourceOptions(parsed, dependencies)
-	if err != nil {
-		return 0, err
-	}
-	candidate, err := dependencies.deriveLegacy(options)
-	if err != nil {
-		return 0, err
-	}
-	controlOptions := options
-	controlOptions.SourceFacts = nil
-	control, err := dependencies.deriveLegacy(controlOptions)
-	if err != nil {
-		return 0, err
-	}
-	comparison := dependencies.compareLegacy(control, candidate)
-	evaluation := dependencies.evaluateLegacy(candidate, comparison)
-	paths := legacyEvaluationPaths(destination)
-	evaluation["artifacts"] = map[string]any{
-		"ast_report":     paths["ast-report.json"],
-		"compare":        paths["source-facts-compare.json"],
-		"control_report": paths["control-report.json"],
-		"evaluation":     paths["source-evidence-eval.json"],
-		"markdown":       paths["source-evidence-eval.md"],
-		"source_facts":   *authoringLastOption(parsed, "--source-facts"),
-	}
-	values := map[string]any{
-		"ast-report.json":           candidate,
-		"source-facts-compare.json": comparison,
-		"control-report.json":       control,
-		"source-evidence-eval.json": evaluation,
-		"source-evidence-eval.md":   dependencies.renderLegacy(evaluation),
-	}
-	artifacts := make([]artifactpublish.Artifact, 0, len(legacyEvaluationVocabulary.Required))
-	for _, name := range legacyEvaluationVocabulary.Required {
-		var data []byte
-		if name == "source-evidence-eval.md" {
-			data = []byte(values[name].(string))
-		} else {
-			data, err = authoringRenderJSON(values[name])
-			if err != nil {
-				return 0, err
-			}
-		}
-		artifacts = append(artifacts, artifactpublish.Artifact{Name: name, Bytes: data})
-	}
-	if err := publishArtifacts(context.Background(), destination, legacyEvaluationVocabulary, artifacts, dependencies); err != nil {
-		return 0, err
-	}
-	rendered, err := authoringRenderJSON(evaluation)
-	if err != nil {
-		return 0, err
-	}
-	if _, err := dependencies.core.stdout.Write(rendered); err != nil {
-		return 0, err
-	}
-	if parsed.Flags.Has("--fail-on-regression") && dependencies.legacyRegression(evaluation) {
-		return 1, nil
-	}
-	return 0, nil
-}
-
-func validateLegacySourceOperationMapInputs(parsed commandInput) error {
-	for _, name := range []string{"--openapi", "--schema", "--source-root"} {
-		if authoringLastOption(parsed, name) == nil {
-			return usageError(name + " is required")
-		}
-	}
-	if authoringLastOption(parsed, "--source-facts-compare") != nil && authoringLastOption(parsed, "--source-facts") == nil {
-		return usageError("--source-facts-compare requires --source-facts")
-	}
-	return nil
-}
-
-func validateLegacySourceEvidenceEvalInputs(parsed commandInput) error {
-	for _, name := range []string{"--out-dir", "--source-root"} {
-		if authoringLastOption(parsed, name) == nil {
-			return usageError(name + " is required")
-		}
-	}
-	if authoringLastOption(parsed, "--ast-tool-dir") != nil {
-		return usageError("--ast-tool-dir requires the retired external source-evidence collector")
-	}
-	if authoringLastOption(parsed, "--source-facts") == nil {
-		return usageError("--source-facts is required; automatic external AST collection is retired")
-	}
-	for _, name := range []string{"--openapi", "--schema"} {
-		if authoringLastOption(parsed, name) == nil {
-			return usageError(name + " is required")
-		}
-	}
-	return nil
 }
 
 func sourceMode(parsed commandInput) (sourceCommandMode, error) {
@@ -404,9 +186,6 @@ func sourceMode(parsed commandInput) (sourceCommandMode, error) {
 func validateV2SourceOptions(parsed commandInput, mode sourceCommandMode, command, destination string) error {
 	if authoringLastOption(parsed, destination) == nil {
 		return usageError(destination + " is required")
-	}
-	if err := rejectOptions(parsed, command+" source-first mode", "--diagnostics", "--out", "--provider-source", "--resource-prefix", "--source-facts", "--source-facts-compare", "--ast-tool-dir"); err != nil {
-		return err
 	}
 	if mode == sourceModeQualified {
 		return rejectOptions(parsed, command+" qualified mode", "--provider-file", "--provider-module", "--resources", "--sdk-file")
@@ -681,13 +460,6 @@ func sourceResourceFilter(value *string) []string {
 	return result
 }
 
-func optionOrEmpty(parsed commandInput, name string) string {
-	if value := authoringLastOption(parsed, name); value != nil {
-		return *value
-	}
-	return ""
-}
-
 func rejectOptions(parsed commandInput, mode string, names ...string) error {
 	for _, name := range names {
 		if authoringLastOption(parsed, name) != nil {
@@ -764,12 +536,4 @@ func publishArtifacts(ctx context.Context, destination string, vocabulary artifa
 		Vocabulary:  vocabulary,
 		Artifacts:   artifacts,
 	})
-}
-
-func legacyEvaluationPaths(destination string) map[string]string {
-	result := make(map[string]string, len(legacyEvaluationVocabulary.Required))
-	for _, name := range legacyEvaluationVocabulary.Required {
-		result[name] = filepath.Join(destination, name)
-	}
-	return result
 }

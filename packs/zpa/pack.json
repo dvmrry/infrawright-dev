@@ -4,7 +4,7 @@
       "name_field": "name"
     }
   },
-  "pin": "4.4.6",
+  "pin": "4.4.9",
   "provider_prefixes": {
     "zpa_": "zpa"
   },
@@ -20,6 +20,70 @@
       "server_groups.id": {
         "name_field": "name",
         "referent": "zpa_server_group"
+      }
+    },
+    "zpa_application_segment_browser_access": {
+      "segment_group_id": {
+        "referent": "zpa_segment_group",
+        "name_field": "name"
+      },
+      "server_groups.id": {
+        "referent": "zpa_server_group",
+        "name_field": "name"
+      }
+    },
+    "zpa_application_segment_inspection": {
+      "segment_group_id": {
+        "referent": "zpa_segment_group",
+        "name_field": "name"
+      },
+      "server_groups.id": {
+        "referent": "zpa_server_group",
+        "name_field": "name"
+      }
+    },
+    "zpa_application_segment_pra": {
+      "segment_group_id": {
+        "referent": "zpa_segment_group",
+        "name_field": "name"
+      },
+      "server_groups.id": {
+        "referent": "zpa_server_group",
+        "name_field": "name"
+      }
+    },
+    "zpa_browser_access": {
+      "segment_group_id": {
+        "referent": "zpa_segment_group",
+        "name_field": "name"
+      },
+      "server_groups.id": {
+        "referent": "zpa_server_group",
+        "name_field": "name"
+      }
+    },
+    "zpa_policy_access_rule": {
+      "app_connector_groups.id": {
+        "referent": "zpa_app_connector_group",
+        "name_field": "name"
+      }
+    },
+    "zpa_policy_access_rule_v2": {
+      "app_connector_groups.id": {
+        "referent": "zpa_app_connector_group",
+        "name_field": "name"
+      }
+    },
+    "zpa_policy_redirection_rule": {
+      "service_edge_groups.id": {
+        "referent": "zpa_service_edge_group",
+        "name_field": "name"
+      }
+    },
+    "zpa_provisioning_key": {
+      "app_connector_group_id": {
+        "referent": "zpa_app_connector_group",
+        "name_field": "name"
       }
     },
     "zpa_server_group": {

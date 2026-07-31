@@ -16,6 +16,7 @@ fetch
   -> gen-modules
   -> gen-env
   -> stage-imports
+  -> refresh            (when state predates the tenant's current contents)
   -> plan SAVE=1
   -> assert-adoptable
   -> apply
@@ -30,8 +31,9 @@ Command responsibilities:
 | `make gen-modules` | Generate the deployment-selected reusable Terraform/OpenTofu modules. |
 | `make gen-env` | Generate isolated Terraform/OpenTofu env roots that source the deployment-selected module set. |
 | `make stage-imports` | Copy generated `import {}` and `moved {}` blocks into env roots. |
+| `make refresh` | Reconcile recorded state with reality. Writes refreshed values into state and touches no remote object, so it needs no `ALLOW_*` override; the refresh-only plan is read back and refused unless every resource change in it is a no-op. |
 | `make plan SAVE=1` | Run Terraform/OpenTofu plans and save plan artifacts for later gates. |
-| `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Guidance annotations never make a blocked plan clean. |
+| `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Refresh drift (`resource_drift`) is reported as tolerated rather than blocking, because only the guarded apply can settle it. Guidance annotations never make a blocked plan clean. |
 | `make apply` | Reclassify saved plans and apply only when they are clean/import-only or fully tolerated by explicit policy; destructive or non-main workflows still require explicit safety flags. |
 
 Adopt's provider Oracle may execute a mechanically verified import-only plan
@@ -46,13 +48,20 @@ Supporting adoption commands:
 |---|---|
 | `make unstage-imports` | Remove staged import/move blocks from env roots. |
 | `make clean-plans` | Remove saved plan artifacts. |
-| `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
+| `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Blocks on refresh drift, which is the out-of-band change this gate exists to catch. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
+| `make check-config` | Require every resource type with committed config to be fetchable. Runs in the credential-free lane with the other validators and reads only files already in your tree. |
 | `make roots` | Emit the configured root topology as versioned JSON for downstream path-to-root scoping. |
 | `make scope-paths` | Map a caller-supplied JSON list of changed paths to affected resources and complete logical roots without invoking a VCS. |
 | `make plan-roots` | Enumerate materialized env roots and the exact `tfplan`/`tfplan.sources` artifact locations used for save/restore. |
 
 `make apply` uses the same saved-plan classification semantics as
-`make assert-adoptable`. If `assert-adoptable` used `POLICY=<file>` to classify
+`make assert-adoptable` with one deliberate exception: apply stays strict about
+refresh drift. A plan that `assert-adoptable` reported as tolerated only because
+of `resource_drift` is still refused by `make apply`, which reads a
+drift-sourced `delete` as a destroy and would otherwise disarm `ALLOW_DESTROY=1`
+for it. Run `make refresh` to reconcile that drift, then plan again; reach for
+explicit drift policy only for values you intend to keep diverging. If
+`assert-adoptable` used `POLICY=<file>` to classify
 intentional drift as tolerated, pass the same `POLICY=<file>` to `make apply`.
 The legacy `ALLOW_PLAN_CHANGES=1` path is a broad override for intentionally
 applying blocked saved plans; it is noisy, should not replace explicit drift
@@ -84,6 +93,32 @@ Re-run `make plan SAVE=1` after any of those inputs change. When planning with
 `BACKEND_CONFIG=<file>`, pass the same option to `assert-clean`,
 `assert-adoptable`, and `apply`; omitting it or changing its contents makes the
 saved plan stale before classification or apply.
+
+## Committed Config Must Stay Fetchable
+
+Committed config means you own a resource; a `fetch` block in the registry
+means the engine can pull its live state. When the first holds and the second
+does not, the resource is nominally managed and invisible: `make fetch` errors
+on it, anything downstream of a fetch goes blind to it, and every other check
+keeps reporting healthy, because they all sit above the fetch layer.
+
+`make check-config` is the only check that looks across that boundary.
+`check-pack` validates each file's shape, and a missing `fetch` block is valid
+JSON and a valid registry entry, so there is nothing malformed for it to find.
+`DROPS_CHECK` covers the opposite direction, where the API grew a field the
+packs do not acknowledge.
+
+Some types are legitimately generate-without-fetch. Two ways to say so, both
+as data, because `registry.json` is strict JSON and a comment cannot carry it:
+
+- a `derive` block already states that the type's config is produced from
+  another resource, so it has no API object of its own and needs no further
+  declaration;
+- anything else declares `"fetch": false` with a non-empty `fetch_skip_reason`.
+
+A `"fetch": false` with no reason is refused, and a `fetch_skip_reason`
+without the skip is refused, so a declaration cannot decay into the silent gap
+it was meant to replace.
 
 ## Machine-Readable Downstream Contracts
 
@@ -200,8 +235,11 @@ assessment error remains the command result.
 
 The assessment schema is
 [`docs/schemas/saved-plan-assessment.schema.json`](schemas/saved-plan-assessment.schema.json).
-All published contracts carry `schema_version: 1`; consumers must reject unsupported
-versions rather than guessing at field meaning.
+The saved-plan assessment contract is at `schema_version: 2`; consumers must reject
+unsupported versions rather than guessing at field meaning. Version 2 adds `changes`
+to every finding, carrying the values behind its paths, and is otherwise identical to
+version 1. A consumer that only reads `paths` needs no change beyond accepting the new
+version.
 The assessment schema intentionally fixes the accepted `tfplan.sources` shape;
 a future fingerprint format change requires a coordinated assessment-schema
 version update.
@@ -268,13 +306,26 @@ engine never removes an existing moves file merely because the imports
 baseline has advanced; explicit removal is an operator decision after the
 corresponding state migration is confirmed.
 
-With cross-state references enabled, transform/adopt may write
-`config/<tenant>/<resource_type>.generated.expressions.json` beside the
-resource tfvars. Env generation loads generated bindings first and then
-operator-authored `config/<tenant>/<resource_type>.expressions.json`, so a
+With cross-state references enabled, the reference binding for a resource is
+a pure function of its tokenised config, the pack's declared reference edges,
+the provider schema, and the referent's committed lookup
+(`config/<tenant>/lookups/<resource_type>.lookup.json`; a lookup still sitting
+at the pre-migration `config/<tenant>/<resource_type>.lookup.json` path
+resolves identically until its tenant next transforms). Transform/adopt derive it and
+verify it in-process (the totality and foreign-token gates run against it),
+but do not commit it: no
+`config/<tenant>/<resource_type>.generated.expressions.json` is written, and a
+copy left over from before this behavior changed is removed on the next
+transform/adopt run for that resource type. Env generation instead derives
+the same binding at render time from the same inputs -- byte-identical by
+construction, since it is the same derivation function -- falling back to a
+still-committed `.generated.expressions.json` only for a tree that has not
+re-transformed yet. Operator-authored
+`config/<tenant>/<resource_type>.expressions.json` still layers on top, so a
 hand-written binding wins for the same resource path.
 
-Bindings are explicit generated artifacts; tfvars keep the raw IDs and readback still round-trips.
+Bindings are derived, not committed; tfvars keep the raw IDs (or, once
+tokenised, qualified reference tokens) and readback still round-trips.
 
 ### Cross-state References
 
@@ -291,7 +342,7 @@ are valid but normally unnecessary:
 ```
 
 References between roots use `terraform_remote_state` and a generated,
-sensitive `infrawright_reference_ids` root output containing only stable config
+sensitive `iw_reference_ids` root output containing only stable config
 keys mapped to provider IDs. Complete resource objects are never exported.
 Predefined or system identifiers absent from a managed referent lookup remain
 literal values with a visible binding diagnostic.
@@ -378,7 +429,7 @@ Generated binding skip/fallback semantics:
 | Referent lookup sidecar has no `key_by_id` map | Leave the literal ID in tfvars and print a `NOTE bindings:` skip; rerun transform/adopt for the referent to refresh the sidecar. |
 | Referent key contains Terraform template interpolation syntax | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
 | Reference crosses a root boundary with cross-state mode disabled | No generated binding is considered; existing literal/comment behavior applies. |
-| Reference crosses a root boundary with cross-state mode enabled | Bind through the referent root's minimal `infrawright_reference_ids` output. |
+| Reference crosses a root boundary with cross-state mode enabled | Bind through the referent root's minimal `iw_reference_ids` output. |
 
 The saved-plan assessor and exact-plan Apply do not trust that output by name.
 For a referent root selected from the loaded pack/deployment context, they bind

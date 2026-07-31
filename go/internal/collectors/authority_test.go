@@ -29,6 +29,7 @@ func loadRootFromPacksDir(t *testing.T, packsRoot string) metadata.LoadedPackRoo
 // left in it.
 func copiedRoot(t *testing.T, products []string) string {
 	t.Helper()
+	requireCollectorPackSelection(t, metadata.PackSelection{Packs: products, Shared: []string{"zscaler"}})
 	root := repoRoot(t)
 	directory := t.TempDir()
 	if err := copyDir(filepath.Join(root, "packs", "_shared", "zscaler"), filepath.Join(directory, "_shared", "zscaler")); err != nil {
@@ -38,6 +39,34 @@ func copiedRoot(t *testing.T, products []string) string {
 		if err := copyDir(filepath.Join(root, "packs", product), filepath.Join(directory, product)); err != nil {
 			t.Fatalf("copy %s: %v", product, err)
 		}
+	}
+	return directory
+}
+
+func syntheticAuthorityPacks(t *testing.T, products []string) string {
+	t.Helper()
+	directory := t.TempDir()
+	for _, product := range products {
+		writeJSON := func(path string, value any) {
+			t.Helper()
+			data, err := json.Marshal(value)
+			if err != nil {
+				t.Fatalf("json.Marshal(%q): %v", path, err)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("os.MkdirAll(%q): %v", filepath.Dir(path), err)
+			}
+			if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+				t.Fatalf("os.WriteFile(%q): %v", path, err)
+			}
+		}
+		writeJSON(filepath.Join(directory, product, "pack.json"), map[string]any{
+			"provider_prefixes": map[string]any{product + "_": product},
+			"provider_sources":  map[string]any{product: ZscalerCollectorProviderSources[product]},
+		})
+		writeJSON(filepath.Join(directory, product, "registry.json"), map[string]any{
+			product + "_resource": map[string]any{"product": product},
+		})
 	}
 	return directory
 }
@@ -63,34 +92,10 @@ func rewriteManifest(t *testing.T, packsRoot, product string, update func(manife
 	}
 }
 
-func removeProviderScopedUnsupportedRules(t *testing.T, packsRoot, product string) {
-	t.Helper()
-	path := filepath.Join(packsRoot, product, "registry.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	var registry map[string]map[string]any
-	if err := json.Unmarshal(data, &registry); err != nil {
-		t.Fatalf("unmarshal %s: %v", path, err)
-	}
-	for _, entry := range registry {
-		if adopt, ok := entry["adopt"].(map[string]any); ok {
-			delete(adopt, "unsupported_if")
-		}
-	}
-	rendered, err := json.MarshalIndent(registry, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal %s: %v", path, err)
-	}
-	if err := os.WriteFile(path, append(rendered, '\n'), 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
 func TestResolveCollectorAdaptersAgainstCommittedProviderSources(t *testing.T) {
-	root := loadRootFromPacksDir(t, filepath.Join(repoRoot(t), "packs"))
 	products := []string{"zcc", "zia", "zpa", "ztc"}
+	requireCollectorPackSelection(t, metadata.PackSelection{Packs: products, Shared: []string{"zscaler"}})
+	root := installedCollectorRoot(t)
 	resolved, err := ResolveCollectorAdapters(ResolveCollectorAdaptersOptions{
 		Authorities:   CollectorAdapterAuthorities{ByProviderSource: CreateZscalerCollectorAdaptersByProviderSource()},
 		ResourceTypes: []string{"zcc_device_cleanup", "zia_url_categories", "zpa_application_segment", "ztc_network_services"},
@@ -138,8 +143,7 @@ func TestResolveCollectorAdaptersAgainstPythonFreeCopiedRoot(t *testing.T) {
 }
 
 func TestResolveCollectorAdaptersFailsClosedOnMismatchedProviderSources(t *testing.T) {
-	packsRoot := copiedRoot(t, []string{"zcc", "zia"})
-	removeProviderScopedUnsupportedRules(t, packsRoot, "zia")
+	packsRoot := syntheticAuthorityPacks(t, []string{"zcc", "zia"})
 	rewriteManifest(t, packsRoot, "zcc", func(manifest map[string]any) {
 		manifest["provider_sources"] = map[string]any{"zcc": "example/custom-zcc"}
 	})
@@ -147,7 +151,7 @@ func TestResolveCollectorAdaptersFailsClosedOnMismatchedProviderSources(t *testi
 	root := loadRootFromPacksDir(t, packsRoot)
 	resolved, err := ResolveCollectorAdapters(ResolveCollectorAdaptersOptions{
 		Authorities:   CollectorAdapterAuthorities{ByProviderSource: CreateZscalerCollectorAdaptersByProviderSource()},
-		ResourceTypes: []string{"zia_url_categories"},
+		ResourceTypes: []string{"zia_resource"},
 		Root:          root,
 	})
 	if err != nil || resolved["zia"].Product != "zia" {
@@ -155,7 +159,7 @@ func TestResolveCollectorAdaptersFailsClosedOnMismatchedProviderSources(t *testi
 	}
 	_, err = ResolveCollectorAdapters(ResolveCollectorAdaptersOptions{
 		Authorities:   CollectorAdapterAuthorities{ByProviderSource: CreateZscalerCollectorAdaptersByProviderSource()},
-		ResourceTypes: []string{"zcc_device_cleanup"},
+		ResourceTypes: []string{"zcc_resource"},
 		Root:          root,
 	})
 	if err == nil || !regexp.MustCompile(`example/custom-zcc.*not available`).MatchString(err.Error()) {
@@ -168,7 +172,7 @@ func TestResolveCollectorAdaptersFailsClosedOnMismatchedProviderSources(t *testi
 	root = loadRootFromPacksDir(t, packsRoot)
 	_, err = ResolveCollectorAdapters(ResolveCollectorAdaptersOptions{
 		Authorities:   CollectorAdapterAuthorities{ByProviderSource: CreateZscalerCollectorAdaptersByProviderSource()},
-		ResourceTypes: []string{"zia_url_categories"},
+		ResourceTypes: []string{"zia_resource"},
 		Root:          root,
 	})
 	if err == nil || !strings.Contains(err.Error(), "without a provider source") {
@@ -181,7 +185,7 @@ func TestResolveCollectorAdaptersFailsClosedOnMismatchedProviderSources(t *testi
 	root = loadRootFromPacksDir(t, packsRoot)
 	_, err = ResolveCollectorAdapters(ResolveCollectorAdaptersOptions{
 		Authorities:   CollectorAdapterAuthorities{ByProviderSource: CreateZscalerCollectorAdaptersByProviderSource()},
-		ResourceTypes: []string{"zia_url_categories"},
+		ResourceTypes: []string{"zia_resource"},
 		Root:          root,
 	})
 	if err == nil || !regexp.MustCompile(`declares product "zia".*collector product "zpa"`).MatchString(err.Error()) {
@@ -190,8 +194,7 @@ func TestResolveCollectorAdaptersFailsClosedOnMismatchedProviderSources(t *testi
 }
 
 func TestResolveCollectorAdaptersAllowsCustomProviderSourceAdapter(t *testing.T) {
-	packsRoot := copiedRoot(t, []string{"zia"})
-	removeProviderScopedUnsupportedRules(t, packsRoot, "zia")
+	packsRoot := syntheticAuthorityPacks(t, []string{"zia"})
 	providerSource := "example/custom-zia"
 	rewriteManifest(t, packsRoot, "zia", func(manifest map[string]any) {
 		manifest["provider_sources"] = map[string]any{"zia": providerSource}
@@ -208,7 +211,7 @@ func TestResolveCollectorAdaptersAllowsCustomProviderSourceAdapter(t *testing.T)
 	}
 	resolved, err := ResolveCollectorAdapters(ResolveCollectorAdaptersOptions{
 		Authorities:   CollectorAdapterAuthorities{ByProviderSource: map[string]CollectorAdapter{providerSource: adapter}},
-		ResourceTypes: []string{"zia_url_categories"},
+		ResourceTypes: []string{"zia_resource"},
 		Root:          root,
 	})
 	if err != nil {
@@ -220,8 +223,7 @@ func TestResolveCollectorAdaptersAllowsCustomProviderSourceAdapter(t *testing.T)
 }
 
 func TestResolveCollectorAdaptersRejectsBorrowedAuthority(t *testing.T) {
-	packsRoot := copiedRoot(t, []string{"zia"})
-	removeProviderScopedUnsupportedRules(t, packsRoot, "zia")
+	packsRoot := syntheticAuthorityPacks(t, []string{"zia"})
 	rewriteManifest(t, packsRoot, "zia", func(manifest map[string]any) {
 		manifest["provider_prefixes"] = map[string]any{"zia_": "rogue"}
 		manifest["provider_sources"] = map[string]any{"rogue": "example/rogue"}
@@ -229,10 +231,10 @@ func TestResolveCollectorAdaptersRejectsBorrowedAuthority(t *testing.T) {
 	root := loadRootFromPacksDir(t, packsRoot)
 	_, err := ResolveCollectorAdapters(ResolveCollectorAdaptersOptions{
 		Authorities:   CollectorAdapterAuthorities{ByProviderSource: CreateZscalerCollectorAdaptersByProviderSource()},
-		ResourceTypes: []string{"zia_url_categories"},
+		ResourceTypes: []string{"zia_resource"},
 		Root:          root,
 	})
-	if err == nil || !regexp.MustCompile(`zia_url_categories.*provider source "example/rogue".*not available`).MatchString(err.Error()) {
+	if err == nil || !regexp.MustCompile(`zia_resource.*provider source "example/rogue".*not available`).MatchString(err.Error()) {
 		t.Errorf("expected a borrowed-authority error, got %v", err)
 	}
 }

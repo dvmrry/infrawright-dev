@@ -64,9 +64,24 @@ func readV2TransformGolden(t *testing.T, root, name string) []byte {
 	return content
 }
 
+// readV2TransformTreeGolden reads the shipped demo authority rather than a
+// second committed copy of the same bytes. `make check-demo` already pins
+// demo/ as the published output, so a private duplicate under testdata only
+// added a tree that had to be regenerated in lockstep with it. Only the two
+// subtrees transform actually writes are collected; demo/ also carries its own
+// deployment.json and Makefile, which are inputs, not transform output.
 func readV2TransformTreeGolden(t *testing.T, root string) map[string][]byte {
 	t.Helper()
-	return treeBytes(t, filepath.Join(root, "go", "cmd", "iw", v2TransformGoldenRoot, "tree"))
+	golden := map[string][]byte{}
+	for _, subtree := range []string{"config", "imports"} {
+		for path, content := range treeBytes(t, filepath.Join(root, "demo", subtree)) {
+			golden[subtree+"/"+path] = content
+		}
+	}
+	if len(golden) == 0 {
+		t.Fatal("demo authority tree is empty; expected demo/config and demo/imports")
+	}
+	return golden
 }
 
 func runV2TransformAuthority(t *testing.T, repositoryRoot, binary, name string) v2TransformAuthorityRun {
@@ -86,6 +101,7 @@ func runV2TransformAuthority(t *testing.T, repositoryRoot, binary, name string) 
 		"transform", "--in", demoInput, "--tenant", "demo",
 		"--profile", "packs/full.packset.json",
 	}, []string{
+		"DROPS_CHECK=1",
 		"INFRAWRIGHT_DEPLOYMENT=" + deploymentPath,
 		"TMPDIR=" + temporary,
 	})
@@ -140,6 +156,7 @@ func TestV2TransformAuthorityNormalizationIsNarrow(t *testing.T) {
 
 func TestV2TransformDefaultCrossStateAuthority(t *testing.T) {
 	root := repoRoot(t)
+	requireCommittedProfileAvailable(t, root, "full")
 	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-transform")
 	first := runV2TransformAuthority(t, root, binary, "first")
 	second := runV2TransformAuthority(t, root, binary, "second")
@@ -160,18 +177,22 @@ func TestV2TransformDefaultCrossStateAuthority(t *testing.T) {
 	}
 	requireExactTree(t, "V2 transform output tree", first.tree, readV2TransformTreeGolden(t, root))
 
+	// The bindings cache is no longer committed (Task A2): the cross-state
+	// expression it used to carry is now derived at render time from the
+	// tokenised config and the committed lookups, so transform must produce
+	// no copy of it at all -- not even for a resource type with real
+	// cross-state derivation, like zpa_server_group. The derivation itself
+	// still ran (compiled.Binding was non-empty in-process); its evidence
+	// is the "NOTE bindings: zpa_server_group: 1 bound, 1 skipped" line
+	// pinned in the transform.stderr golden above, not a tree artifact.
 	bindingsPath := "config/demo/zpa_server_group.generated.expressions.json"
-	bindings, found := first.tree[bindingsPath]
-	if !found {
-		t.Fatalf("V2 transform output lacks cross-state artifact %q", bindingsPath)
-	}
-	if !bytes.Contains(bindings, []byte("data.terraform_remote_state.zpa_app_connector_group.outputs.infrawright_reference_ids.zpa_app_connector_group")) {
-		t.Errorf("cross-state artifact %q lacks the expected remote-state expression: %s", bindingsPath, bindings)
+	if _, found := first.tree[bindingsPath]; found {
+		t.Errorf("V2 transform output must not write the derivable bindings cache %q", bindingsPath)
 	}
 	for _, path := range []string{
-		"config/demo/zpa_app_connector_group.lookup.json",
-		"config/demo/zpa_application_server.lookup.json",
-		"config/demo/zpa_server_group.lookup.json",
+		"config/demo/lookups/zpa_app_connector_group.lookup.json",
+		"config/demo/lookups/zpa_application_server.lookup.json",
+		"config/demo/lookups/zpa_server_group.lookup.json",
 	} {
 		if _, found := first.tree[path]; !found {
 			t.Errorf("V2 transform output lacks inferred lookup %q", path)

@@ -180,7 +180,14 @@ func TestDeclaredReferenceCyclesRunAfterReferenceStructureValidation(t *testing.
 
 func TestCommittedPackReferencesRemainAcyclic(t *testing.T) {
 	root := repoRoot(t)
-	loaded, err := LoadPackRoot(LoadPackRootOptions{PacksRoot: filepath.Join(root, "packs")})
+	packsRoot := filepath.Join(root, "packs")
+	profilePath := filepath.Join(packsRoot, "full.packset.json")
+	profile, err := LoadPackSetDocument(profilePath, PackSetKind)
+	if err != nil {
+		t.Fatalf("LoadPackSetDocument(%q) error: %v", profilePath, err)
+	}
+	requirePackSelectionAvailable(t, packsRoot, profile.PackSelection)
+	loaded, err := LoadPackRoot(LoadPackRootOptions{PacksRoot: packsRoot, ProfilePath: &profilePath})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
 	}
@@ -191,8 +198,16 @@ func TestCommittedPackReferencesRemainAcyclic(t *testing.T) {
 			declaredFields += len(fields.(JsonObject))
 		}
 	}
-	if declaredFields != 7 {
-		t.Fatalf("declared reference fields = %d, want 7", declaredFields)
+	// A floor, deliberately not an equality. The invariant this test owns is
+	// that the committed packs' declared references load and stay acyclic
+	// (LoadPackRoot validates cycles above); the count only guards against a
+	// regression that silently loads zero references and passes vacuously.
+	// Pinning the exact number made every pack-side reference addition -- data
+	// the engine does not own -- an engine test failure, which is a layering
+	// defect: downstream consumers vendoring these tests against their own
+	// packs could never declare a reference at all.
+	if declaredFields < 7 {
+		t.Fatalf("declared reference fields = %d, want at least the 7 present when this floor was set", declaredFields)
 	}
 }
 

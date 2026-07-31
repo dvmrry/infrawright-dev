@@ -33,9 +33,18 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
 )
 
-// InfrawrightReferenceOutput ports INFRAWRIGHT_REFERENCE_OUTPUT from
-// the original implementation.
-const InfrawrightReferenceOutput = "infrawright_reference_ids"
+// InfrawrightReferenceOutput names the engine-owned cross-state ID output
+// generated roots publish (it ports INFRAWRIGHT_REFERENCE_OUTPUT from the
+// original implementation, renamed to the iw_ prefix).
+// LegacyInfrawrightReferenceOutput is the pre-rename spelling, still
+// present in states applied before the rename and inside committed
+// generated-bindings caches; readers accept both names, and only
+// generation emits the current one.
+const InfrawrightReferenceOutput = "iw_reference_ids"
+
+// LegacyInfrawrightReferenceOutput is accepted wherever already-written
+// artifacts are read; see InfrawrightReferenceOutput.
+const LegacyInfrawrightReferenceOutput = "infrawright_reference_ids"
 
 // CrossStateReferenceEdge is the Go analogue of the CrossStateReferenceEdge
 // interface in the original implementation.

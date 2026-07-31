@@ -141,6 +141,39 @@ func cleanAssessmentPlanJSON(t *testing.T) string {
 	})
 }
 
+func refreshDriftAssessmentPlanJSON(t *testing.T) string {
+	t.Helper()
+	value := map[string]any{
+		"format_version":    "1.2",
+		"terraform_version": "1.15.4",
+		"complete":          true,
+		"errored":           false,
+		"resource_changes": []any{map[string]any{
+			"address": `zpa_sample.this["one"]`,
+			"type":    "zpa_sample",
+			"change": map[string]any{
+				"actions":   []any{"create"},
+				"importing": map[string]any{"id": "existing"},
+			},
+		}},
+		"resource_drift": []any{map[string]any{
+			"address": `zpa_sample.this["one"]`,
+			"type":    "zpa_sample",
+			"change": map[string]any{
+				"actions": []any{"update"},
+				"before":  map[string]any{"status": "recorded"},
+				"after":   map[string]any{"status": "remote"},
+			},
+		}},
+		"output_changes": map[string]any{},
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("json.Marshal(refresh drift plan) error = %v, want nil", err)
+	}
+	return string(encoded)
+}
+
 func assessmentOptions(
 	fixture assessmentTransactionFixture,
 	executable string,
@@ -517,6 +550,96 @@ func TestAssessSavedPlansReportEmitsSingletonTopologyV2Roots(t *testing.T) {
 	}
 }
 
+func TestAssessSavedPlansKernelBlocksRefreshDriftWithoutAModeToRelaxIt(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	executable := assessmentExecutable(
+		t,
+		fixture.root,
+		"printf '%s' "+assessmentShellLiteral(refreshDriftAssessmentPlanJSON(t)),
+	)
+	core, err := AssessSavedPlans(assessmentOptions(fixture, executable, nil))
+	if err != nil {
+		t.Fatalf("AssessSavedPlans(refresh drift) error = %v, want nil", err)
+	}
+	if core.Status != Blocked || core.Blocked != 1 || core.Tolerated != 0 {
+		t.Errorf(
+			"AssessSavedPlans(refresh drift) status/blocked/tolerated = %s/%d/%d, want blocked/1/0",
+			core.Status, core.Blocked, core.Tolerated,
+		)
+	}
+}
+
+func TestAssessSavedPlansReportDemotesRefreshDriftOnlyForAdoption(t *testing.T) {
+	tests := []struct {
+		name          string
+		mode          AssessmentMode
+		wantStatus    PlanStatus
+		wantBlocked   int
+		wantTolerated int
+	}{
+		{
+			name: "assert_clean_still_blocks", mode: AssertClean,
+			wantStatus: Blocked, wantBlocked: 1, wantTolerated: 0,
+		},
+		{
+			name: "assert_adoptable_tolerates", mode: AssertAdoptable,
+			wantStatus: Tolerated, wantBlocked: 0, wantTolerated: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newAssessmentTransactionFixture(t)
+			executable := assessmentExecutable(
+				t,
+				fixture.root,
+				"printf '%s' "+assessmentShellLiteral(refreshDriftAssessmentPlanJSON(t)),
+			)
+			outcome, err := AssessSavedPlansReport(AssessSavedPlansReportOptions{
+				Assessment: SavedPlanAssessmentTransactionOptions{
+					Assessment: assessmentOptions(fixture, executable, nil),
+				},
+				Mode:    test.mode,
+				Request: AssessmentReportRequest{Tenant: &fixture.rootInput.Tenant},
+			})
+			if err != nil {
+				t.Fatalf("AssessSavedPlansReport(%s) error = %v, want nil", test.mode, err)
+			}
+			if outcome.Failure != nil {
+				t.Fatalf("AssessSavedPlansReport(%s) failure = %+v, want nil", test.mode, outcome.Failure)
+			}
+			if len(outcome.Report.Roots) != 1 {
+				t.Fatalf("AssessSavedPlansReport(%s) root count = %d, want 1", test.mode, len(outcome.Report.Roots))
+			}
+			root := outcome.Report.Roots[0]
+			if root.Status != test.wantStatus ||
+				outcome.Report.Summary.Blocked != test.wantBlocked ||
+				outcome.Report.Summary.Tolerated != test.wantTolerated {
+				t.Errorf(
+					"AssessSavedPlansReport(%s) status/blocked/tolerated = %s/%d/%d, want %s/%d/%d",
+					test.mode, root.Status, outcome.Report.Summary.Blocked,
+					outcome.Report.Summary.Tolerated,
+					test.wantStatus, test.wantBlocked, test.wantTolerated,
+				)
+			}
+			// Demoted, never dropped: the drifted resource stays in the
+			// report so the backfill it implies is still visible.
+			drift := make([]NormalizedAssessmentFinding, 0, 1)
+			for _, finding := range root.Findings {
+				if finding.Source == "resource_drift" {
+					drift = append(drift, finding)
+				}
+			}
+			if len(drift) != 1 || drift[0].Status != test.wantStatus ||
+				len(drift[0].Paths) != 1 {
+				t.Errorf(
+					"AssessSavedPlansReport(%s) resource_drift findings = %+v, want one %s finding retaining its path",
+					test.mode, drift, test.wantStatus,
+				)
+			}
+		})
+	}
+}
+
 func TestAssessSavedPlansPolicyClassificationAndReportErrorPhase(t *testing.T) {
 	fixture := newAssessmentTransactionFixture(t)
 	policyPath := filepath.Join(fixture.root, "policy.json")
@@ -623,6 +746,7 @@ func TestSavedPlanAssessmentTransactionOrderingAndFinalDoubleWindow(t *testing.T
 	}
 	_, err := runSavedPlanAssessment(
 		SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
+		ClassifyPlanOptions{},
 		func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
 			sequence = append(sequence, "finalize")
 			return core, nil
@@ -650,6 +774,7 @@ func TestSavedPlanAssessmentRejectsAsynchronousFinalizer(t *testing.T) {
 	executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(cleanAssessmentPlanJSON(t)))
 	result, err := runSavedPlanAssessment(
 		SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
+		ClassifyPlanOptions{},
 		func(SavedPlanAssessmentCore, []AssessmentGuidanceGroup) (map[string]any, error) {
 			return map[string]any{"then": func() {}}, nil
 		},
@@ -686,6 +811,7 @@ func TestSavedPlanAssessmentCleanupCompositeAndDirectoryIdentity(t *testing.T) {
 		}
 		result, err := runSavedPlanAssessment(
 			SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
+			ClassifyPlanOptions{},
 			func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
 				return core, nil
 			},
@@ -719,6 +845,7 @@ func TestSavedPlanAssessmentCleanupCompositeAndDirectoryIdentity(t *testing.T) {
 		}
 		result, err := runSavedPlanAssessment(
 			SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
+			ClassifyPlanOptions{},
 			func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
 				return core, nil
 			},
@@ -769,6 +896,7 @@ func TestSavedPlanAssessmentCleanupCompositeAndDirectoryIdentity(t *testing.T) {
 		}
 		result, err := runSavedPlanAssessment(
 			SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
+			ClassifyPlanOptions{},
 			func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
 				return core, nil
 			},
@@ -821,6 +949,7 @@ func TestSavedPlanAssessmentCleanupCompositeAndDirectoryIdentity(t *testing.T) {
 		}
 		result, err := runSavedPlanAssessment(
 			SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
+			ClassifyPlanOptions{},
 			func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
 				return core, nil
 			},
@@ -980,6 +1109,7 @@ func TestSavedPlanAssessmentPostFinalizerTimeoutZeroesResult(t *testing.T) {
 			Assessment:         assessmentOptions(fixture, executable, nil),
 			OperationTimeoutMs: &timeout,
 		},
+		ClassifyPlanOptions{},
 		func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
 			finalized = true
 			return core, nil
@@ -1045,5 +1175,51 @@ func TestAssessmentContextDeadlineBoundsExactMaximumControlRecheck(t *testing.T)
 	}
 	if elapsed > 30*time.Second {
 		t.Errorf("recheckAssessmentContext(exact 64-MiB set) elapsed = %v, want bounded completion within 30s", elapsed)
+	}
+}
+
+// TestFindingMetadataBudgetCountsChangeValues pins that the fail-closed
+// metadata budget bounds the thing that actually grows. Changes carry the
+// values behind the paths, so a single leaf whose type changed can hold an
+// entire prior subtree; counting only paths would let a plan with short paths
+// and enormous values sail under an 8 MiB limit that exists to stop exactly
+// that.
+func TestFindingMetadataBudgetCountsChangeValues(t *testing.T) {
+	pathsOnly := AssessmentFinding{
+		Status: Blocked, Source: "resource_changes", Address: "a.b",
+		Actions: []string{"update"}, Paths: []PlanPath{{"body"}},
+	}
+	baseline := assessmentFindingMetadataBytes(pathsOnly)
+
+	secret := strings.Repeat("x", 100_000)
+	withValues := pathsOnly
+	withValues.Changes = []PlanChange{{
+		Path: PlanPath{"body"}, Kind: ScalarChange,
+		Before: map[string]any{"nested": []any{secret}}, After: "small",
+	}}
+	got := assessmentFindingMetadataBytes(withValues)
+
+	if got <= baseline+len(secret) {
+		t.Errorf(
+			"assessmentFindingMetadataBytes(with a %d-byte nested value) = %d, baseline %d; "+
+				"want the value counted, or the budget no longer bounds report size",
+			len(secret), got, baseline,
+		)
+	}
+}
+
+// A sensitive change carries no content, so it must not be charged for any.
+func TestFindingMetadataBudgetChargesNothingForRedactedContent(t *testing.T) {
+	finding := AssessmentFinding{
+		Status: Blocked, Source: "resource_changes", Address: "a.b",
+		Actions: []string{"update"}, Paths: []PlanPath{{"token"}},
+		Changes: []PlanChange{{Path: PlanPath{"token"}, Kind: ScalarChange, Sensitive: true}},
+	}
+	bare := finding
+	bare.Changes = nil
+	// The redacted change adds its path, its kind, and two null literals --
+	// nothing that scales with what was withheld.
+	if delta := assessmentFindingMetadataBytes(finding) - assessmentFindingMetadataBytes(bare); delta > 32 {
+		t.Errorf("a redacted change cost %d bytes of budget, want a nominal fixed cost", delta)
 	}
 }

@@ -3,6 +3,7 @@ package adopt
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -35,6 +36,78 @@ func mustLosslessAdoptionItems(t *testing.T, text string) []any {
 	return items
 }
 
+func adoptionRepositoryRoot() string {
+	return filepath.Clean(filepath.Join("..", "..", ".."))
+}
+
+func requireAdoptionPackSelection(t *testing.T, selection metadata.PackSelection) {
+	t.Helper()
+	packsRoot := filepath.Join(adoptionRepositoryRoot(), "packs")
+	missing := make([]string, 0)
+	for _, pack := range selection.Packs {
+		if _, err := os.Stat(filepath.Join(packsRoot, pack)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, pack)
+				continue
+			}
+			t.Fatalf("os.Stat(pack %q) error: %v", pack, err)
+		}
+	}
+	for _, shared := range selection.Shared {
+		if _, err := os.Stat(filepath.Join(packsRoot, "_shared", shared)); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, "_shared/"+shared)
+				continue
+			}
+			t.Fatalf("os.Stat(shared %q) error: %v", shared, err)
+		}
+	}
+	if len(missing) > 0 {
+		t.Skipf("required pack paths are not installed: %v", missing)
+	}
+}
+
+func installedAdoptionRoot(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	packsRoot := filepath.Join(adoptionRepositoryRoot(), "packs")
+	entries, err := os.ReadDir(packsRoot)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error: %v", packsRoot, err)
+	}
+	packs := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != "_shared" {
+			packs = append(packs, entry.Name())
+		}
+	}
+	shared := []any{}
+	sharedRoot := filepath.Join(packsRoot, "_shared")
+	sharedEntries, err := os.ReadDir(sharedRoot)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("os.ReadDir(%q) error: %v", sharedRoot, err)
+	}
+	for _, entry := range sharedEntries {
+		if entry.IsDir() {
+			shared = append(shared, entry.Name())
+		}
+	}
+	profile := filepath.Join(t.TempDir(), "installed.packset.json")
+	data, err := json.Marshal(metadata.JsonObject{
+		"kind": "infrawright.pack-set", "version": 1, "packs": packs, "shared": shared,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(installed pack set) error: %v", err)
+	}
+	if err := os.WriteFile(profile, append(data, '\n'), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error: %v", profile, err)
+	}
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{PacksRoot: packsRoot, ProfilePath: &profile})
+	if err != nil {
+		t.Fatalf("LoadPackRoot(installed packs) error: %v", err)
+	}
+	return root
+}
+
 func TestAdoptionIdentitySourceVectors(t *testing.T) {
 	resource := adoptionTestResource(metadata.JsonObject{
 		"import_id": "{{tenant}}:{type}:{id}", "key_field": []any{"type", "name"},
@@ -56,6 +129,99 @@ func TestAdoptionIdentitySourceVectors(t *testing.T) {
 	meta := AdoptionMetadata{IdentityFields: map[string]string{}, IdentityRenames: map[string]string{}, ImportID: "{id}", KeyFields: []string{"name"}}
 	if got, err := DeriveAdoptionKey(map[string]any{"id": "fallback-7", "name": "東京"}, meta); err != nil || got != "id_fallback_7" {
 		t.Fatalf("non-ASCII fallback = %q, %v; want id_fallback_7", got, err)
+	}
+}
+
+// TestDeriveAdoptionKeyAbsentFieldBehavesLikeEmpty pins that a key field the
+// item does not carry takes the same id_<slug> fallback a present-but-empty
+// one does.
+//
+// The distinction is not hypothetical: ZIA omits empty fields on the wire, so
+// a predefined url category has no configured_name key at all while the same
+// item spelled configured_name:"" adopted cleanly. Erroring on the absent
+// spelling failed an entire downstream fetch, 235 items of 235.
+func TestDeriveAdoptionKeyAbsentFieldBehavesLikeEmpty(t *testing.T) {
+	meta := AdoptionMetadata{
+		IdentityFields: map[string]string{}, IdentityRenames: map[string]string{},
+		ImportID: "{id}", KeyFields: []string{"configured_name"},
+	}
+	absent, err := DeriveAdoptionKey(map[string]any{"id": "finance"}, meta)
+	if err != nil {
+		t.Fatalf("DeriveAdoptionKey(absent configured_name) error = %v, want the id fallback", err)
+	}
+	empty, err := DeriveAdoptionKey(map[string]any{"id": "finance", "configured_name": ""}, meta)
+	if err != nil {
+		t.Fatalf("DeriveAdoptionKey(empty configured_name) error = %v, want the id fallback", err)
+	}
+	// The equivalence is the claim: both spellings of "this item has no
+	// configured name" produce the same key, and that key is the readable
+	// fallback, not an accident of one code path.
+	if absent != empty || absent != "id_finance" {
+		t.Errorf("DeriveAdoptionKey absent = %q, empty = %q, want both id_finance", absent, empty)
+	}
+	// A custom item beside them keeps its readable key.
+	custom, err := DeriveAdoptionKey(map[string]any{"id": "c1", "configured_name": "Blackrock Box Urls"}, meta)
+	if err != nil || custom != "blackrock_box_urls" {
+		t.Errorf("DeriveAdoptionKey(custom item) = %q, %v; want blackrock_box_urls", custom, err)
+	}
+}
+
+// TestDeriveAdoptionKeyAbsentFieldKeepsTheFailClosedFloor pins what absence
+// may not do: an item with no key-field value and no id has no derivable key,
+// and that still errors rather than inventing one.
+func TestDeriveAdoptionKeyAbsentFieldKeepsTheFailClosedFloor(t *testing.T) {
+	meta := AdoptionMetadata{
+		IdentityFields: map[string]string{}, IdentityRenames: map[string]string{},
+		ImportID: "{id}", KeyFields: []string{"configured_name"},
+	}
+	if key, err := DeriveAdoptionKey(map[string]any{"other": "x"}, meta); err == nil {
+		t.Errorf("DeriveAdoptionKey(no key field, no id) = %q, want a refusal", key)
+	}
+	if key, err := DeriveAdoptionKey(map[string]any{"id": nil}, meta); err == nil {
+		t.Errorf("DeriveAdoptionKey(no key field, null id) = %q, want a refusal", key)
+	}
+}
+
+// TestDeriveAdoptionKeyMultiFieldPartialAbsence pins the multi-field shape:
+// one absent field contributes an empty part while the fields that are
+// present still name the item, matching how a present-but-empty part behaves
+// in the join.
+func TestDeriveAdoptionKeyMultiFieldPartialAbsence(t *testing.T) {
+	meta := AdoptionMetadata{
+		IdentityFields: map[string]string{}, IdentityRenames: map[string]string{},
+		ImportID: "{id}", KeyFields: []string{"type", "configured_name"},
+	}
+	got, err := DeriveAdoptionKey(map[string]any{"id": "9", "type": "ACCESS"}, meta)
+	if err != nil || got != "access" {
+		t.Errorf("DeriveAdoptionKey(one of two fields absent) = %q, %v; want access", got, err)
+	}
+}
+
+// TestAdoptionIdentitiesMixCustomAndPredefinedItems drives the absent-field
+// fallback through DeriveAdoptionIdentities rather than the unit seam,
+// because the downstream failure was a whole fetch: one predefined item
+// without the key field must not take the 234 custom items down with it.
+func TestAdoptionIdentitiesMixCustomAndPredefinedItems(t *testing.T) {
+	resource := adoptionTestResource(metadata.JsonObject{
+		"import_id": "{id}", "key_field": "configured_name",
+	}, nil)
+	result, err := DeriveAdoptionIdentities(
+		mustLosslessAdoptionItems(t, `[
+			{"id":"CUSTOM_01","configured_name":"Blackrock Box Urls"},
+			{"id":"FINANCE"}
+		]`),
+		resource,
+	)
+	if err != nil {
+		t.Fatalf("DeriveAdoptionIdentities(mixed custom and predefined) error = %v, want both adopted", err)
+	}
+	keys := make([]string, 0, len(result.Identities))
+	for _, identity := range result.Identities {
+		keys = append(keys, identity.Key)
+	}
+	want := []string{"blackrock_box_urls", "id_finance"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Errorf("DeriveAdoptionIdentities(mixed) keys = %v, want %v", keys, want)
 	}
 }
 
@@ -321,8 +487,13 @@ func TestAdoptionUnsupportedDiagnosticUsesIDWhenNameIsNull(t *testing.T) {
 }
 
 func TestCommittedRegistryAdoptionMetadataAndClassificationFixture(t *testing.T) {
-	repositoryRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	repositoryRoot := adoptionRepositoryRoot()
 	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
+	profileDocument, err := metadata.LoadPackSetDocument(profile, metadata.PackSetKind)
+	if err != nil {
+		t.Fatalf("LoadPackSetDocument(%q): %v", profile, err)
+	}
+	requireAdoptionPackSelection(t, profileDocument.PackSelection)
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
 	})
@@ -377,14 +548,8 @@ func TestCommittedRegistryAdoptionMetadataAndClassificationFixture(t *testing.T)
 }
 
 func TestCommittedZIA480EndpointAssignmentsFailBeforeOracleWhileScalarsReachIt(t *testing.T) {
-	repositoryRoot := filepath.Clean(filepath.Join("..", "..", ".."))
-	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
-	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
-	})
-	if err != nil {
-		t.Fatalf("LoadPackRoot(ZIA 4.8.0): %v", err)
-	}
+	requireAdoptionPackSelection(t, metadata.PackSelection{Packs: []string{"zia"}, Shared: []string{"zscaler"}})
+	root := installedAdoptionRoot(t)
 	policy, err := LoadAdoptionPolicy(root, nil)
 	if err != nil {
 		t.Fatalf("LoadAdoptionPolicy(ZIA 4.8.0): %v", err)
