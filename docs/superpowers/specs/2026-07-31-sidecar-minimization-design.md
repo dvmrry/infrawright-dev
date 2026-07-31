@@ -36,7 +36,27 @@ something the renderer can compute. Changes:
 3. **Gates unchanged.** The leaf-granular totality gate, foreign-token
    refusal, disabled-mode refusal, and JSON-only contract all operate on
    whichever binding set is in effect.
-4. `roots/scopepaths` keeps recognising the suffix during migration
+   - **Added after adversarial review:** those gates were all keyed on the
+     CURRENT pack's reference edges, which the committed cache used to
+     backstop — a stale cache's selector reached
+     `validateRemoteStateReferences` and was refused as an undeclared edge.
+     With no cache committed, a retired edge made every token gate skip the
+     field, so gen-env additionally runs an edge-independent scan over
+     *every* string leaf of each member's config and refuses any value that
+     decodes as a token no current edge governs. Book membership (prefix
+     names a type with a committed book, remainder is a key that book
+     decodes) is the disambiguator that keeps an innocent dotted string
+     innocent; it is sound because the retirement guard refuses to remove a
+     book while committed tokens still reference its type.
+4. **Raw-ID derivation stays transform-only.** The derivation trigger is per
+   resource type, so one tokenised item pulls its raw-ID siblings through the
+   deriver too. Render-derivation therefore runs with
+   `BindingContext.TokensOnly`, which skips a raw ID *without consulting the
+   book* — otherwise a later referent-only transform that added that ID to
+   the book would silently replace a committed literal with a resolver, with
+   no re-transform of the referrer and no way for state/book disagreement to
+   be caught.
+5. `roots/scopepaths` keeps recognising the suffix during migration
    (committed copies exist downstream); removal of the suffix is a later
    cleanup once downstream trees are clean.
 
@@ -57,8 +77,17 @@ something the renderer can compute. Changes:
 
 ## Invariants
 
-- Emitted roots for an unchanged tree are byte-identical whichever path
-  produced the bindings (bridge vs derived) — pinned by the parity test.
+- For an all-token config, emitted roots for an unchanged tree are
+  byte-identical whichever path produced the bindings (bridge vs derived) —
+  pinned by the parity test. For a MIXED config (tokenised and raw-ID leaves
+  side by side) the two paths differ, correctly and by design: the committed
+  cache carries whatever raw-ID bindings the transform that wrote it derived,
+  and the bridge keeps serving them; render-derivation emits token bindings
+  only, leaving raw-ID leaves as the literals they are. Bridge-wins is the
+  migration contract; derived-emits-tokens-only is the render-purity
+  contract; a mixed tree reconciles the two by re-transforming.
+- A referrer's emitted root never changes because a referent's book changed.
+  Only a re-transform of the referrer rewrites the referrer's leaves.
 - A tree mid-migration (old bindings file present, book at legacy path)
   renders exactly as today.
 - The book's plan-time `file()` path always names a file that exists at

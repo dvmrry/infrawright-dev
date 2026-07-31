@@ -577,6 +577,13 @@ type committedTokenLeaf struct {
 	Key          string
 }
 
+// scannedMember is one member's parsed committed items, retained so the
+// dropped-edge orphan gate can re-walk them without a second parse.
+type scannedMember struct {
+	resourceType string
+	items        map[string]any
+}
+
 // enumerateCommittedReferenceTokens finds every qualified reference token
 // in the members' committed configs, structurally and leaf-granular for
 // JSON tfvars (the same reference-field walk the producer uses) and
@@ -586,6 +593,13 @@ type committedTokenLeaf struct {
 // binding mode -- it reads the pack's declared references directly -- so
 // committed tokens are still seen, and refused loudly upstream, when
 // cross-state binding has been switched off after the fact.
+//
+// Every member's config is read, not only the ones the CURRENT pack declares
+// a reference edge for: an edge the pack has since retired leaves committed
+// tokens behind at a field nothing enumerates, and skipping the file would
+// hand those tokens straight to the module's opaque variable. The
+// edge-independent half of that -- the dropped-edge orphan gate -- runs here
+// too, so a broken token contract is refused before any binding is loaded.
 func enumerateCommittedReferenceTokens(
 	dep deployment.Deployment,
 	tenant string,
@@ -594,12 +608,17 @@ func enumerateCommittedReferenceTokens(
 	topology roots.RootTopology,
 ) ([]committedTokenLeaf, error) {
 	references := transform.MergedTransformReferences(root)
+	configDirectory, err := deployment.DeploymentConfigDir(dep, tenant)
+	if err != nil {
+		return nil, err
+	}
+	scan, err := resolveReferentScanSet(configDirectory, references)
+	if err != nil {
+		return nil, err
+	}
 	var leaves []committedTokenLeaf
+	var scanned []scannedMember
 	for _, resourceType := range members {
-		fields, ok := references[resourceType]
-		if !ok || len(fields) == 0 {
-			continue
-		}
 		config, err := configFile(dep, tenant, resourceType)
 		if err != nil {
 			return nil, err
@@ -611,31 +630,189 @@ func enumerateCommittedReferenceTokens(
 			}
 			return nil, err
 		}
-		if strings.HasSuffix(config, ".json") {
-			found, err := jsonConfigTokenLeaves(raw, config, resourceType, variableName(topology, resourceType), fields)
-			if err != nil {
-				return nil, err
+		if !strings.HasSuffix(config, ".json") {
+			// Tokens are a JSON-format contract. An HCL config cannot be
+			// leaf-verified, so a token-shaped value in one is refused outright
+			// -- fail closed, never a silent passthrough -- with no dependence
+			// on any book or binding mode.
+			if shaped := hclTokenShapedValue(string(raw), scan.referents); shaped != "" {
+				return nil, fmt.Errorf(
+					"%s is HCL-format tfvars and contains the reference-token-shaped value %q; tokenised configs are supported for JSON tfvars only -- convert the deployment's tfvars_format or restore literal IDs",
+					config, shaped,
+				)
 			}
-			leaves = append(leaves, found...)
 			continue
 		}
-		// Tokens are a JSON-format contract. An HCL config cannot be
-		// leaf-verified, so a token-shaped value in one is refused outright
-		// -- fail closed, never a silent passthrough -- with no dependence
-		// on any book or binding mode.
-		if shaped := hclTokenShapedValue(string(raw), allPackReferents(references)); shaped != "" {
-			return nil, fmt.Errorf(
-				"%s is HCL-format tfvars and contains the reference-token-shaped value %q; tokenised configs are supported for JSON tfvars only -- convert the deployment's tfvars_format or restore literal IDs",
-				config, shaped,
-			)
+		items, err := jsonConfigItems(raw, config, variableName(topology, resourceType))
+		if err != nil {
+			return nil, err
 		}
+		if items == nil {
+			continue
+		}
+		if fields := references[resourceType]; len(fields) > 0 {
+			leaves = append(leaves, jsonConfigTokenLeaves(items, resourceType, fields)...)
+		}
+		scanned = append(scanned, scannedMember{resourceType: resourceType, items: items})
+	}
+	if err := assertNoOrphanedTokenClaims(scanned, leaves, scan.bookKeys); err != nil {
+		return nil, err
 	}
 	return leaves, nil
 }
 
+// referentScanSet is the two-part view of "which resource types can a
+// committed value be naming" that token detection needs once pack metadata
+// alone stops being sufficient.
+type referentScanSet struct {
+	// referents is every type any committed value could plausibly qualify:
+	// the current pack's declared referents, plus every type with a committed
+	// book. A retired edge removes the first without removing the second.
+	referents map[string]bool
+	// bookKeys holds, for each referent whose book resolved on disk, the set
+	// of keys that book decodes. A referent with no book has no entry.
+	bookKeys map[string]map[string]bool
+}
+
+// resolveReferentScanSet unions the pack's declared referents with the types
+// carrying a committed book (at either the current lookups/ location or the
+// legacy top-level one) and reads each surviving book's key set.
+func resolveReferentScanSet(
+	configDirectory string,
+	references map[string]map[string]any,
+) (referentScanSet, error) {
+	referents := allPackReferents(references)
+	committed, err := tfrender.CommittedBookReferents(configDirectory)
+	if err != nil {
+		return referentScanSet{}, err
+	}
+	for _, referent := range committed {
+		referents[referent] = true
+	}
+	bookKeys, err := tfrender.CommittedBookKeys(
+		configDirectory, canonjson.SortedStrings(mapKeysBoolSetGeneric(referents)),
+	)
+	if err != nil {
+		return referentScanSet{}, err
+	}
+	return referentScanSet{referents: referents, bookKeys: bookKeys}, nil
+}
+
+// assertNoOrphanedTokenClaims is the dropped-edge gate. It walks EVERY string
+// leaf of every member's committed items -- not just the leaves the current
+// pack declares a reference edge for -- and refuses any value that decodes as
+// a reference token no current edge governs.
+//
+// The disambiguator is book membership, not shape: a value counts as a token
+// claim only when its prefix names a type with a committed book AND its
+// remainder is a key that book decodes. That is exactly the set of values a
+// past transform could have minted, so an innocent dotted string
+// ("zpa_segment_group.note", where "note" is no book key) stays ignored. Book
+// presence is a sound signal because the retirement guard (tfrender's
+// tokenDependents) refuses to remove a book while any committed config still
+// references its type by token -- the book cannot vanish out from under the
+// tokens that depend on it.
+//
+// Refusal, never resolution: with no current edge there is no declared
+// referrer->referent relationship to bind, and inventing one would be exactly
+// the undeclared-edge shape validateRemoteStateReferences exists to reject.
+// The remedy is a re-transform (which restores a literal ID) or restoring the
+// pack edge.
+func assertNoOrphanedTokenClaims(
+	scanned []scannedMember,
+	leaves []committedTokenLeaf,
+	bookKeys map[string]map[string]bool,
+) error {
+	if len(bookKeys) == 0 {
+		return nil
+	}
+	enumerated := make(map[string]bool, len(leaves))
+	for _, leaf := range leaves {
+		enumerated[leafIdentity(leaf.ResourceType, leaf.ItemKey, leaf.Path)] = true
+	}
+	for _, member := range scanned {
+		for _, itemKey := range canonjson.SortedStrings(mapKeysAny(member.items)) {
+			item, ok := member.items[itemKey].(map[string]any)
+			if !ok {
+				continue
+			}
+			var failure error
+			collectStringLeaves(item, "", func(path, text string) {
+				if failure != nil {
+					return
+				}
+				referent, claimed := tokenClaimReferent(text, bookKeys)
+				if !claimed || enumerated[leafIdentity(member.resourceType, itemKey, path)] {
+					return
+				}
+				failure = fmt.Errorf(
+					"committed token %q at %s.%s.%s is governed by no current pack reference edge, but %s still has a committed book that decodes it; re-run transform/adopt to restore a literal id, or restore the pack's reference edge for this field (an unresolvable token must never reach the module boundary)",
+					text, member.resourceType, itemKey, path, referent,
+				)
+			})
+			if failure != nil {
+				return failure
+			}
+		}
+	}
+	return nil
+}
+
+func leafIdentity(resourceType, itemKey, path string) string {
+	return resourceType + "\x00" + itemKey + "\x00" + path
+}
+
+// tokenClaimReferent reports the referent a committed value claims, using the
+// producer's own split (an identifier segment, a dot, a remainder that may
+// itself contain dots) plus book membership.
+func tokenClaimReferent(value string, bookKeys map[string]map[string]bool) (string, bool) {
+	dot := strings.IndexByte(value, '.')
+	if dot <= 0 {
+		return "", false
+	}
+	referent := value[:dot]
+	if !tokenFieldSegmentPattern.MatchString(referent) {
+		return "", false
+	}
+	keys, booked := bookKeys[referent]
+	if !booked || !keys[value[dot+1:]] {
+		return "", false
+	}
+	return referent, true
+}
+
+// collectStringLeaves reports every string leaf under value with the SAME
+// path convention collectTokenLeaves uses, so the two walks address one leaf
+// identically: intermediate lists are indexed, and a terminal list of strings
+// reports the list's own path (the path a binding for it is written at).
+func collectStringLeaves(value any, concretePath string, report func(path, text string)) {
+	switch typed := value.(type) {
+	case string:
+		report(concretePath, typed)
+	case map[string]any:
+		for _, name := range canonjson.SortedStrings(mapKeysAny(typed)) {
+			childPath := name
+			if concretePath != "" {
+				childPath = concretePath + "." + name
+			}
+			collectStringLeaves(typed[name], childPath, report)
+		}
+	case []any:
+		for index, child := range typed {
+			if text, ok := child.(string); ok {
+				report(concretePath, text)
+				continue
+			}
+			collectStringLeaves(child, fmt.Sprintf("%s[%d]", concretePath, index), report)
+		}
+	}
+}
+
 // allPackReferents collects every referent type any pack reference
-// declares, so HCL refusal and foreign-token handling key on pack truth
-// rather than one field's declaration.
+// declares, so foreign-token handling keys on pack truth rather than one
+// field's declaration. It is one half of referentScanSet.referents (the
+// other being the types carrying a committed book), which is what the HCL
+// refusal keys on.
 func allPackReferents(references map[string]map[string]any) map[string]bool {
 	referents := map[string]bool{}
 	for _, fields := range references {
@@ -668,15 +845,11 @@ func hclTokenShapedValue(text string, referents map[string]bool) string {
 	return ""
 }
 
-// jsonConfigTokenLeaves walks one JSON config's declared reference fields
-// with the producer's traversal rules (identifier-segment dotted paths,
-// arrays fanned at every level) and reports each string leaf carrying the
-// field's referent prefix.
-func jsonConfigTokenLeaves(
-	raw []byte,
-	config, resourceType, itemsVariable string,
-	fields map[string]any,
-) ([]committedTokenLeaf, error) {
+// jsonConfigItems parses one member's committed JSON tfvars and returns its
+// item map, or nil when the file carries no such map. Split out of
+// jsonConfigTokenLeaves so the reference-leaf enumeration and the
+// dropped-edge orphan gate read one parse of one file rather than two.
+func jsonConfigItems(raw []byte, config, itemsVariable string) (map[string]any, error) {
 	parsed, err := canonjson.ParseDataJSONLosslessly(string(raw))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", config, err)
@@ -689,6 +862,18 @@ func jsonConfigTokenLeaves(
 	if !ok {
 		return nil, nil
 	}
+	return items, nil
+}
+
+// jsonConfigTokenLeaves walks one JSON config's declared reference fields
+// with the producer's traversal rules (identifier-segment dotted paths,
+// arrays fanned at every level) and reports each string leaf carrying the
+// field's referent prefix.
+func jsonConfigTokenLeaves(
+	items map[string]any,
+	resourceType string,
+	fields map[string]any,
+) []committedTokenLeaf {
 	var leaves []committedTokenLeaf
 	for _, field := range canonjson.SortedStrings(mapKeysAny(fields)) {
 		if _, ok := referentOfFieldSpec(fields[field]); !ok {
@@ -715,7 +900,7 @@ func jsonConfigTokenLeaves(
 			})
 		}
 	}
-	return leaves, nil
+	return leaves
 }
 
 // tokenShapedValue mirrors the producer's tokenShaped rule exactly: an
@@ -799,8 +984,14 @@ func collectTokenLeavesThrough(value any, rest []string, concretePath string, re
 // written a token-shaped value at such a field to begin with; the leaf this
 // function over-enumerates is one production could never produce. If it
 // somehow did, assertTokenLeavesCovered's totality gate refuses loudly for
-// lacking a covering binding rather than passing it through silently --
-// fails closed either way.
+// lacking a covering binding rather than passing it through silently.
+//
+// Over-enumeration is the safe direction; UNDER-enumeration is not, and this
+// function cannot see the case that matters: a field whose reference entry
+// the current pack has REMOVED entirely. No spec, loose or strict, reaches a
+// leaf its own metadata no longer mentions, so that direction is closed
+// elsewhere -- by assertNoOrphanedTokenClaims, which walks every string leaf
+// and keys on committed-book membership instead of pack metadata.
 func referentOfFieldSpec(raw any) (string, bool) {
 	specification, ok := raw.(map[string]any)
 	if !ok {
@@ -1222,14 +1413,25 @@ func validateRemoteStateReferences(
 //     until transform stops writing one, and a cache that has gone stale
 //     still fails through the same gates it always did rather than being
 //     silently corrected under the operator.
-//   - file absent, config carries tokens: derive. Committed tokens name
-//     their referent and key outright, so the derivation reads only
-//     committed artifacts and reproduces what transform would have cached.
+//   - file absent, config carries tokens: derive -- the TOKENS, and only
+//     them. Committed tokens name their referent and key outright, so the
+//     derivation reads only committed artifacts and reproduces what
+//     transform would have cached for those leaves. The trigger is
+//     necessarily per resource type, so a mixed config drags its raw-ID
+//     leaves through the deriver as well; BindingContext.TokensOnly is what
+//     keeps them literal (see deriveGeneratedBindingLayer).
 //   - file absent, no tokens: nothing. Raw-ID derivation stays
 //     transform-only: an old-shape leaf carries a tenant ID that only the
 //     book can translate, so deriving here would make an unchanged tree's
 //     emitted root depend on book contents -- a silent behaviour change for
 //     every tree that has not re-transformed.
+//
+// Byte parity between the first two arms is exact for an all-token config
+// (pinned by TestDerivedBindingsMatchCommittedCacheByteForByte). For a mixed
+// config they differ on purpose: the committed cache carries whatever raw-ID
+// bindings the transform that wrote it derived and the bridge keeps serving
+// them, while derivation emits token bindings only. A mixed tree reconciles
+// the two by re-transforming.
 //
 // carriesTokens is the caller's per-type slice of the root's committed-token
 // enumeration, not a second scan: one scan decides both this bridge and the
@@ -1319,8 +1521,13 @@ func loadBindingLayers(
 // referrer's provider schema (which decides set-block leaves), the
 // deployment topology, the committed config items, and the referents'
 // committed books. It is the same tfrender.DeriveGeneratedBindings transform
-// runs, over the same BindingContext transform builds, so the expressions
-// are identical by construction rather than by agreement.
+// runs, over the same BindingContext transform builds, so a tokenised leaf's
+// expression is identical by construction rather than by agreement.
+//
+// The context differs from transform's in exactly one bit -- TokensOnly --
+// and that bit governs only leaves still carrying raw tenant IDs, which
+// render-derivation must leave literal. Over a fully tokenised config the two
+// contexts are indistinguishable.
 //
 // The derived result is rendered and re-parsed through the very functions
 // the committed file travels through (RenderGeneratedBindings ->
@@ -1351,6 +1558,12 @@ func deriveGeneratedBindingLayer(
 	if err != nil {
 		return nil, err
 	}
+	// The derivation trigger is per resource type, so one tokenised item pulls
+	// every sibling in the same config through the deriver -- including leaves
+	// still carrying raw tenant IDs. Those bind at transform, never here: see
+	// tfrender.BindingContext.TokensOnly for why resolving one at render would
+	// make an unchanged tree's emitted root a function of book contents.
+	context.TokensOnly = true
 	config, err := configFile(dep, tenant, resource.Type)
 	if err != nil {
 		return nil, err

@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
 // segmentGroupBookContent is the referent book tokenise/tokeniseAtLegacyPath
@@ -294,6 +296,13 @@ func TestDisabledModeWithCommittedTokensRefused(t *testing.T) {
 // non-reference string value that happens to look dotted must not flip the
 // root into token mode -- the probe filter still runs and no resolver
 // machinery is emitted.
+//
+// The referent's book is committed deliberately. It is what puts
+// zpa_segment_group in the dropped-edge orphan scan's referent set, so the
+// wide scan does look at this value and classify it -- and "note" is not a
+// key in that book, which is the disambiguator that keeps an innocent dotted
+// string innocent. Without the book on disk the scan would skip the prefix
+// outright and this test would prove nothing about book membership.
 func TestInnocentDottedStringKeepsProbeActive(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	config := filepath.Join(fixture.workspace, "config", "tenant")
@@ -303,6 +312,7 @@ func TestInnocentDottedStringKeepsProbeActive(t *testing.T) {
 			"description":      "zpa_segment_group.note",
 		}},
 	})
+	writeJSONFile(t, filepath.Join(config, "lookups", "zpa_segment_group.lookup.json"), segmentGroupBookContent())
 
 	var probeCalls []string
 	outputRoot := fixture.outputRoot
@@ -426,10 +436,15 @@ func TestStaleBindingAtTokenPathRefused(t *testing.T) {
 // docs/superpowers/specs/2026-07-31-sidecar-minimization-design.md.
 
 // TestDerivedBindingsMatchCommittedCacheByteForByte is the parity pin: over
-// one fixture, the tree rendered from the committed (token-derived) cache and
-// the tree rendered with that cache deleted must be byte-identical. Same
-// derivation engine, same inputs, so any divergence is a defect in the
-// render-time wiring, not in the derivation.
+// one fully tokenised fixture, the tree rendered from the committed
+// (token-derived) cache and the tree rendered with that cache deleted must be
+// byte-identical. Same derivation engine, same inputs, so any divergence is a
+// defect in the render-time wiring, not in the derivation.
+//
+// The fixture is all-token deliberately. Parity is claimed for that shape
+// only: a MIXED config's cache carries raw-ID bindings render-derivation
+// correctly declines to reproduce, which
+// TestMixedConfigRenderDerivationBindsTokensOnly pins below.
 func TestDerivedBindingsMatchCommittedCacheByteForByte(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.tokenise(t)
@@ -527,5 +542,172 @@ func TestOldShapeConfigNeverDerivesFromTheBook(t *testing.T) {
 	if !equalTrees(booked, bookless) {
 		t.Errorf("old-shape tree changed once the book existed:\ngot  %v\nwant %v",
 			mapKeysForTest(booked), mapKeysForTest(bookless))
+	}
+}
+
+// The tests below pin the two round-4 adversarial-review findings against the
+// sidecar-minimization branch: a committed token orphaned by a dropped pack
+// edge (which used to fail OPEN once the bindings cache was no longer
+// committed), and render-derivation rebinding raw-ID leaves that share a
+// config with a tokenised one.
+
+// zpaReferencesWithoutSegmentGroupEdge is the pack version that RETIRED
+// zpa_application_segment.segment_group_id. Every other edge survives, so the
+// referrer is still a reference-carrying type and the root topology is
+// unchanged in shape -- only the edge the committed token depends on is gone.
+func zpaReferencesWithoutSegmentGroupEdge() metadata.JsonObject {
+	references := defaultSyntheticZpaReferences()
+	referrer, ok := references["zpa_application_segment"].(metadata.JsonObject)
+	if !ok {
+		panic("synthetic zpa references no longer declare zpa_application_segment")
+	}
+	delete(referrer, "segment_group_id")
+	return references
+}
+
+// TestDroppedPackEdgeOrphansCommittedTokenRefused pins round-4 blocker 1.
+// Retiring a reference edge is ordinary pack evolution, and a tenant that has
+// not re-transformed still carries the token that edge minted. Before the
+// bindings cache was retired the stale cache's selector reached
+// validateRemoteStateReferences and was refused as an undeclared edge; with no
+// cache committed, the edge-keyed enumeration skipped the field entirely, the
+// root's token gates never ran, and the literal token flowed through
+// var.<items> to a string-typed provider field.
+//
+// The refusal must name the leaf, the token, and the remedy.
+func TestDroppedPackEdgeOrphansCommittedTokenRefused(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokenise(t)
+	fixture.removeCommittedBindings(t)
+
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot,
+		Root:       syntheticRootWithZpaReferences(t, zpaReferencesWithoutSegmentGroupEdge()),
+		Selectors:  []string{"zpa_application_segment"}, Tenant: "tenant",
+	})
+	if err == nil {
+		t.Fatalf("GenerateEnvironmentRoots error = nil, want a refusal for the orphaned token")
+	}
+	for _, want := range []string{
+		"app_one.segment_group_id",
+		"zpa_segment_group.segment_one",
+		"re-run transform",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("GenerateEnvironmentRoots error = %q, want it to name %q", err, want)
+		}
+	}
+}
+
+// TestDroppedPackEdgeLeavesUnbookedValuesAlone is the orphan gate's negative
+// half. The same dropped edge, but the committed value's remainder is not a
+// key in the referent's book, so nothing was ever minted there and the value
+// is an ordinary string. Generation must succeed. Without this, a gate that
+// refused every dotted string at every leaf would satisfy the test above.
+func TestDroppedPackEdgeLeavesUnbookedValuesAlone(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokenise(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"app_one": map[string]any{
+			"segment_group_id": "zpa_segment_group.no_such_key",
+		}},
+	})
+	fixture.removeCommittedBindings(t)
+
+	outputRoot := fixture.outputRoot
+	if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot,
+		Root:       syntheticRootWithZpaReferences(t, zpaReferencesWithoutSegmentGroupEdge()),
+		Selectors:  []string{"zpa_application_segment"}, Tenant: "tenant",
+	}); err != nil {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil for a value no book decodes", err)
+	}
+}
+
+// segmentGroupBookWithSecondEntry is segmentGroupBookContent extended with a
+// second referent whose raw tenant ID ("sg-2") a mixed config still carries
+// literally -- the ID render-derivation must never resolve.
+func segmentGroupBookWithSecondEntry() map[string]any {
+	return map[string]any{
+		"by_id":     map[string]any{"sg-1": "Segment One", "sg-2": "Segment Two"},
+		"id_by_key": map[string]any{"segment_one": "sg-1", "segment_two": "sg-2"},
+		"key_by_id": map[string]any{"sg-1": "segment_one", "sg-2": "segment_two"},
+	}
+}
+
+// tokeniseMixed writes the shape the committed demo tree actually has: one
+// item tokenised by a past transform and a sibling still carrying a raw
+// tenant ID, under one config for one resource type.
+func (f stateAwareFixture) tokeniseMixed(t *testing.T, book map[string]any) {
+	t.Helper()
+	config := filepath.Join(f.workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{
+			"app_one": map[string]any{"segment_group_id": "zpa_segment_group.segment_one"},
+			"app_two": map[string]any{"segment_group_id": "sg-2"},
+		},
+	})
+	writeJSONFile(t, filepath.Join(config, "lookups", "zpa_segment_group.lookup.json"), book)
+}
+
+// TestMixedConfigRenderDerivationBindsTokensOnly pins round-4 finding 2. The
+// derivation trigger is per resource type, so one tokenised item drags every
+// other item in the same config through DeriveGeneratedBindings -- and the
+// deriver's raw-ID branch would resolve any ID the book happens to know.
+// Raw-ID derivation is transform-only: binding it here makes the emitted root
+// depend on book contents for a leaf no transform touched.
+func TestMixedConfigRenderDerivationBindsTokensOnly(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokeniseMixed(t, segmentGroupBookWithSecondEntry())
+	fixture.removeCommittedBindings(t)
+
+	diagnostics := fixture.generate(t, false)
+
+	bindings := fixture.readReferrerFile(t, expressionBindingsTF)
+	if !strings.Contains(bindings, `local.infrawright_reference_book_zpa_segment_group["segment_one"]`) {
+		t.Errorf("%s = %q, want the tokenised leaf bound", expressionBindingsTF, bindings)
+	}
+	if strings.Contains(bindings, "app_two") || strings.Contains(bindings, "segment_two") {
+		t.Errorf("%s = %q, want NO binding for the raw-ID leaf (raw ids bind at transform, not render)", expressionBindingsTF, bindings)
+	}
+	if !containsString(diagnostics, "NOTE bindings: zpa_application_segment: 1 bound, 1 skipped (raw_id_render_only=1)") {
+		t.Errorf("diagnostics = %v, want the raw-ID leaf accounted as skipped", diagnostics)
+	}
+	if !containsDiagnostic(diagnostics, "raw ids bind at transform") {
+		t.Errorf("diagnostics = %v, want the skip reason named", diagnostics)
+	}
+}
+
+// TestMixedConfigRenderIsIndependentOfBookGrowth is the same invariant stated
+// as an observable: a referent-only transform that adds an ID to the book must
+// not change the referrer's emitted root. Only a re-transform of the referrer
+// may rewrite its leaves.
+func TestMixedConfigRenderIsIndependentOfBookGrowth(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokeniseMixed(t, segmentGroupBookContent())
+	fixture.removeCommittedBindings(t)
+
+	fixture.generate(t, false)
+	before := fixture.referrerTree(t)
+	if bindings, present := before[expressionBindingsTF]; !present ||
+		!strings.Contains(bindings, "try(data.terraform_remote_state.zpa_segment_group") {
+		t.Fatalf("%s = %q, want the tokenised leaf's resolver to compare against", expressionBindingsTF, bindings)
+	}
+
+	// The referent re-transforms and its book gains the sibling's raw ID.
+	writeJSONFile(t,
+		filepath.Join(fixture.workspace, "config", "tenant", "lookups", "zpa_segment_group.lookup.json"),
+		segmentGroupBookWithSecondEntry())
+
+	fixture.generate(t, false)
+	if after := fixture.referrerTree(t); !equalTrees(after, before) {
+		t.Errorf("referrer root changed when the referent's book gained an id:\ngot  %v\nwant %v",
+			after[expressionBindingsTF], before[expressionBindingsTF])
 	}
 }

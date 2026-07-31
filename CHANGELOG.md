@@ -100,6 +100,20 @@
   type check could not have caught a leaked token. Committed tokens under
   a since-disabled `cross_state_references` are likewise a loud refusal,
   never a silent passthrough.
+- Retiring a pack reference edge no longer strands the tokens that edge
+  minted. gen-env walks every string leaf of every member's committed
+  config — not only the leaves the current pack declares an edge for — and
+  refuses to render while any value decodes as a reference token no
+  current edge governs, naming the leaf, the token, and the remedy
+  (re-transform, or restore the edge). A value counts as a token only when
+  its prefix names a type with a committed book *and* its remainder is a
+  key that book decodes, so an innocent dotted string stays untouched.
+- Raw tenant IDs bind at transform, never at render. A config mixing a
+  tokenised leaf with a still-literal one derives only the token: gen-env's
+  render-time derivation skips raw IDs without consulting the book at all,
+  so a later referent-only transform that adds an ID to a book cannot
+  silently rewrite a committed literal into a remote-state resolver. Only a
+  re-transform of the referrer changes the referrer's leaves.
 
 - `gen-env --state-aware` now probes the referent's *backend* (scratch
   `terraform init` + `state pull` keyed `<tenant>/<label>.tfstate`) instead of

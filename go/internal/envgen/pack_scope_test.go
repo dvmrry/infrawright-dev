@@ -43,11 +43,38 @@ func writeSyntheticTopologyPack(
 	})
 }
 
+// defaultSyntheticZpaReferences is the zpa pack's reference metadata every
+// existing envgen fixture assumes. It is a function rather than a package
+// var so each call gets a fresh map: writeSyntheticTopologyPack serialises
+// it, and a test that edits the result must not perturb the next test.
+func defaultSyntheticZpaReferences() metadata.JsonObject {
+	return metadata.JsonObject{
+		"zpa_application_segment": metadata.JsonObject{
+			"segment_group_id": metadata.JsonObject{"name_field": "name", "referent": "zpa_segment_group"},
+			"server_groups.id": metadata.JsonObject{"name_field": "name", "referent": "zpa_server_group"},
+		},
+		"zpa_server_group": metadata.JsonObject{
+			"app_connector_groups.id": metadata.JsonObject{"name_field": "name", "referent": "zpa_app_connector_group"},
+			"servers.id":              metadata.JsonObject{"name_field": "name", "referent": "zpa_application_server"},
+		},
+	}
+}
+
 // syntheticRootForTopology supplies the smallest pack universe that retains
 // the cross-provider and nested-reference shapes exercised by envgen. The
 // resource labels intentionally match the legacy fixtures so those tests keep
 // proving their original behavior without reading any committed pack.
 func syntheticRootForTopology(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	return syntheticRootWithZpaReferences(t, defaultSyntheticZpaReferences())
+}
+
+// syntheticRootWithZpaReferences is syntheticRootForTopology with the zpa
+// pack's `references` block supplied by the caller, so a test can express a
+// pack VERSION that no longer declares an edge an older transform already
+// committed tokens for -- valid pack evolution, and the shape the
+// dropped-edge orphan gate exists to catch.
+func syntheticRootWithZpaReferences(t *testing.T, zpaReferences metadata.JsonObject) metadata.LoadedPackRoot {
 	t.Helper()
 	packsRoot := t.TempDir()
 
@@ -99,16 +126,7 @@ func syntheticRootForTopology(t *testing.T) metadata.LoadedPackRoot {
 		"pin":               "1.0.0",
 		"provider_prefixes": metadata.JsonObject{"zpa_": "zpa"},
 		"provider_sources":  metadata.JsonObject{"zpa": "zscaler/zpa"},
-		"references": metadata.JsonObject{
-			"zpa_application_segment": metadata.JsonObject{
-				"segment_group_id": metadata.JsonObject{"name_field": "name", "referent": "zpa_segment_group"},
-				"server_groups.id": metadata.JsonObject{"name_field": "name", "referent": "zpa_server_group"},
-			},
-			"zpa_server_group": metadata.JsonObject{
-				"app_connector_groups.id": metadata.JsonObject{"name_field": "name", "referent": "zpa_app_connector_group"},
-				"servers.id":              metadata.JsonObject{"name_field": "name", "referent": "zpa_application_server"},
-			},
-		},
+		"references":        zpaReferences,
 	}, zpaRegistry, zpaSchemas)
 
 	ziaSchemas := metadata.JsonObject{
