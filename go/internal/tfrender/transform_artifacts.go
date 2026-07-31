@@ -1784,17 +1784,45 @@ func droppedBookKeys(configDirectory, resourceType string, fresh *TransformLooku
 	return canonjson.SortedStrings(dropped), nil
 }
 
-// tokenKeyDependents reports, per dropped key, the committed config artifacts
-// in configDirectory that still name "<resourceType>.<key>". Configs owned by
-// a type in rewritten are skipped: this run is about to replace them, so the
-// token they currently hold is transient.
+// configTextTokenKeys reports which of the dropped keys one config document
+// names as "<resourceType>.<key>".
 //
-// JSON configs are parsed and matched on whole string VALUES; HCL configs
-// cannot be parsed here, so they are matched on the quoted token text.
+// A JSON document is parsed and matched on whole string VALUES: a token is
+// always an entire value, so exact equality is both the precise test and the
+// one a dotted map key cannot trip. An HCL document cannot be parsed here, so
+// it is matched on the quoted token text -- and an unparseable JSON document
+// falls to the same textual rule rather than being read as clean.
+func configTextTokenKeys(text string, jsonFormat bool, resourceType string, dropped []string) []string {
+	values := map[string]bool{}
+	parsed := false
+	if jsonFormat {
+		if decoded, err := canonjson.ParseDataJSONLosslessly(text); err == nil {
+			jsonStringValues(decoded, values)
+			parsed = true
+		}
+	}
+	var named []string
+	for _, key := range dropped {
+		token := resourceType + "." + key
+		held := values[token]
+		if !parsed {
+			held = strings.Contains(text, `"`+token+`"`)
+		}
+		if held {
+			named = append(named, key)
+		}
+	}
+	return named
+}
+
+// tokenKeyDependents reports, per dropped key, the committed config artifacts
+// in configDirectory that still name "<resourceType>.<key>". Every config
+// artifact is scanned, this type's own included: no file is exempt, because no
+// publication path here is transactional enough to justify excusing one (see
+// assertNoBookKeyStranding).
 func tokenKeyDependents(
 	configDirectory, resourceType string,
 	dropped []string,
-	rewritten map[string]bool,
 ) (map[string][]string, error) {
 	entries, err := os.ReadDir(configDirectory)
 	if err != nil {
@@ -1806,31 +1834,17 @@ func tokenKeyDependents(
 	dependents := map[string][]string{}
 	for _, entry := range entries {
 		name := entry.Name()
-		owner := configOwnerType(name)
-		if entry.IsDir() || owner == "" || rewritten[owner] {
+		if entry.IsDir() || configOwnerType(name) == "" {
 			continue
 		}
 		raw, err := os.ReadFile(path.Join(configDirectory, name))
 		if err != nil {
 			return nil, err
 		}
-		values := map[string]bool{}
-		parsed := false
-		if strings.HasSuffix(name, ".auto.tfvars.json") {
-			if decoded, parseErr := canonjson.ParseDataJSONLosslessly(string(raw)); parseErr == nil {
-				jsonStringValues(decoded, values)
-				parsed = true
-			}
-		}
-		for _, key := range dropped {
-			token := resourceType + "." + key
-			held := values[token]
-			if !parsed {
-				held = strings.Contains(string(raw), `"`+token+`"`)
-			}
-			if held {
-				dependents[key] = append(dependents[key], name)
-			}
+		for _, key := range configTextTokenKeys(
+			string(raw), strings.HasSuffix(name, ".auto.tfvars.json"), resourceType, dropped,
+		) {
+			dependents[key] = append(dependents[key], name)
 		}
 	}
 	for key, files := range dependents {
@@ -1858,6 +1872,25 @@ func tokenKeyDependents(
 // rollback is best-effort. A selection-scoped exemption therefore published
 // the new book and then simply did not repair the dependent.
 //
+// The compiling type's OWN config is scanned too, on both sides of the write.
+// It was briefly skipped on the argument that a type never mints a token
+// naming itself (bindableReference refuses a self-reference outright). That
+// argument covers MINTING a declared self-reference and nothing else: gen-env
+// classifies a token by book membership over every string leaf, with no
+// own-config exception, so an ordinary description reading
+// "<type>.<key>" is a token claim to every render-time gate. Two checks,
+// guarding two different failures, neither subsuming the other:
+//
+//   - the COMMITTED copy on disk guards the publication window.
+//     PublishCompiledTransformArtifacts writes the book before the config, and
+//     writes them directly rather than transactionally, so a failure between
+//     the two leaves the old config beside the new book. A planned replacement
+//     is not a transactional justification.
+//   - the freshly compiled CONFIG TEXT guards the steady state after a
+//     successful publish: a value this compile is about to commit that the new
+//     book will not decode. A disk-only scan sees a clean tree and misses it
+//     entirely.
+//
 // The cost is a real deadlock: renaming a referent item refuses until the
 // referrer's committed reference is updated, and re-transforming the referrer
 // first re-mints the same departing key from the still-committed book, so the
@@ -1870,20 +1903,27 @@ func tokenKeyDependents(
 // pipeline's own writes. A book deleted or edited by hand outside the pipeline
 // is not covered.
 func assertNoBookKeyStranding(
-	configDirectory, resourceType string,
+	configDirectory, resourceType, configFile, configText string,
 	fresh *TransformLookupData,
 ) error {
 	dropped, err := droppedBookKeys(configDirectory, resourceType, fresh)
 	if err != nil || len(dropped) == 0 {
 		return err
 	}
-	// Only this type's own config is out of scope, and not as an exemption: a
-	// type never mints a token naming itself (bindableReference refuses a
-	// self-reference outright), so a self-prefixed value in its own config is
-	// by construction not a token this book decodes for anyone.
-	dependents, err := tokenKeyDependents(configDirectory, resourceType, dropped, map[string]bool{resourceType: true})
-	if err != nil || len(dependents) == 0 {
+	dependents, err := tokenKeyDependents(configDirectory, resourceType, dropped)
+	if err != nil {
 		return err
+	}
+	if dependents == nil {
+		dependents = map[string][]string{}
+	}
+	for _, key := range configTextTokenKeys(
+		configText, strings.HasSuffix(configFile, ".json"), resourceType, dropped,
+	) {
+		dependents[key] = append(dependents[key], path.Base(configFile)+" (this run's pending output)")
+	}
+	if len(dependents) == 0 {
+		return nil
 	}
 	var stranded []string
 	for _, key := range dropped {
@@ -2261,16 +2301,6 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
-	// A book that keeps existing but stops decoding a key strands its tokens
-	// exactly as thoroughly as a removed book does, so the same refusal
-	// applies key by key.
-	if lookupText != nil && freshLookup != nil {
-		if err := assertNoBookKeyStranding(
-			path.Dir(paths.Config), options.ResourceType, freshLookup,
-		); err != nil {
-			return CompiledTransformArtifacts{}, err
-		}
-	}
 	// Once committed configs reference this type by token, its book is the
 	// only decoder those tokens have: inferred-lifecycle removal must refuse
 	// while any dependent survives, not strand them.
@@ -2357,6 +2387,19 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	)
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
+	}
+
+	// A book that keeps existing but stops decoding a key strands its tokens
+	// exactly as thoroughly as a removed book does, so the same refusal applies
+	// key by key. This runs after the config renders because the check needs
+	// this compile's own pending config text as well as what is on disk; it is
+	// still pure compilation, so nothing has been published when it refuses.
+	if lookupText != nil && freshLookup != nil {
+		if err := assertNoBookKeyStranding(
+			path.Dir(paths.Config), options.ResourceType, paths.Config, configText, freshLookup,
+		); err != nil {
+			return CompiledTransformArtifacts{}, err
+		}
 	}
 
 	binding, err := DeriveGeneratedBindings(options.BindingContext, options.Result.Items, keyMaps, options.ResourceType)

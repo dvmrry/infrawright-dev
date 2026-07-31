@@ -1024,3 +1024,114 @@ func TestBookKeyShrinkageScansOnlyItsOwnConfigDirectory(t *testing.T) {
 		t.Errorf("CompileTransformArtifactBatch error = %q, want it to name the stranded token", err)
 	}
 }
+
+// The three tests below pin the round-4 re-review's own-config hole. The guard
+// skipped the compiling type's own config on the argument that a type never
+// mints a token naming itself. That argument covers MINTING a declared
+// self-reference; it says nothing about a string value that merely looks like
+// one, and envgen's token contract is book membership over EVERY string leaf
+// with no own-config exception. A self-prefixed value in the referent's own
+// config is a token claim to gen-env, so a book update that stops decoding it
+// strands it exactly like any other.
+//
+// The check is two-sided, and each side guards a different failure:
+//
+//   - the committed copy on disk guards the publication window. The single
+//     publisher writes the book BEFORE the config, so a crash between the two
+//     leaves the old config beside the new book.
+//   - the freshly compiled ConfigText guards the steady state after a
+//     successful publish: a value this compile is about to commit that the new
+//     book will not decode.
+//
+// Neither subsumes the other, so both are checked.
+
+// ownConfigStrandingOptions is a sample_group compile whose fresh book drops
+// "retired" (as shrinkingBookOptions) and whose own committed and/or projected
+// config carries a self-prefixed value naming that key, per the caller.
+func ownConfigStrandingOptions(t *testing.T, workspace string, committed, projected bool) TransformArtifactCompileOptions {
+	t.Helper()
+	options := shrinkingBookOptions(t, workspace)
+	paths := mustComputePaths(t, options)
+	description := "an ordinary description"
+	if committed {
+		description = "sample_group.retired"
+	}
+	writeFileMkdir(t, paths.Config, `{"items":{"example":{"description":`+jsonQuote(description)+`,"name":"Example"}}}`)
+	item := map[string]any{"name": "Example"}
+	if projected {
+		item["description"] = "sample_group.retired"
+	} else {
+		item["description"] = "an ordinary description"
+	}
+	options.Result = PullTransformResult{
+		Drops:     []string{},
+		Items:     map[string]map[string]any{"example": item},
+		Originals: map[string]map[string]any{"example": {"id": "id-1", "name": "Example"}},
+	}
+	return options
+}
+
+// TestBookKeyShrinkageRefusesOwnConfigStranding is the re-review's four-step
+// repro verbatim: book carries example and retired, the type's own committed
+// config carries a string leaf naming sample_group.retired, and the fresh
+// compile both drops the key from the book and preserves that value.
+func TestBookKeyShrinkageRefusesOwnConfigStranding(t *testing.T) {
+	workspace := t.TempDir()
+	options := ownConfigStrandingOptions(t, workspace, true, true)
+
+	_, err := CompileTransformArtifacts(options)
+	if err == nil {
+		t.Fatalf("CompileTransformArtifacts error = nil, want a refusal: the type's own config strands the dropped key too")
+	}
+	if !strings.Contains(err.Error(), "sample_group.retired") ||
+		!strings.Contains(err.Error(), "sample_group.auto.tfvars.json") {
+		t.Errorf("CompileTransformArtifacts error = %q, want it to name the token and this type's own config", err)
+	}
+}
+
+// TestBookKeyShrinkageRefusesOwnCommittedConfigAlone isolates the disk side.
+// The projected config legitimately drops the value, so after a SUCCESSFUL
+// publish the tree would be consistent -- but the book is written before the
+// config, so a failure between the two leaves the committed value beside a
+// book that no longer decodes it.
+func TestBookKeyShrinkageRefusesOwnCommittedConfigAlone(t *testing.T) {
+	workspace := t.TempDir()
+	options := ownConfigStrandingOptions(t, workspace, true, false)
+
+	_, err := CompileTransformArtifacts(options)
+	if err == nil {
+		t.Fatalf("CompileTransformArtifacts error = nil, want a refusal: publication is not atomic across the book and the config")
+	}
+	if !strings.Contains(err.Error(), "sample_group.retired") {
+		t.Errorf("CompileTransformArtifacts error = %q, want it to name the token", err)
+	}
+}
+
+// TestBookKeyShrinkageRefusesOwnPendingConfigAlone isolates the fresh-text
+// side: nothing on disk names the key, so a disk-only scan sees a clean tree,
+// yet this very compile is about to commit a value the new book will not
+// decode.
+func TestBookKeyShrinkageRefusesOwnPendingConfigAlone(t *testing.T) {
+	workspace := t.TempDir()
+	options := ownConfigStrandingOptions(t, workspace, false, true)
+
+	_, err := CompileTransformArtifacts(options)
+	if err == nil {
+		t.Fatalf("CompileTransformArtifacts error = nil, want a refusal: this compile itself commits the stranded value")
+	}
+	if !strings.Contains(err.Error(), "sample_group.retired") {
+		t.Errorf("CompileTransformArtifacts error = %q, want it to name the token", err)
+	}
+}
+
+// TestBookKeyShrinkageAllowsCleanOwnConfig keeps the two-sided check honest: a
+// type whose own config names the departing key on neither side publishes the
+// shrinkage exactly as before.
+func TestBookKeyShrinkageAllowsCleanOwnConfig(t *testing.T) {
+	workspace := t.TempDir()
+	options := ownConfigStrandingOptions(t, workspace, false, false)
+
+	if _, err := CompileTransformArtifacts(options); err != nil {
+		t.Fatalf("CompileTransformArtifacts error = %v, want nil when neither the committed nor the pending own config names the key", err)
+	}
+}
