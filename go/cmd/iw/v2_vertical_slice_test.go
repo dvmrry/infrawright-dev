@@ -1544,12 +1544,14 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 		filepath.ToSlash(filepath.Join("imports", v2Tenant, v2ResourceType+"_imports.tf")):      v2ReadFile(t, wantImportsPath),
 	}
 	// A type the packs declare as a reference referent also emits its ID-to-key
-	// lookup sidecar, and the committed demo corpus carries that artifact.
-	// Expected from the corpus rather than restated here, so the expectation
-	// follows the declared references instead of pinning their absence.
-	wantLookupPath := filepath.Join(root, "demo", "config", v2Tenant, v2ResourceType+".lookup.json")
+	// lookup sidecar, and the committed demo corpus carries that artifact
+	// under its current lookups/ subdirectory (Part B of the
+	// sidecar-minimization migration). Expected from the corpus rather than
+	// restated here, so the expectation follows the declared references
+	// instead of pinning their absence.
+	wantLookupPath := filepath.Join(root, "demo", "config", v2Tenant, "lookups", v2ResourceType+".lookup.json")
 	if _, err := os.Stat(wantLookupPath); err == nil {
-		wantTransformTree[filepath.ToSlash(filepath.Join("config", v2Tenant, v2ResourceType+".lookup.json"))] = v2ReadFile(t, wantLookupPath)
+		wantTransformTree[filepath.ToSlash(filepath.Join("config", v2Tenant, "lookups", v2ResourceType+".lookup.json"))] = v2ReadFile(t, wantLookupPath)
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("os.Stat(%q) error = %v, want nil or not-exist", wantLookupPath, err)
 	}
@@ -1579,7 +1581,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	}
 	if _, err := os.Stat(wantLookupPath); err == nil {
 		generatedManifest = append(generatedManifest,
-			filepath.ToSlash(filepath.Join("config", v2Tenant, v2ResourceType+".lookup.json")))
+			filepath.ToSlash(filepath.Join("config", v2Tenant, "lookups", v2ResourceType+".lookup.json")))
 	}
 	generatedManifest = append(generatedManifest,
 		filepath.ToSlash(filepath.Join("envs", v2Tenant, v2ResourceType, "main.tf")),

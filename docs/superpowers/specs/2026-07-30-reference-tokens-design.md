@@ -163,19 +163,19 @@ v1.15.4):**
    earlier sidecar-fallback idea):** the renderer generates and owns no
    lookup maps. It emits only remote-state readers and resolver
    expressions; *authoritative* key→ID truth lives in the producing state
-   outputs, with the committed book as the explicitly-chosen plan-time
+   outputs, with the committed lookup as the explicitly-chosen plan-time
    fallback for referents not yet applied (the settled contract below —
    the two sentences are one design, not a contradiction: state is truth,
-   the book is the fallback, the renderer owns neither).
+   the lookup is the fallback, the renderer owns neither).
    The resolver for a token is computed from the token itself
    (`<referent>.<key>` → the canonical
    `infrawright_reference_ids.<referent>["<key>"]` selector). The settled
    fallback contract (chosen by the requester after this section was first
    written, and governing over it): the resolver is lookup-first `try()`
-   whose fallback arm is a plan-time read of the committed book — "no
+   whose fallback arm is a plan-time read of the committed lookup — "no
    sidecar at render time" means the renderer never *inlines a value*
    from one; emitting an expression Terraform evaluates against the
-   committed artifact, and reading books/configs as *gating* inputs
+   committed artifact, and reading lookups/configs as *gating* inputs
    (validation, totality), are both within the contract. A referent whose state is absent or lacks the key fails
    loudly at plan time naming the state/key; bootstrap is referent-first
    apply ordering. The sidecar remains a *producing-side* artifact
@@ -204,7 +204,7 @@ cannot know their consumers, and the canonical nested
 - **The sidecar becomes load-bearing for committed content.**
   `RemoveLookupWhenAbsent` can today delete a referent's sidecar; after
   tokenisation that would strand committed tokens with no decoder. Removal
-  must refuse (or the book must be retained) while any committed artifact
+  must refuse (or the lookup must be retained) while any committed artifact
   in the tree holds tokens for that referent.
 - **Conditional tokenisation.** A referent outside the active profile has
   no sidecar, so its fields stay IDs — the invariant is "when the key is
@@ -264,4 +264,7 @@ the next transform/adopt run rewrites.
   at the cost of a tenant-API dependency at plan time.
 - Folding `.generated.expressions.json` out of the committed surface and
   relocating `lookup.json` — falls out naturally after this lands and is
-  specified separately.
+  specified separately: see
+  `docs/superpowers/specs/2026-07-31-sidecar-minimization-design.md`, now
+  shipped. The committed surface per resource type is the config, the lookup
+  under `lookups/`, and the rare operator overlay; nothing else.

@@ -422,6 +422,16 @@ func TestLosslessArtifactFixturesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("globbing demo fixtures: %v", err)
 	}
+	// The books live under a lookups/ subdirectory (Part B of the
+	// sidecar-minimization migration); the flat glob above does not
+	// recurse into it, so it is gathered separately here -- see
+	// gate_test.go's gateTargets, which applies the identical fix for the
+	// same reason.
+	lookupMatches, err := filepath.Glob(filepath.Join(root, "demo", "config", "demo", "lookups", "*.json"))
+	if err != nil {
+		t.Fatalf("globbing demo lookup fixtures: %v", err)
+	}
+	matches = append(matches, lookupMatches...)
 	if len(matches) == 0 {
 		t.Fatal("expected at least one demo/config/demo/*.json fixture; none found")
 	}

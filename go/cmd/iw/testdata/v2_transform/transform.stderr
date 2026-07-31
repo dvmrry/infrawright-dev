@@ -2,7 +2,7 @@ skip zcc_device_cleanup (no <REPOSITORY>/packs/_shared/zscaler/demo/zcc_device_c
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zcc_failopen_policy.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zcc_failopen_policy_imports.tf
 skip zcc_notification_template (no <REPOSITORY>/packs/_shared/zscaler/demo/zcc_notification_template.json)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zcc_trusted_network.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/lookups/zcc_trusted_network.lookup.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zcc_trusted_network.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zcc_trusted_network_imports.tf
 NOTE bindings: zcc_forwarding_profile.custom_profile.trusted_network_ids[0] value "101" skipped; id is absent from zcc_trusted_network lookup
@@ -53,7 +53,7 @@ wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_location_management_imports.
 skip zia_mobile_malware_protection_policy (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_mobile_malware_protection_policy.json)
 skip zia_nss_server (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_nss_server.json)
 skip zia_risk_profiles (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_risk_profiles.json)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_rule_labels.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/lookups/zia_rule_labels.lookup.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_rule_labels.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_rule_labels_imports.tf
 skip zia_casb_dlp_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_casb_dlp_rules.json)
@@ -74,7 +74,7 @@ skip zia_tenant_restriction_profile (no <REPOSITORY>/packs/_shared/zscaler/demo/
 skip zia_traffic_forwarding_gre_tunnel (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_forwarding_gre_tunnel.json)
 skip zia_traffic_forwarding_static_ip (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_forwarding_static_ip.json)
 skip zia_traffic_forwarding_vpn_credentials (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_forwarding_vpn_credentials.json)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_categories.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/lookups/zia_url_categories.lookup.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_categories.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_url_categories_imports.tf
 skip zia_bandwidth_classes (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_bandwidth_classes.json)
@@ -91,7 +91,7 @@ skip zia_url_filtering_and_cloud_app_settings (no <REPOSITORY>/packs/_shared/zsc
 skip zia_user_management (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_user_management.json)
 skip zia_virtual_service_edge_cluster (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_virtual_service_edge_cluster.json)
 skip zia_virtual_service_edge_node (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_virtual_service_edge_node.json)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_workload_groups.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/lookups/zia_workload_groups.lookup.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_workload_groups.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_workload_groups_imports.tf
 NOTE bindings: zia_dlp_web_rules.dlp_engines.id skipped; lookup for zia_dlp_engines is missing
@@ -105,16 +105,15 @@ wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_ssl_inspection_rules_imports
 skip zia_traffic_capture_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_capture_rules.json)
 NOTE bindings: zia_url_filtering_rules.tests_vcr0001.url_categories[0] value "ANY" skipped; id is absent from zia_url_categories lookup
 NOTE bindings: zia_url_filtering_rules: 3 bound, 1 skipped (id_absent=1)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_filtering_rules.generated.expressions.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_filtering_rules.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_url_filtering_rules_imports.tf
 skip zpa_app_connector_assistant_schedule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_app_connector_assistant_schedule.json)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_app_connector_group.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/lookups/zpa_app_connector_group.lookup.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_app_connector_group.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_app_connector_group_imports.tf
 skip zpa_application_segment_multimatch_bulk (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_application_segment_multimatch_bulk.json)
 skip zpa_application_segment_weightedlb_config (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_application_segment_weightedlb_config.json)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_application_server.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/lookups/zpa_application_server.lookup.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_application_server.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_application_server_imports.tf
 skip zpa_ba_certificate (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_ba_certificate.json)
@@ -153,13 +152,12 @@ skip zpa_pra_credential_pool (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_pra
 skip zpa_pra_portal_controller (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_pra_portal_controller.json)
 skip zpa_private_cloud_group (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_private_cloud_group.json)
 skip zpa_provisioning_key (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_provisioning_key.json)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_segment_group.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/lookups/zpa_segment_group.lookup.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_segment_group.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_segment_group_imports.tf
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_server_group.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/lookups/zpa_server_group.lookup.json
 NOTE bindings: zpa_server_group.tests_srvg_vcr0001_updated.app_connector_groups[0].id[0] value "216196257331404707" skipped; id is absent from zpa_app_connector_group lookup
 NOTE bindings: zpa_server_group: 1 bound, 1 skipped (id_absent=1)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_server_group.generated.expressions.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_server_group.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_server_group_imports.tf
 NOTE bindings: zpa_application_segment.tests_appsegment_vcr0006_bd_redhat_com.segment_group_id value "216196257331404637" skipped; id is absent from zpa_segment_group lookup

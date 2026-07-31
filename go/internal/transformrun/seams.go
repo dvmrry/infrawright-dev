@@ -1,5 +1,15 @@
 package transformrun
 
+// seams.go exposes the transform runner's pack-metadata and binding-context
+// derivation to the other in-tree consumers that must reproduce transform's
+// classifications exactly -- adoption (which binds real tenant data) and
+// gen-env (which, since the generated-bindings cache became optional, derives
+// the same bindings at render time). Every function here is a read-only
+// delegation to the production runner's own helper: a second implementation
+// of any of these decisions is precisely the two-halves disagreement the
+// set-block field map exists to remove, so callers import this rather than
+// reconstructing a BindingContext of their own.
+
 import (
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
@@ -14,9 +24,11 @@ func ShouldUnescapeForTransform(root metadata.LoadedPackRoot, resourceType strin
 	return shouldUnescape(root, resourceType)
 }
 
-// TransformReferenceSpecsForAdopt exposes transformReferenceSpecs to the
-// adoption runner without duplicating transform-runner metadata semantics.
-func TransformReferenceSpecsForAdopt(
+// TransformReferenceSpecs exposes transformReferenceSpecs without
+// duplicating transform-runner metadata semantics: the merged pack
+// references for one resource type, narrowed to the entries carrying both a
+// referent and a name field.
+func TransformReferenceSpecs(
 	root metadata.LoadedPackRoot,
 	resource metadata.LoadedResourceMetadata,
 ) map[string]tfrender.TransformReferenceSpec {
@@ -42,11 +54,13 @@ func TransformHasInferredLookupLifecycleForAdopt(
 	return transformHasInferredLookupLifecycle(root, resource)
 }
 
-// TransformBindingContextForAdopt exposes the ordinary transform runner's
-// binding-context derivation to adoption. The schema carries the set-block
-// field map; adoption is the path that binds real tenant data, so it must
-// classify block nesting exactly as the transform runner does.
-func TransformBindingContextForAdopt(
+// TransformBindingContext exposes the ordinary transform runner's
+// binding-context derivation to adoption and to render-time derivation. The
+// schema carries the set-block field map, so both callers classify block
+// nesting exactly as the transform runner does -- gen-env deriving a
+// different set-block index than transform would silently change which leaf
+// a binding lands on, which is the whole reason this is one implementation.
+func TransformBindingContext(
 	dep deployment.Deployment,
 	root metadata.LoadedPackRoot,
 	resource metadata.LoadedResourceMetadata,

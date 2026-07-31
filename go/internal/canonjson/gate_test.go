@@ -29,13 +29,21 @@ func repoRoot(t *testing.T) string {
 }
 
 // gateTargets returns every committed demo JSON artifact covered by the
-// canonical round-trip gate.
+// canonical round-trip gate: the tenant directory's flat *.json files
+// (config, generated bindings, operator overlays) plus the books, which
+// Part B of the sidecar-minimization migration relocated to a lookups/
+// subdirectory the flat glob alone would silently stop covering.
 func gateTargets(t *testing.T, root string) []string {
 	t.Helper()
 	demoMatches, err := filepath.Glob(filepath.Join(root, "demo", "config", "demo", "*.json"))
 	if err != nil {
 		t.Fatalf("globbing demo fixtures: %v", err)
 	}
+	lookupMatches, err := filepath.Glob(filepath.Join(root, "demo", "config", "demo", "lookups", "*.json"))
+	if err != nil {
+		t.Fatalf("globbing demo lookup fixtures: %v", err)
+	}
+	demoMatches = append(demoMatches, lookupMatches...)
 	if len(demoMatches) == 0 {
 		t.Fatal("expected at least one demo/config/demo/*.json fixture; none found")
 	}
