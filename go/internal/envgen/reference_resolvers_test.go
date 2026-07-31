@@ -864,3 +864,49 @@ func TestWrapResolverFallbacksWrapsBothSelectorSpellings(t *testing.T) {
 		t.Errorf("wrapped current selector = %q, want %q", got[1].Expression, wantCurrent)
 	}
 }
+
+// TestUntokenisedLegacyCacheWarnsToRetransform pins the loud edge of the one
+// migration state the rename does not bridge in-language. An untokenised
+// root's committed bindings cache wins outright and is never try()-wrapped
+// (the byte-for-byte cache bridge), so a cache still spelling the legacy
+// output name resolves only while each referent's applied state keeps
+// publishing that name -- the referent's first post-rename apply breaks the
+// referrer's plan. Generation must say so at render time, naming the
+// remedy, while leaving the rendered bytes exactly as the cache wrote them.
+func TestUntokenisedLegacyCacheWarnsToRetransform(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.generated.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+				},
+			},
+		},
+	})
+
+	diagnostics := fixture.generate(t, false)
+	if !containsDiagnostic(diagnostics, "legacy infrawright_reference_ids output unwrapped") ||
+		!containsDiagnostic(diagnostics, "re-run transform for zpa_application_segment") {
+		t.Errorf("diagnostics = %v, want the unwrapped-legacy-selector warning naming the re-transform remedy", diagnostics)
+	}
+
+	rendered := readFileString(t, fixture.referrerFile("expression_bindings.tf"))
+	if !strings.Contains(rendered, `outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`) ||
+		strings.Contains(rendered, "try(") {
+		t.Errorf("expression_bindings.tf = %q, want the cache's legacy selector served verbatim and unwrapped (byte bridge intact)", rendered)
+	}
+}
+
+// TestUntokenisedCurrentCacheDoesNotWarn pins the warning's precision: a
+// cache already spelling the current output name has nothing to retire, and
+// warning on it would train operators to ignore the diagnostic.
+func TestUntokenisedCurrentCacheDoesNotWarn(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+
+	diagnostics := fixture.generate(t, false)
+	if containsDiagnostic(diagnostics, "unwrapped") {
+		t.Errorf("diagnostics = %v, want no legacy-selector warning for a current-spelling cache", diagnostics)
+	}
+}

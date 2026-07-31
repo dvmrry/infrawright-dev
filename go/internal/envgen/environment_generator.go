@@ -1163,6 +1163,47 @@ func wrapResolverFallbacks(
 	}
 }
 
+// warnUnwrappedLegacySelectors flags the one migration state the iw_ rename
+// does not bridge in-language. An untokenised root's committed bindings
+// cache wins outright and is never try()-wrapped (the byte-for-byte cache
+// bridge), so a cache still spelling the legacy output name resolves only
+// while each referent's applied state keeps publishing that name -- the
+// referent's first post-rename apply renames the output and the referrer's
+// next plan fails on the selector. The remedy is re-transforming the
+// referrer (tokenising the config and retiring the cache); this warning
+// names it at render time, before Terraform discovers it. Operator bindings
+// are exempt for the same reason they are never wrapped: a hand-written
+// remote-state reference is asserted intent.
+func warnUnwrappedLegacySelectors(
+	bindingsByType map[string][]ExpressionBinding,
+	operatorIdentitiesByType map[string]map[string]bool,
+	onDiagnostic func(string),
+) {
+	needle := ".outputs." + LegacyInfrawrightReferenceOutput + "."
+	resourceTypes := make([]string, 0, len(bindingsByType))
+	for resourceType := range bindingsByType {
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+	for _, resourceType := range canonjson.SortedStrings(resourceTypes) {
+		operators := operatorIdentitiesByType[resourceType]
+		count := 0
+		for _, binding := range bindingsByType[resourceType] {
+			if operators[bindingIdentity(binding)] {
+				continue
+			}
+			if strings.Contains(binding.Expression, needle) {
+				count++
+			}
+		}
+		if count > 0 {
+			onDiagnostic(fmt.Sprintf(
+				"NOTE bindings: %s: %d generated binding(s) still reference the legacy %s output unwrapped; they resolve only while each referent's applied state keeps the legacy name -- re-run transform for %s before re-applying its referents",
+				resourceType, count, LegacyInfrawrightReferenceOutput, resourceType,
+			))
+		}
+	}
+}
+
 // referenceLookupLocals renders one plan-time lookup local per referent the
 // wrapped resolvers name: a fileexists-guarded read of the committed lookup
 // sidecar, preferring its id_by_key map and inverting key_by_id for lookups
@@ -2335,6 +2376,8 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		// renderer output, not evidence.
 		if tokensPresent {
 			wrapResolverFallbacks(bindingsByType, operatorIdentitiesByType)
+		} else {
+			warnUnwrappedLegacySelectors(bindingsByType, operatorIdentitiesByType, onDiagnostic)
 		}
 
 		remoteRootSet := map[string]bool{}

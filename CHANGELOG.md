@@ -41,16 +41,28 @@
   the legacy spelling persists in artifacts the engine does not regenerate:
   the state probe reads whichever output name an applied referent still
   publishes (the current name is authoritative when both are present), the
-  binding grammar and resolver try()-wrapping accept the legacy selector
-  spelling inside committed `.generated.expressions.json` caches until their
-  next transform stale-cleans them, `iw plan` sets both `TF_VAR` names to
-  the identical payload so roots generated before the rename keep planning,
-  and saved-plan assessment permits exactly one legacy-output retirement —
-  the old name's lone `delete` ending at null — in a plan whose current
-  output is already proven against provider-observed IDs. Until a referent
-  root is re-applied, referrers regenerated after the rename resolve it
-  through the committed lookup fallback (a no-op plan, same IDs); its first
-  apply renames the output and state truth resumes.
+  binding grammar accepts the legacy selector spelling inside committed
+  `.generated.expressions.json` caches until their next transform
+  stale-cleans them (on tokenised roots the resolver try()-wrapping accepts
+  it too, so the lookup fallback covers a legacy-spelled selector the day
+  its referent's re-apply renames the output), `iw plan` recognises either
+  declared variable name and sets both `TF_VAR` names to the identical
+  payload so roots generated before the rename keep planning, and
+  saved-plan assessment permits exactly one legacy-output retirement — the
+  old name's lone `delete` ending at null — in a plan whose current output
+  is already proven against provider-observed IDs. Until a referent root is
+  re-applied, referrers regenerated after the rename resolve it through the
+  committed lookup fallback (a no-op plan, same IDs); its first apply
+  renames the output and state truth resumes.
+
+  One migration state is loud rather than bridged: an *untokenised* root's
+  committed cache wins byte-for-byte and is never try()-wrapped, so a
+  legacy-spelled selector there resolves only while each referent's applied
+  state keeps the legacy name — the referent's first post-rename apply
+  breaks the referrer's plan on that selector. gen-env now warns at render
+  time whenever it serves such a cache, naming the type and the remedy:
+  re-run transform for the referrer (tokenising the config and retiring the
+  cache) before re-applying its referents.
 
 - Sidecar minimization: per resource type, the committed surface is now
   just the config (`<type>.auto.tfvars.json`, carrying tokens), the lookup
