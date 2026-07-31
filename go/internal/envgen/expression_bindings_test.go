@@ -154,7 +154,7 @@ func TestAllowlistAcceptsSelectorsAndGeneratedLists(t *testing.T) {
 }
 
 func TestRemoteStateDiscoveryAcceptsOnlyExactCanonicalSelector(t *testing.T) {
-	canonical := `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`
+	canonical := `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`
 	refs, err := ExpressionRemoteStateReferences(canonical)
 	if err != nil {
 		t.Fatalf("ExpressionRemoteStateReferences: %v", err)
@@ -505,5 +505,32 @@ func TestNativeHclRenderingRetainsLosslessNumericAndNonIdentifierKeys(t *testing
 	want := "{\n  \"not-an-ident\" = [local.value, \"literal\"]\n}"
 	if rendered2 != want {
 		t.Fatalf("rendered2 = %q, want %q", rendered2, want)
+	}
+}
+
+// TestExpressionRemoteStateReferencesAcceptsBothOutputNames pins the
+// iw_reference_ids rename bridge in the binding grammar: committed
+// generated-bindings caches written before the rename spell the legacy
+// output name inside their remote-state selectors and must keep validating
+// (and yielding the same extracted reference) until their next transform
+// stale-cleans them.
+func TestExpressionRemoteStateReferencesAcceptsBothOutputNames(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		expression string
+	}{
+		{name: "current", expression: `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`},
+		{name: "legacy", expression: `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			references := expressionRemoteStateReferences(testCase.expression)
+			if len(references) != 1 {
+				t.Fatalf("expressionRemoteStateReferences(%s) = %v, want one canonical reference", testCase.name, references)
+			}
+			got := references[0]
+			if got.Root != "zpa_segment_group" || got.ResourceType != "zpa_segment_group" || got.Key != "segment_one" {
+				t.Errorf("expressionRemoteStateReferences(%s)[0] = %+v, want root/type zpa_segment_group and key segment_one", testCase.name, got)
+			}
+		})
 	}
 }

@@ -233,7 +233,7 @@ func TestSetBlockRenderDerivationMatchesCommittedCacheByteForByte(t *testing.T) 
 	// Guards against a vacuous pass: the bytes must actually carry the
 	// set-block resolver, not merely an empty or unrelated bindings file.
 	if !strings.Contains(bridgedBindings, "try(data.terraform_remote_state.zia_firewall_filtering_network_service") ||
-		!strings.Contains(bridgedBindings, "infrawright_reference_lookup_zia_firewall_filtering_network_service") {
+		!strings.Contains(bridgedBindings, "iw_reference_lookup_zia_firewall_filtering_network_service") {
 		t.Fatalf("%s = %q, want the bridge path's set-block lookup-first resolver", expressionBindingsTF, bridgedBindings)
 	}
 

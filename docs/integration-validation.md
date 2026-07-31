@@ -98,7 +98,7 @@ reclassifies saved plans before execution and should only proceed for clean,
 import-only, or explicitly policy-tolerated saved plans.
 
 For an opted-in cross-state referent, the engine-owned
-`infrawright_reference_ids` create/update/no-op is also clean only when the loaded
+`iw_reference_ids` create/update/no-op is also clean only when the loaded
 topology names that referent and the sensitive, fully known output exactly
 matches provider-observed IDs reconstructed from Terraform's planned child
 modules. Arbitrary output changes remain outside the assessment contract.

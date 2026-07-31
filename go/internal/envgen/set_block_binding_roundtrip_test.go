@@ -118,7 +118,7 @@ func TestSetBlockBindingsRoundTripThroughTheSchemaValidator(t *testing.T) {
 // allowlist exists to close must stay refused.
 func TestCompositeExpressionAllowlist(t *testing.T) {
 	allowed := []string{
-		`[{ id = [data.terraform_remote_state.a.outputs.infrawright_reference_ids.a["k"], 456] }]`,
+		`[{ id = [data.terraform_remote_state.a.outputs.iw_reference_ids.a["k"], 456] }]`,
 		`[{ id = [456] }]`,
 		`[{ id = [456], description = "kept literal", enabled = true, note = null }]`,
 		`[{ nested = { id = [1, 2] } }]`,

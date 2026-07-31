@@ -54,7 +54,7 @@ func TestDeriveGeneratedBindingsTokenResolvesWithoutIDHop(t *testing.T) {
 		t.Fatalf("resources = %#v, want app_one bound", result.Resources)
 	}
 	binding := fields["segment_group_id"].(map[string]any)
-	want := `data.terraform_remote_state.zpa_custom.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`
+	want := `data.terraform_remote_state.zpa_custom.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`
 	if got := binding["expression"]; got != want {
 		t.Errorf("expression = %q, want %q", got, want)
 	}
@@ -122,7 +122,7 @@ func TestDeriveGeneratedBindingsPlainIDStillResolves(t *testing.T) {
 	}
 	fields := result.Resources["zpa_application_segment.app_one"].(map[string]any)
 	binding := fields["segment_group_id"].(map[string]any)
-	want := `data.terraform_remote_state.zpa_custom.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`
+	want := `data.terraform_remote_state.zpa_custom.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`
 	if got := binding["expression"]; got != want {
 		t.Errorf("expression = %q, want %q", got, want)
 	}
@@ -171,7 +171,7 @@ func TestDeriveGeneratedBindingsTokenListMixing(t *testing.T) {
 	if !ok {
 		t.Fatalf("bindings = %#v, want server_groups[0].id bound", fields)
 	}
-	want := `[data.terraform_remote_state.zpa_app.outputs.infrawright_reference_ids.zpa_server_group["known"], "sg-missing"]`
+	want := `[data.terraform_remote_state.zpa_app.outputs.iw_reference_ids.zpa_server_group["known"], "sg-missing"]`
 	if got := binding["expression"]; got != want {
 		t.Errorf("expression = %q, want %q", got, want)
 	}
@@ -216,7 +216,7 @@ func TestDeriveGeneratedBindingsTokenInSetBlock(t *testing.T) {
 		t.Fatalf("bindings = %#v, want services bound", fields)
 	}
 	want := "[{ id = [" +
-		`data.terraform_remote_state.zia_firewall_filtering_network_service.outputs.infrawright_reference_ids.zia_firewall_filtering_network_service["service_one"]` +
+		`data.terraform_remote_state.zia_firewall_filtering_network_service.outputs.iw_reference_ids.zia_firewall_filtering_network_service["service_one"]` +
 		", 456] }]"
 	if got := binding["expression"]; got != want {
 		t.Errorf("expression = %q, want %q", got, want)
@@ -823,7 +823,7 @@ func TestDeriveGeneratedBindingsTokensOnlySkipsRawIDs(t *testing.T) {
 		t.Fatalf("resources = %#v, want the tokenised item bound", result.Resources)
 	}
 	binding := fields["segment_group_id"].(map[string]any)
-	want := `data.terraform_remote_state.zpa_custom.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`
+	want := `data.terraform_remote_state.zpa_custom.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`
 	if got := binding["expression"]; got != want {
 		t.Errorf("expression = %q, want %q", got, want)
 	}

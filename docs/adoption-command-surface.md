@@ -342,7 +342,7 @@ are valid but normally unnecessary:
 ```
 
 References between roots use `terraform_remote_state` and a generated,
-sensitive `infrawright_reference_ids` root output containing only stable config
+sensitive `iw_reference_ids` root output containing only stable config
 keys mapped to provider IDs. Complete resource objects are never exported.
 Predefined or system identifiers absent from a managed referent lookup remain
 literal values with a visible binding diagnostic.
@@ -429,7 +429,7 @@ Generated binding skip/fallback semantics:
 | Referent lookup sidecar has no `key_by_id` map | Leave the literal ID in tfvars and print a `NOTE bindings:` skip; rerun transform/adopt for the referent to refresh the sidecar. |
 | Referent key contains Terraform template interpolation syntax | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
 | Reference crosses a root boundary with cross-state mode disabled | No generated binding is considered; existing literal/comment behavior applies. |
-| Reference crosses a root boundary with cross-state mode enabled | Bind through the referent root's minimal `infrawright_reference_ids` output. |
+| Reference crosses a root boundary with cross-state mode enabled | Bind through the referent root's minimal `iw_reference_ids` output. |
 
 The saved-plan assessor and exact-plan Apply do not trust that output by name.
 For a referent root selected from the loaded pack/deployment context, they bind
