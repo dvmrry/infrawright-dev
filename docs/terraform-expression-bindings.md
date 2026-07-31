@@ -1,5 +1,18 @@
 # Terraform Expression Bindings
 
+> **Reference tokens (JSON tfvars only).** In JSON-format deployments,
+> declared reference fields commit as qualified tokens
+> (`"<referent_type>.<key>"`) rather than tenant IDs whenever the
+> referent's lookup book knows the ID; HCL-format deployments keep
+> literal IDs, and a token-shaped value in an HCL config is refused at
+> generation. gen-env renders each token as a
+> lookup-first resolver — `try(<remote-state lookup>, <book literal>)` —
+> whose fallback reads the committed `<referent>.lookup.json` at plan
+> time. IDs live in exactly two places: tfstate, and that book. See
+> `docs/superpowers/specs/2026-07-30-reference-tokens-design.md` for the
+> full contract; the binding grammar below is unchanged and applies to
+> operator-authored sidecars, which are never token-wrapped.
+
 Infrawright can bind an exact projected resource path to a Terraform
 expression. This is useful when the generated config should refer to a value
 owned by Terraform, CI/CD, or a Terraform data source instead of storing a

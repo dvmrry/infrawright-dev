@@ -53,9 +53,11 @@ package envgen
 // convention), this file's functions are shallow and sequential, so they
 // use ordinary Go (T, error) returns throughout -- no panic/recover here.
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -63,7 +65,12 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
+	"github.com/dvmrry/infrawright-dev/go/internal/transform"
 )
+
+// tokenFieldSegmentPattern mirrors the producer's identifier-segment rule
+// for dotted reference-field names (tfrender's identifierSegmentPattern).
+var tokenFieldSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // expressionBindingsTF ports EXPRESSION_BINDINGS_TF from
 // the original implementation.
@@ -545,6 +552,350 @@ func renderRootExpressionBindings(label string, bindingsByType map[string][]Expr
 		return "", nil
 	}
 	return strings.Join(sections, "\n\n") + "\n", nil
+}
+
+// canonicalRemoteStateSelectorPattern matches exactly the remote-state
+// selector shape the binding grammar admits (see
+// ExpressionRemoteStateReferences), capturing the referent type and the
+// quoted key. Renderer-side resolver wrapping relies on this strictness:
+// the grammar guarantees no other text can match.
+var canonicalRemoteStateSelectorPattern = regexp.MustCompile(
+	`data\.terraform_remote_state\.[A-Za-z_][A-Za-z0-9_]*\.outputs\.infrawright_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[("(?:[^"\\]|\\.)*")\]`,
+)
+
+// committedTokenLeaf is one qualified reference token found in a member's
+// committed config: the leaf-granular unit every render-time gate keys on.
+// Path is empty for tokens found in HCL-format configs, which cannot be
+// leaf-addressed without an HCL parser; those are covered value-level.
+type committedTokenLeaf struct {
+	ResourceType string
+	ItemKey      string
+	Path         string
+	Token        string
+	Referent     string
+	Key          string
+}
+
+// enumerateCommittedReferenceTokens finds every qualified reference token
+// in the members' committed configs, structurally and leaf-granular for
+// JSON tfvars (the same reference-field walk the producer uses) and
+// value-granular for HCL tfvars (quoted strings validated against the
+// referent's committed book, so an innocent dotted string is never counted
+// as a token). Detection is deliberately independent of the deployment's
+// binding mode -- it reads the pack's declared references directly -- so
+// committed tokens are still seen, and refused loudly upstream, when
+// cross-state binding has been switched off after the fact.
+func enumerateCommittedReferenceTokens(
+	dep deployment.Deployment,
+	tenant string,
+	members []string,
+	root metadata.LoadedPackRoot,
+	topology roots.RootTopology,
+) ([]committedTokenLeaf, error) {
+	references := transform.MergedTransformReferences(root)
+	var leaves []committedTokenLeaf
+	for _, resourceType := range members {
+		fields, ok := references[resourceType]
+		if !ok || len(fields) == 0 {
+			continue
+		}
+		config, err := configFile(dep, tenant, resourceType)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := os.ReadFile(config)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		if strings.HasSuffix(config, ".json") {
+			found, err := jsonConfigTokenLeaves(raw, config, resourceType, variableName(topology, resourceType), fields)
+			if err != nil {
+				return nil, err
+			}
+			leaves = append(leaves, found...)
+			continue
+		}
+		// Tokens are a JSON-format contract. An HCL config cannot be
+		// leaf-verified, so a token-shaped value in one is refused outright
+		// -- fail closed, never a silent passthrough -- with no dependence
+		// on any book or binding mode.
+		if shaped := hclTokenShapedValue(string(raw), allPackReferents(references)); shaped != "" {
+			return nil, fmt.Errorf(
+				"%s is HCL-format tfvars and contains the reference-token-shaped value %q; tokenised configs are supported for JSON tfvars only -- convert the deployment's tfvars_format or restore literal IDs",
+				config, shaped,
+			)
+		}
+	}
+	return leaves, nil
+}
+
+// allPackReferents collects every referent type any pack reference
+// declares, so HCL refusal and foreign-token handling key on pack truth
+// rather than one field's declaration.
+func allPackReferents(references map[string]map[string]any) map[string]bool {
+	referents := map[string]bool{}
+	for _, fields := range references {
+		for _, raw := range fields {
+			if referent, ok := referentOfFieldSpec(raw); ok {
+				referents[referent] = true
+			}
+		}
+	}
+	return referents
+}
+
+// hclTokenShapedValue reports the first quoted string in an HCL config
+// that opens with any pack-declared referent type and a dot, or "" when
+// none exists.
+func hclTokenShapedValue(text string, referents map[string]bool) string {
+	for referent := range referents {
+		prefix := `"` + referent + `.`
+		index := strings.Index(text, prefix)
+		if index < 0 {
+			continue
+		}
+		start := index + 1
+		end := strings.IndexByte(text[start:], '"')
+		if end < 0 {
+			continue
+		}
+		return text[start : start+end]
+	}
+	return ""
+}
+
+// jsonConfigTokenLeaves walks one JSON config's declared reference fields
+// with the producer's traversal rules (identifier-segment dotted paths,
+// arrays fanned at every level) and reports each string leaf carrying the
+// field's referent prefix.
+func jsonConfigTokenLeaves(
+	raw []byte,
+	config, resourceType, itemsVariable string,
+	fields map[string]any,
+) ([]committedTokenLeaf, error) {
+	parsed, err := canonjson.ParseDataJSONLosslessly(string(raw))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", config, err)
+	}
+	object, ok := parsed.(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	items, ok := object[itemsVariable].(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	var leaves []committedTokenLeaf
+	for _, field := range canonjson.SortedStrings(mapKeysAny(fields)) {
+		if _, ok := referentOfFieldSpec(fields[field]); !ok {
+			continue
+		}
+		segments := strings.Split(field, ".")
+		for _, segment := range segments {
+			if !tokenFieldSegmentPattern.MatchString(segment) {
+				segments = []string{field}
+				break
+			}
+		}
+		for _, itemKey := range canonjson.SortedStrings(mapKeysAny(items)) {
+			item, ok := items[itemKey].(map[string]any)
+			if !ok {
+				continue
+			}
+			collectTokenLeaves(item, segments, "", func(path, token string) {
+				dot := strings.IndexByte(token, '.')
+				leaves = append(leaves, committedTokenLeaf{
+					ResourceType: resourceType, ItemKey: itemKey, Path: path,
+					Token: token, Referent: token[:dot], Key: token[dot+1:],
+				})
+			})
+		}
+	}
+	return leaves, nil
+}
+
+// tokenShapedValue mirrors the producer's tokenShaped rule exactly: an
+// identifier segment, a dot, a remainder -- so detection and minting can
+// never classify the same string differently.
+func tokenShapedValue(s string) bool {
+	dot := strings.IndexByte(s, '.')
+	return dot > 0 && tokenFieldSegmentPattern.MatchString(s[:dot])
+}
+
+// collectTokenLeaves mirrors the producer's substitution walk: descend by
+// identifier segments, fan arrays at every level, and report terminal
+// string values carrying the referent prefix. List-element leaves report
+// the list's own path, matching the path bindings are addressed at.
+func collectTokenLeaves(container map[string]any, segments []string, concretePath string, report func(path, token string)) {
+	head := segments[0]
+	leafPath := head
+	if concretePath != "" {
+		leafPath = concretePath + "." + head
+	}
+	// Any token-SHAPED string at a reference leaf is reported, not only the
+	// field's currently-declared referent: a pack referent reassignment
+	// leaves committed tokens carrying the old prefix, and those must fail
+	// the coverage gate loudly rather than pass invisibly (adversarial
+	// review finding). Reference-leaf values are never innocently dotted
+	// (corpus audit, 2026-07-30), so shape alone is decisive here.
+	if len(segments) == 1 {
+		switch value := container[head].(type) {
+		case []any:
+			for _, child := range value {
+				if text, ok := child.(string); ok && tokenShapedValue(text) {
+					report(leafPath, text)
+				}
+			}
+		case string:
+			if tokenShapedValue(value) {
+				report(leafPath, value)
+			}
+		}
+		return
+	}
+	next, present := container[head]
+	if !present {
+		return
+	}
+	collectTokenLeavesThrough(next, segments[1:], leafPath, report)
+}
+
+func collectTokenLeavesThrough(value any, rest []string, concretePath string, report func(path, token string)) {
+	switch typed := value.(type) {
+	case map[string]any:
+		collectTokenLeaves(typed, rest, concretePath, report)
+	case []any:
+		for index, child := range typed {
+			if child == nil {
+				continue
+			}
+			collectTokenLeavesThrough(child, rest, fmt.Sprintf("%s[%d]", concretePath, index), report)
+		}
+	}
+}
+
+// referentOfFieldSpec extracts the referent from one pack references entry,
+// with the same shape-tolerance ResolveCrossStateReferenceTopology applies.
+func referentOfFieldSpec(raw any) (string, bool) {
+	specification, ok := raw.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	referent, ok := specification["referent"].(string)
+	return referent, ok && referent != ""
+}
+
+func mapKeysAny(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// assertTokenLeavesCovered is the render-time totality gate: every
+// committed token must have a covering binding that actually RESOLVES it.
+// A generated binding covers a token leaf only when its expression carries
+// that token's canonical selector -- path adjacency alone is not enough,
+// or a stale binding at the same path could silently resolve a different
+// referent or key than the committed value (adversarial-review finding).
+// Operator-owned bindings are exempt: an operator replacing a token's leaf
+// by hand is asserting intent, exactly as with any other override.
+func assertTokenLeavesCovered(
+	label string,
+	leaves []committedTokenLeaf,
+	bindingsByType map[string][]ExpressionBinding,
+	operatorIdentitiesByType map[string]map[string]bool,
+) error {
+	for _, leaf := range leaves {
+		bindings := bindingsByType[leaf.ResourceType]
+		operators := operatorIdentitiesByType[leaf.ResourceType]
+		needle := "infrawright_reference_ids." + leaf.Referent + `["` + leaf.Key + `"]`
+		covered := false
+		for _, binding := range bindings {
+			if binding.Key != leaf.ItemKey || !tfrender.BindingPathCovers(binding.Path, leaf.Path) {
+				continue
+			}
+			if operators[bindingIdentity(binding)] || strings.Contains(binding.Expression, needle) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return fmt.Errorf(
+				"root %s: committed token %q at %s.%s.%s has no binding that resolves it; re-run transform/adopt (a stale or divergent token must never reach the module boundary unresolved)",
+				label, leaf.Token, leaf.ResourceType, leaf.ItemKey, leaf.Path,
+			)
+		}
+	}
+	return nil
+}
+
+// wrapResolverFallbacks rewrites every canonical remote-state selector in
+// the surviving generated bindings into the lookup-first resolver form --
+// try(<selector>, local.infrawright_reference_book_<referent>[<key>]) -- so
+// state truth wins whenever it exists and the committed book serves any
+// referent not yet applied, retiring automatically once it is. Operator
+// bindings are never wrapped: an operator who wrote a remote-state
+// reference by hand is asserting intent, and that assertion keeps failing
+// loudly.
+func wrapResolverFallbacks(
+	bindingsByType map[string][]ExpressionBinding,
+	operatorIdentitiesByType map[string]map[string]bool,
+) {
+	for resourceType, bindings := range bindingsByType {
+		operators := operatorIdentitiesByType[resourceType]
+		for i, binding := range bindings {
+			if operators[bindingIdentity(binding)] {
+				continue
+			}
+			bindings[i].Expression = canonicalRemoteStateSelectorPattern.ReplaceAllString(
+				binding.Expression,
+				`try(${0}, local.infrawright_reference_book_${1}[${2}])`,
+			)
+		}
+	}
+}
+
+// referenceBookLocals renders one plan-time book local per referent the
+// wrapped resolvers name: a fileexists-guarded read of the committed lookup
+// sidecar, preferring its id_by_key map and inverting key_by_id for books
+// written before that field existed. The renderer emits only this
+// expression -- the values stay in the committed artifact and are read
+// where Terraform runs, never inlined here.
+func referenceBookLocals(
+	dep deployment.Deployment,
+	tenant, environmentDirectory string,
+	referentTypes []string,
+) (string, error) {
+	if len(referentTypes) == 0 {
+		return "", nil
+	}
+	lines := []string{"locals {"}
+	for _, referent := range referentTypes {
+		paths, err := tfrender.ComputeTransformArtifactPaths(dep, referent, tenant)
+		if err != nil {
+			return "", err
+		}
+		relative := nodePathRelative(environmentDirectory, paths.Lookup)
+		// The path rides inside a live "${path.module}/..." interpolation, so
+		// it must not itself need escaping; deployment layouts that would are
+		// refused rather than mis-quoted.
+		if strings.ContainsAny(relative, "\"\\$%") {
+			return "", fmt.Errorf("lookup sidecar path %s cannot be embedded in a reference book expression", relative)
+		}
+		quoted := `"${path.module}/` + relative + `"`
+		book := "jsondecode(file(" + quoted + "))"
+		lines = append(lines,
+			fmt.Sprintf("  infrawright_reference_book_%s = fileexists(%s) ? try(%s.id_by_key, { for id, k in %s.key_by_id : k => id }) : {}",
+				referent, quoted, book, book),
+		)
+	}
+	lines = append(lines, "}", "")
+	return strings.Join(lines, "\n"), nil
 }
 
 // configFile ports the local configFile helper from
@@ -1427,11 +1778,29 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		if err := validateRemoteStateReferences(remoteStateValidation, selectedRoot.Label, remoteStateReferences); err != nil {
 			return EnvironmentGenerationResult{}, err
 		}
+		tokenLeaves, err := enumerateCommittedReferenceTokens(
+			options.Deployment, options.Tenant, members, options.Root, topology,
+		)
+		if err != nil {
+			return EnvironmentGenerationResult{}, err
+		}
+		tokensPresent := len(tokenLeaves) > 0
+		// Detection is binding-mode-independent on purpose: committed tokens
+		// under a since-disabled mode would otherwise pass bare var.<name>
+		// straight through the root's opaque variable.
+		if tokensPresent && bindingMode != deployment.ReferenceBindingCrossState {
+			return EnvironmentGenerationResult{}, fmt.Errorf(
+				"root %s: committed config carries reference tokens but cross-state reference binding is disabled; re-run transform/adopt under the current mode to restore literal IDs, or re-enable cross_state_references",
+				selectedRoot.Label,
+			)
+		}
 		// Every gate has now run against the full merged set. Only here, with
 		// the evidence proven well formed, may bindings be dropped for want of
 		// state -- and the reference list is rebuilt from the survivors so no
-		// data block outlives its binding.
-		if probe != nil {
+		// data block outlives its binding. A tokenised root is exempt: its
+		// resolvers carry the book fallback in-language, so there is nothing
+		// valid to degrade to and no reason to consult state at render time.
+		if probe != nil && !tokensPresent {
 			if err := filterStatelessBindings(bindingsByType, operatorIdentitiesByType, probe, onDiagnostic); err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
@@ -1441,6 +1810,23 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 					return EnvironmentGenerationResult{}, err
 				}
 			}
+		}
+		// The totality gate runs against the final surviving bindings,
+		// before wrapping (coverage matching reads the canonical selector
+		// grammar): every committed token needs a covering binding, or an
+		// unbound token would pass the root's opaque variable and -- on a
+		// string-typed provider field -- flow to the provider as a literal.
+		if tokensPresent {
+			if err := assertTokenLeavesCovered(selectedRoot.Label, tokenLeaves, bindingsByType, operatorIdentitiesByType); err != nil {
+				return EnvironmentGenerationResult{}, err
+			}
+		}
+		// The wrap happens after every consumer of the canonical selector
+		// grammar has parsed the unwrapped expressions (topology validation,
+		// reference extraction, coverage): from here on the strings are
+		// renderer output, not evidence.
+		if tokensPresent {
+			wrapResolverFallbacks(bindingsByType, operatorIdentitiesByType)
 		}
 
 		remoteRootSet := map[string]bool{}
@@ -1485,6 +1871,22 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			rendered, err := renderRootExpressionBindings(selectedRoot.Label, bindingsByType, topology)
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
+			}
+			if tokensPresent {
+				referentTypeSet := map[string]bool{}
+				for _, reference := range remoteStateReferences {
+					referentTypeSet[reference.ResourceType] = true
+				}
+				books, err := referenceBookLocals(
+					options.Deployment, options.Tenant, directory,
+					canonjson.SortedStrings(mapKeysBoolSetGeneric(referentTypeSet)),
+				)
+				if err != nil {
+					return EnvironmentGenerationResult{}, err
+				}
+				if books != "" {
+					rendered = books + "\n" + rendered
+				}
 			}
 			formatted, err := options.FormatHcl(rendered)
 			if err != nil {

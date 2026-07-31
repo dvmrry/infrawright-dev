@@ -149,9 +149,13 @@ type TransformArtifactWriteResult struct {
 }
 
 // TransformLookupData is the Go analogue of the TransformLookupData
-// interface in the original implementation.
+// interface in the original implementation, extended with IDByKey: the
+// inverse book the plan-time reference-token fallback expression indexes.
+// The parser derives it from key_by_id when a committed sidecar predates
+// the field, so both directions decode for every book ever written.
 type TransformLookupData struct {
 	ByID    map[string]string
+	IDByKey map[string]string
 	KeyByID map[string]string
 }
 
@@ -489,6 +493,7 @@ func lookupIdentity(value any) (*string, error) {
 // lookup sidecar, including last-key-wins IDs."
 func RenderTransformLookup(items, originals map[string]map[string]any, nameField string) (string, error) {
 	byID := map[string]any{}
+	idByKey := map[string]any{}
 	keyByID := map[string]any{}
 	for _, key := range canonjson.SortedStrings(mapKeys(items)) {
 		projected, ok := items[key]
@@ -515,13 +520,14 @@ func RenderTransformLookup(items, originals map[string]map[string]any, nameField
 			text = display
 		}
 		byID[*ident] = text
+		idByKey[key] = *ident
 		keyByID[*ident] = key
 	}
 	var payload map[string]any
 	if len(keyByID) == 0 {
 		payload = byID
 	} else {
-		payload = map[string]any{"by_id": byID, "key_by_id": keyByID}
+		payload = map[string]any{"by_id": byID, "id_by_key": idByKey, "key_by_id": keyByID}
 	}
 	return canonjson.RenderLosslessArtifactJSON(payload)
 }
@@ -539,12 +545,14 @@ func ParseLookupSidecar(value any) (TransformLookupData, error) {
 		return TransformLookupData{}, errors.New("lookup sidecar must contain a JSON object")
 	}
 	nestedByID, hasNestedByID := asObject(root["by_id"])
+	nestedIDs, hasNestedIDs := asObject(root["id_by_key"])
 	nestedKeys, hasNestedKeys := asObject(root["key_by_id"])
 	rawByID := root
 	if hasNestedByID {
 		rawByID = nestedByID
 	}
 	byID := map[string]string{}
+	idByKey := map[string]string{}
 	keyByID := map[string]string{}
 	for key, display := range rawByID {
 		if s, ok := display.(string); ok {
@@ -560,7 +568,21 @@ func ParseLookupSidecar(value any) (TransformLookupData, error) {
 			}
 		}
 	}
-	return TransformLookupData{ByID: byID, KeyByID: keyByID}, nil
+	if hasNestedIDs {
+		for key, ident := range nestedIDs {
+			if s, ok := ident.(string); ok && s != "" {
+				idByKey[key] = s
+			}
+		}
+	} else {
+		// A sidecar written before id_by_key existed still decodes both
+		// directions: key_by_id is a bijection over its rows, so the
+		// inverse is derivable rather than absent.
+		for ident, itemKey := range keyByID {
+			idByKey[itemKey] = ident
+		}
+	}
+	return TransformLookupData{ByID: byID, IDByKey: idByKey, KeyByID: keyByID}, nil
 }
 
 var integerTokenPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
@@ -708,6 +730,221 @@ func fieldCandidates(items map[string]map[string]any, field string) []fieldCandi
 	return candidates
 }
 
+// substituteReferenceTokens rewrites declared reference-field values in
+// items from raw tenant IDs to qualified tokens ("<referent>.<key>"), in
+// place, immediately before the config artifact renders. It applies the
+// same field-level gates DeriveGeneratedBindings applies -- disabled mode,
+// self-reference, bindableReference, lookup presence -- so a value is
+// tokenised precisely where derivation would bind it; the two passes can
+// never disagree about which leaves are reference leaves. It emits no
+// diagnostics of its own: DeriveGeneratedBindings runs over the same live
+// item maps immediately afterwards and remains the reporting layer for
+// every skip class (missing lookups, unknown IDs, unsafe keys).
+// mintedReferenceToken records one leaf the substitution rewrote, at the
+// candidate-style path binding coverage is checked against.
+type mintedReferenceToken struct {
+	ItemKey string
+	Path    string
+	Token   string
+}
+
+func substituteReferenceTokens(
+	items map[string]map[string]any,
+	context BindingContext,
+	resourceType string,
+	lookupKeys map[string]map[string]string,
+) []mintedReferenceToken {
+	var minted []mintedReferenceToken
+	if context.Mode == deployment.ReferenceBindingDisabled {
+		return nil
+	}
+	for _, field := range canonjson.SortedStrings(mapKeys(context.References)) {
+		spec, ok := context.References[field]
+		if !ok {
+			continue
+		}
+		if !bindableReference(resourceType, spec.Referent, context) {
+			continue
+		}
+		keyMap := lookupKeys[spec.Referent]
+		if len(keyMap) == 0 {
+			continue
+		}
+		// Mirror fieldCandidates' dotted-name rule exactly: a field whose
+		// segments are not all identifier-shaped is one literal field name
+		// containing dots, never a traversal path.
+		segments := strings.Split(field, ".")
+		for _, segment := range segments {
+			if !identifierSegmentPattern.MatchString(segment) {
+				segments = []string{field}
+				break
+			}
+		}
+		for _, key := range canonjson.SortedStrings(mapKeys(items)) {
+			item, ok := items[key]
+			if !ok {
+				continue
+			}
+			substituteAtPath(item, segments, key, "", spec.Referent, keyMap, &minted)
+		}
+	}
+	return minted
+}
+
+// substituteAtPath descends container segment by segment -- fanning out
+// over list elements at every level with the same index bookkeeping as
+// fieldCandidates -- and rewrites the terminal segment's value(s).
+// Substitution is value-level, so the set-block/plain-path distinction that
+// matters for binding addressing does not arise here: both walks reach the
+// same leaves, and every rewrite is recorded so CompileTransformArtifacts
+// can prove a covering binding was derived for it.
+func substituteAtPath(
+	container map[string]any,
+	segments []string,
+	itemKey, concretePath, referent string,
+	keyMap map[string]string,
+	minted *[]mintedReferenceToken,
+) {
+	head := segments[0]
+	leafPath := head
+	if concretePath != "" {
+		leafPath = concretePath + "." + head
+	}
+	if len(segments) == 1 {
+		switch value := container[head].(type) {
+		case []any:
+			substituteListElements(value, itemKey, leafPath, referent, keyMap, minted)
+		default:
+			if token, ok := referenceToken(value, referent, keyMap); ok {
+				container[head] = token
+				*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
+			}
+		}
+		return
+	}
+	next, present := container[head]
+	if !present {
+		return
+	}
+	substituteThroughValue(next, segments[1:], itemKey, leafPath, referent, keyMap, minted)
+}
+
+// substituteThroughValue continues the descent through one intermediate
+// value, fanning arrays (including arrays of arrays) with fieldCandidates'
+// exact index bookkeeping.
+func substituteThroughValue(
+	value any,
+	rest []string,
+	itemKey, concretePath, referent string,
+	keyMap map[string]string,
+	minted *[]mintedReferenceToken,
+) {
+	switch typed := value.(type) {
+	case map[string]any:
+		substituteAtPath(typed, rest, itemKey, concretePath, referent, keyMap, minted)
+	case []any:
+		for index, child := range typed {
+			if child == nil {
+				continue
+			}
+			substituteThroughValue(child, rest, itemKey, fmt.Sprintf("%s[%d]", concretePath, index), referent, keyMap, minted)
+		}
+	}
+}
+
+// substituteListElements rewrites token-eligible elements of one terminal
+// list, replicating bindValue's whole-list bail exactly: a list holding any
+// non-zero-sentinel element the binder calls unbindable (null, nested
+// lists, objects, empty strings) is left entirely untouched, because
+// derivation will refuse to bind it and a minted token would otherwise have
+// no resolver.
+func substituteListElements(
+	arr []any,
+	itemKey, leafPath, referent string,
+	keyMap map[string]string,
+	minted *[]mintedReferenceToken,
+) {
+	for _, child := range arr {
+		if zeroSentinel(child) {
+			continue
+		}
+		if !bindableListElement(child) {
+			return
+		}
+	}
+	for index, child := range arr {
+		if zeroSentinel(child) {
+			continue
+		}
+		if token, ok := referenceToken(child, referent, keyMap); ok {
+			arr[index] = token
+			*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
+		}
+	}
+}
+
+// BindingPathCovers reports whether a binding at bindingPath resolves the
+// leaf at leafPath: an exact match, or the leaf sitting anywhere below the
+// binding's path (the set-block complete-leaf form binds the block and
+// resolves every reference member under it). Exported because envgen's
+// render-time totality gate applies the identical rule against committed
+// bindings.
+func BindingPathCovers(bindingPath, leafPath string) bool {
+	return leafPath == bindingPath ||
+		strings.HasPrefix(leafPath, bindingPath+".") ||
+		strings.HasPrefix(leafPath, bindingPath+"[")
+}
+
+// assertMintedTokensCovered fails the compile if any token the substitution
+// minted has no covering derived binding. Substitution and derivation walk
+// the same gates over the same items, so a gap between them is a traversal
+// divergence bug; publishing it would commit a token nothing resolves,
+// which on a string-typed provider field would flow to the provider as a
+// literal. Loud beats silent.
+func assertMintedTokensCovered(minted []mintedReferenceToken, binding GeneratedBindingsResult, resourceType string) error {
+	for _, m := range minted {
+		fields, _ := binding.Resources[resourceType+"."+m.ItemKey].(map[string]any)
+		covered := false
+		for bindingPath := range fields {
+			if BindingPathCovers(bindingPath, m.Path) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return fmt.Errorf(
+				"substitution minted token %s at %s.%s.%s but derivation produced no covering binding; refusing to publish an unresolvable token (traversal divergence)",
+				jsonQuote(m.Token), resourceType, m.ItemKey, m.Path,
+			)
+		}
+	}
+	return nil
+}
+
+// referenceToken maps a raw ID present in keyMap to its qualified token.
+// Everything else -- sentinels, unknown IDs, values already token-shaped,
+// non-scalar values, and keys the interpolation guard would refuse -- is
+// left untouched for DeriveGeneratedBindings to classify and report. The
+// interpolation check here prevents ever *minting* a committed token that
+// the derive layer's unsafe_key guard would then strand unresolvable.
+func referenceToken(value any, referent string, keyMap map[string]string) (string, bool) {
+	ident, err := pythonTransformString(value)
+	if err != nil {
+		return "", false
+	}
+	if tokenShaped(ident) {
+		return "", false
+	}
+	referentKey, ok := keyMap[ident]
+	if !ok {
+		return "", false
+	}
+	if strings.Contains(referentKey, "${") || strings.Contains(referentKey, "%{") {
+		return "", false
+	}
+	return referent + "." + referentKey, true
+}
+
 // generatedBindingsBuilder holds the mutable state
 // deriveGeneratedBindings's TS closures (resolve, bindValue, count) share
 // via lexical capture; Go has no closures-over-enclosing-locals convenient
@@ -721,6 +958,11 @@ type generatedBindingsBuilder struct {
 	bound        int
 	skipped      int
 	reasons      map[string]int
+	// keySets caches each referent's key_by_id value set, built on first
+	// token lookup for that referent. resolve runs once per candidate value
+	// and keyMap is the same map object across every call for one referent,
+	// so this is keyed by referent (not rebuilt per value).
+	keySets map[string]map[string]struct{}
 }
 
 func (b *generatedBindingsBuilder) count(reason string, amount int) {
@@ -734,17 +976,75 @@ func (b *generatedBindingsBuilder) note(format string, args ...any) {
 	b.notes = append(b.notes, fmt.Sprintf(format, args...))
 }
 
-// resolve ports deriveGeneratedBindings's local `resolve` closure.
+// keySetFor returns the set of keys keyMap's ID->key entries map onto for
+// the given referent, building and caching it the first time a token is
+// seen for that referent. A token is validated by key membership alone, so
+// this set -- not the ID->key map itself -- is the only structure a token
+// lookup ever consults.
+func (b *generatedBindingsBuilder) keySetFor(referent string, keyMap map[string]string) map[string]struct{} {
+	if set, ok := b.keySets[referent]; ok {
+		return set
+	}
+	set := make(map[string]struct{}, len(keyMap))
+	for _, referentKey := range keyMap {
+		set[referentKey] = struct{}{}
+	}
+	if b.keySets == nil {
+		b.keySets = map[string]map[string]struct{}{}
+	}
+	b.keySets[referent] = set
+	return set
+}
+
+// tokenShaped reports whether ident has the qualified-token shape (an
+// identifier segment, a dot, a remainder) without regard to which referent
+// it names. It classifies a value that fails the spec.Referent prefix
+// check as a mismatched token rather than a plain ID: provider tenant IDs
+// in this pipeline are never dotted, so a dotted, identifier-prefixed
+// value is exhaustively a token for some other referent, never a
+// coincidental ID.
+func tokenShaped(ident string) bool {
+	dot := strings.IndexByte(ident, '.')
+	return dot > 0 && identifierSegmentPattern.MatchString(ident[:dot])
+}
+
+// resolve ports deriveGeneratedBindings's local `resolve` closure, extended
+// to consume the qualified reference token ("<spec.Referent>.<key>") the P1
+// substitution pass commits in place of a raw tenant ID. A token is
+// recognised by an exact "<spec.Referent>." prefix, stripped verbatim --
+// never a general dot split, because a referent's key may itself contain
+// dots -- and validated by key membership in key_by_id's value set (never
+// an ID->key hop; the key is already in the value). Old-shape raw IDs
+// remain valid indefinitely: the migration path this file's task brief
+// requires.
 func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap map[string]string, key, fieldPath string, value any) (*string, error) {
 	ident, err := pythonTransformString(value)
 	if err != nil {
 		return nil, err
 	}
-	referentKey, ok := keyMap[ident]
-	if !ok {
-		b.count("id_absent", 1)
-		b.note("%s.%s.%s value %s skipped; id is absent from %s lookup", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+	var referentKey string
+	ownPrefix := spec.Referent + "."
+	switch {
+	case strings.HasPrefix(ident, ownPrefix):
+		tokenKey := ident[len(ownPrefix):]
+		if _, known := b.keySetFor(spec.Referent, keyMap)[tokenKey]; !known {
+			b.count("token_key_unknown", 1)
+			b.note("%s.%s.%s value %s skipped; token key is unknown to %s", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+			return nil, nil
+		}
+		referentKey = tokenKey
+	case tokenShaped(ident):
+		b.count("token_referent_mismatch", 1)
+		b.note("%s.%s.%s value %s skipped; token does not name %s", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
 		return nil, nil
+	default:
+		found, ok := keyMap[ident]
+		if !ok {
+			b.count("id_absent", 1)
+			b.note("%s.%s.%s value %s skipped; id is absent from %s lookup", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+			return nil, nil
+		}
+		referentKey = found
 	}
 	if strings.Contains(referentKey, "${") || strings.Contains(referentKey, "%{") {
 		b.count("unsafe_key", 1)
@@ -1121,6 +1421,29 @@ func DeriveGeneratedBindings(context BindingContext, items map[string]map[string
 	if context.Mode == deployment.ReferenceBindingDisabled {
 		return GeneratedBindingsResult{Resources: b.resources, Notes: b.notes}, nil
 	}
+	// Two reference fields crossing the same set block would each bind the
+	// complete block leaf at the same (item, path) key: the second assign
+	// overwrites the first, whose references are then reproduced literally
+	// inside the surviving expression (adversarial-review finding). Grouped
+	// block resolution is not implemented, so the shape is refused up
+	// front, before any value can be minted or bound. No shipped pack
+	// declares it (corpus audited 2026-07-30).
+	blockOwners := map[string]string{}
+	for _, field := range canonjson.SortedStrings(mapKeys(context.References)) {
+		setIndex, throughSet := context.SetBlockFields[field]
+		if !throughSet {
+			continue
+		}
+		segments := strings.Split(field, ".")
+		prefix := strings.Join(segments[:setIndex+1], ".")
+		if other, taken := blockOwners[prefix]; taken {
+			return GeneratedBindingsResult{}, fmt.Errorf(
+				"reference fields %s and %s both cross set block %s of %s; binding them independently would overwrite one resolution with the other, so this shape is refused until grouped set-block resolution exists",
+				other, field, prefix, resourceType,
+			)
+		}
+		blockOwners[prefix] = field
+	}
 	for _, field := range canonjson.SortedStrings(mapKeys(context.References)) {
 		spec, ok := context.References[field]
 		if !ok {
@@ -1319,6 +1642,71 @@ func loadLookup(file string) (*TransformLookupData, error) {
 	return &data, nil
 }
 
+// tokenDependents reports the committed config artifacts in
+// configDirectory that carry a qualified reference token for resourceType.
+// The scan is textual (a quoted string opening with "<resourceType>."), the
+// same signal the renderer keys on, so both format variants of tfvars are
+// served and a refusal errs toward keeping the book.
+func tokenDependents(configDirectory, resourceType string) ([]string, error) {
+	entries, err := os.ReadDir(configDirectory)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	prefix := resourceType + "."
+	var dependents []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() ||
+			!(strings.HasSuffix(name, ".auto.tfvars.json") || strings.HasSuffix(name, ".auto.tfvars")) {
+			continue
+		}
+		raw, err := os.ReadFile(path.Join(configDirectory, name))
+		if err != nil {
+			return nil, err
+		}
+		// JSON configs are parsed so only string VALUES count -- a dotted
+		// map key or field name can never block retirement. HCL configs
+		// cannot be parsed here; their quoted-text scan stays conservative.
+		if strings.HasSuffix(name, ".auto.tfvars.json") {
+			if parsed, parseErr := canonjson.ParseDataJSONLosslessly(string(raw)); parseErr == nil {
+				if jsonValueHasPrefix(parsed, prefix) {
+					dependents = append(dependents, name)
+				}
+				continue
+			}
+		}
+		if strings.Contains(string(raw), `"`+prefix) {
+			dependents = append(dependents, name)
+		}
+	}
+	return canonjson.SortedStrings(dependents), nil
+}
+
+// jsonValueHasPrefix reports whether any string VALUE in the decoded JSON
+// carries the prefix -- keys and field names are never inspected.
+func jsonValueHasPrefix(value any, prefix string) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.HasPrefix(typed, prefix)
+	case []any:
+		for _, child := range typed {
+			if jsonValueHasPrefix(child, prefix) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, child := range typed {
+			if jsonValueHasPrefix(child, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // resolveLookup ports resolveLookup from
 // the original implementation. See TransformArtifactCompileOptions's
 // LookupOverrides doc comment for why no separate "overrides provided"
@@ -1351,6 +1739,23 @@ func displayFor(value any, mapping map[string]string) (string, error) {
 		return ident, nil
 	}
 	return "<unknown>", nil
+}
+
+// displayForReference resolves a committed reference value to its display
+// name: a qualified token maps key -> id through the book before the
+// ordinary id -> display lookup, so tokenised HCL trees keep the same
+// human-readable comments raw-ID trees always had. Every other value keeps
+// displayFor's legacy semantics.
+func displayForReference(value any, referent string, lookup *TransformLookupData) (string, error) {
+	if text, ok := value.(string); ok {
+		prefix := referent + "."
+		if strings.HasPrefix(text, prefix) {
+			if id, ok := lookup.IDByKey[text[len(prefix):]]; ok {
+				return displayFor(id, lookup.ByID)
+			}
+		}
+	}
+	return displayFor(value, lookup.ByID)
 }
 
 // deriveHclComments ports deriveHclComments from
@@ -1401,7 +1806,7 @@ func deriveHclComments(
 				continue
 			}
 			commentFor := func(child any) (string, error) {
-				display, err := displayFor(child, lookup.ByID)
+				display, err := displayForReference(child, spec.Referent, lookup)
 				if err != nil {
 					return "", err
 				}
@@ -1534,6 +1939,21 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
+	// Once committed configs reference this type by token, its book is the
+	// only decoder those tokens have: inferred-lifecycle removal must refuse
+	// while any dependent survives, not strand them.
+	if lookupText == nil && options.RemoveLookupWhenAbsent {
+		dependents, err := tokenDependents(path.Dir(paths.Config), options.ResourceType)
+		if err != nil {
+			return CompiledTransformArtifacts{}, err
+		}
+		if len(dependents) > 0 {
+			return CompiledTransformArtifacts{}, fmt.Errorf(
+				"cannot remove %s's lookup sidecar: committed config still references it by token (%s); re-run transform for the dependents or restore the referent before retiring its book",
+				options.ResourceType, strings.Join(dependents, ", "),
+			)
+		}
+	}
 
 	var template *string
 	if s, ok := options.Override["import_id"].(string); ok {
@@ -1576,6 +1996,29 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 		)
 	}
 
+	// The key maps are resolved before the config renders so committed
+	// reference fields can be rewritten to qualified tokens first. The
+	// sidecar compiled above this point deliberately still maps real IDs
+	// -- it is the book the tokens decode through -- and imports/moves
+	// render from Originals, which the substitution never touches.
+	configDirectory := path.Dir(paths.Config)
+	keyMaps, err := lookupKeyMaps(configDirectory, options.References, options.LookupOverrides)
+	if err != nil {
+		return CompiledTransformArtifacts{}, err
+	}
+	// Tokens are a JSON-format contract: only JSON tfvars can be
+	// leaf-verified end to end by the render-time totality gate, so
+	// HCL-format deployments keep literal IDs entirely (and envgen refuses
+	// token-shaped values that appear in an HCL config by other means).
+	tfvarsFormat, err := deployment.DeploymentTfvarsFormat(options.Deployment)
+	if err != nil {
+		return CompiledTransformArtifacts{}, err
+	}
+	var minted []mintedReferenceToken
+	if tfvarsFormat == "json" {
+		minted = substituteReferenceTokens(options.Result.Items, options.BindingContext, options.ResourceType, keyMaps)
+	}
+
 	configText, err := renderDeploymentTfvars(
 		options.Deployment, options.Result.Items, options.References,
 		options.ResourceType, options.Tenant, options.VariableName, options.LookupOverrides,
@@ -1584,13 +2027,11 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 		return CompiledTransformArtifacts{}, err
 	}
 
-	configDirectory := path.Dir(paths.Config)
-	keyMaps, err := lookupKeyMaps(configDirectory, options.References, options.LookupOverrides)
+	binding, err := DeriveGeneratedBindings(options.BindingContext, options.Result.Items, keyMaps, options.ResourceType)
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
-	binding, err := DeriveGeneratedBindings(options.BindingContext, options.Result.Items, keyMaps, options.ResourceType)
-	if err != nil {
+	if err := assertMintedTokensCovered(minted, binding, options.ResourceType); err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
 

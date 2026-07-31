@@ -180,10 +180,19 @@ func TestRenderTransformLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderTransformLookup: %v", err)
 	}
+	// id_by_key keeps one row per item key even where key_by_id collapses
+	// colliding IDs to the last sorted key: alpha and omega genuinely share
+	// CUSTOM_01, so a hand-written token naming either key decodes to the
+	// right ID.
 	want := "{\n" +
 		"  \"by_id\": {\n" +
 		"    \"CUSTOM_01\": \"Omega\",\n" +
 		"    \"CUSTOM_02\": \"<unknown>\"\n" +
+		"  },\n" +
+		"  \"id_by_key\": {\n" +
+		"    \"alpha\": \"CUSTOM_01\",\n" +
+		"    \"beta\": \"CUSTOM_02\",\n" +
+		"    \"omega\": \"CUSTOM_01\"\n" +
 		"  },\n" +
 		"  \"key_by_id\": {\n" +
 		"    \"CUSTOM_01\": \"omega\",\n" +
@@ -577,6 +586,10 @@ func TestBatchCompilationUsesNewLookupResultsForBindingsAndComments(t *testing.T
 
 	referrerPaths := mustComputePaths(t, referrer)
 	configText := readFileText(t, referrerPaths.Config)
+	// HCL-format deployments keep literal IDs by design -- tokens are a
+	// JSON-format contract, because only JSON configs can be leaf-verified
+	// by the render-time totality gate. The comment still resolves through
+	// the fresh same-batch lookup, never the stale on-disk one.
 	if !regexp.MustCompile(`group_id\s+= "new-id"\s+# Fresh Group`).MatchString(configText) {
 		t.Fatalf("config text %q does not match /group_id\\s+= \"new-id\"\\s+# Fresh Group/", configText)
 	}

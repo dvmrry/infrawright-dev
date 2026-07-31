@@ -6,6 +6,13 @@
     "CUSTOM_35": "Test URL Category Updated 1773079439",
     "CUSTOM_36": "TestCategory_VCR"
   },
+  "id_by_key": {
+    "block_automation_hub_content": "CUSTOM_33",
+    "test_remove_list": "CUSTOM_32",
+    "test_url_category_updated_1772842055": "CUSTOM_34",
+    "test_url_category_updated_1773079439": "CUSTOM_35",
+    "testcategory_vcr": "CUSTOM_36"
+  },
   "key_by_id": {
     "CUSTOM_32": "test_remove_list",
     "CUSTOM_33": "block_automation_hub_content",
