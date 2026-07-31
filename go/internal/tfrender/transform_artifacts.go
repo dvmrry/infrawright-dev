@@ -1905,6 +1905,23 @@ func lookupKeyMaps(
 	return output, nil
 }
 
+// LookupKeyMaps exposes lookupKeyMaps to render-time binding derivation
+// (gen-env, once the committed generated-bindings cache became optional).
+// Only the on-disk arm is offered: the override map exists for a compile
+// batch whose members' fresh books are authoritative for same-batch
+// references, and no such batch exists at render time -- the renderer reads
+// exactly the books that are committed. Keeping this a delegation rather
+// than a second book reader is what guarantees the derivation gen-env runs
+// sees byte-identical key maps to the one transform ran, including a
+// referent whose book is absent (a nil entry, which the deriver reports as
+// a missing lookup rather than binding past).
+func LookupKeyMaps(
+	configDirectory string,
+	references map[string]TransformReferenceSpec,
+) (map[string]map[string]string, error) {
+	return lookupKeyMaps(configDirectory, references, nil)
+}
+
 // compileLookup ports compileLookup from
 // the original implementation.
 func compileLookup(options TransformArtifactCompileOptions) (*TransformLookupData, *string, error) {

@@ -66,6 +66,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
+	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
 
 // tokenFieldSegmentPattern mirrors the producer's identifier-segment rule
@@ -1173,13 +1174,38 @@ func validateRemoteStateReferences(
 }
 
 // loadBindingLayers ports the local loadBindingLayers helper from
-// the original implementation.
+// the original implementation, extended with the render-derivation bridge:
+// the committed generated-bindings file is a CACHE of a pure function of
+// (committed token, pack edges, provider schema, book), so when it is absent
+// and the member's config carries tokens the generated layer is derived here
+// instead. The three arms are deliberately exclusive and ordered:
+//
+//   - file present: today's exact path, byte for byte, whatever the file
+//     says. A tree mid-migration keeps rendering from its committed cache
+//     until transform stops writing one, and a cache that has gone stale
+//     still fails through the same gates it always did rather than being
+//     silently corrected under the operator.
+//   - file absent, config carries tokens: derive. Committed tokens name
+//     their referent and key outright, so the derivation reads only
+//     committed artifacts and reproduces what transform would have cached.
+//   - file absent, no tokens: nothing. Raw-ID derivation stays
+//     transform-only: an old-shape leaf carries a tenant ID that only the
+//     book can translate, so deriving here would make an unchanged tree's
+//     emitted root depend on book contents -- a silent behaviour change for
+//     every tree that has not re-transformed.
+//
+// carriesTokens is the caller's per-type slice of the root's committed-token
+// enumeration, not a second scan: one scan decides both this bridge and the
+// totality gate, so the two can never disagree about what a token is.
 func loadBindingLayers(
 	dep deployment.Deployment,
 	members []string,
 	onDiagnostic func(string),
 	resource metadata.LoadedResourceMetadata,
 	tenant string,
+	root metadata.LoadedPackRoot,
+	topology roots.RootTopology,
+	carriesTokens bool,
 ) ([]ExpressionBinding, map[string]bool, error) {
 	// Operator bindings are resolved first so the caller can tell which merged
 	// identities an operator owns. Probing a generated binding an operator
@@ -1209,8 +1235,9 @@ func loadBindingLayers(
 	if err != nil {
 		return nil, nil, err
 	}
-	if fileExists(generated) {
-		mode := deployment.DeploymentReferenceBindingMode(dep, resource.Provider)
+	mode := deployment.DeploymentReferenceBindingMode(dep, resource.Provider)
+	switch {
+	case fileExists(generated):
 		if mode != deployment.ReferenceBindingDisabled {
 			loaded, err := LoadExpressionBindings(generated, resource.Type)
 			if err != nil {
@@ -1227,11 +1254,136 @@ func loadBindingLayers(
 		} else {
 			onDiagnostic("NOTE bindings: " + fmt.Sprintf(staleDisabled, generated))
 		}
+	// Disabled mode derives nothing for the same reason it ignores a
+	// committed cache. Tokens under a disabled mode are refused outright a
+	// few gates later, naming the mismatch; deriving here would only race
+	// that refusal with a resolver it must never emit.
+	case carriesTokens && mode != deployment.ReferenceBindingDisabled:
+		derived, err := deriveGeneratedBindingLayer(dep, root, topology, resource, tenant, onDiagnostic)
+		if err != nil {
+			return nil, nil, err
+		}
+		// No member filter runs over a derived layer: filterGeneratedBindings
+		// exists to drop bindings a since-changed topology stranded in a
+		// COMMITTED file, and a layer computed from this run's config and this
+		// run's topology has no such staleness to carry.
+		if len(derived) > 0 {
+			layers = append(layers, derived)
+		}
 	}
 	if len(operatorBindings) > 0 {
 		layers = append(layers, operatorBindings)
 	}
 	return MergeExpressionBindingLayers(layers), overridden, nil
+}
+
+// deriveGeneratedBindingLayer recomputes one member's generated bindings
+// from committed artifacts alone: the pack's declared reference edges, the
+// referrer's provider schema (which decides set-block leaves), the
+// deployment topology, the committed config items, and the referents'
+// committed books. It is the same tfrender.DeriveGeneratedBindings transform
+// runs, over the same BindingContext transform builds, so the expressions
+// are identical by construction rather than by agreement.
+//
+// The derived result is rendered and re-parsed through the very functions
+// the committed file travels through (RenderGeneratedBindings ->
+// ParseDataJSONLosslessly -> ParseExpressionBindings) rather than converted
+// directly. That costs one JSON round trip per member and buys the parity
+// contract outright: the bridge path and this path differ only by whether
+// the bytes were written to disk in between, so every validation, escaping,
+// and ordering rule the loader enforces lands identically on both.
+func deriveGeneratedBindingLayer(
+	dep deployment.Deployment,
+	root metadata.LoadedPackRoot,
+	topology roots.RootTopology,
+	resource metadata.LoadedResourceMetadata,
+	tenant string,
+	onDiagnostic func(string),
+) ([]ExpressionBinding, error) {
+	references := transformrun.TransformReferenceSpecs(root, resource)
+	if len(references) == 0 {
+		return nil, nil
+	}
+	schema, err := root.LoadResourceSchema(resource.Type)
+	if err != nil {
+		return nil, err
+	}
+	context, err := transformrun.TransformBindingContext(
+		dep, root, resource, topology.ResourceRoots, references, schema,
+	)
+	if err != nil {
+		return nil, err
+	}
+	config, err := configFile(dep, tenant, resource.Type)
+	if err != nil {
+		return nil, err
+	}
+	items, err := loadConfigItems(config, variableName(topology, resource.Type))
+	if err != nil {
+		return nil, err
+	}
+	// The books are read from the config directory transform writes them to,
+	// through transform's own resolver, so a referent whose book is missing
+	// derives nothing and is reported -- never bound past.
+	keyMaps, err := tfrender.LookupKeyMaps(path.Dir(config), references)
+	if err != nil {
+		return nil, err
+	}
+	result, err := tfrender.DeriveGeneratedBindings(context, items, keyMaps, resource.Type)
+	if err != nil {
+		return nil, err
+	}
+	// Same channel and same prefix transform publishes its derivation notes
+	// on, so a bound/skipped accounting reads identically whichever half of
+	// the pipeline produced it.
+	for _, message := range result.Notes {
+		onDiagnostic("NOTE bindings: " + message)
+	}
+	if len(result.Resources) == 0 {
+		return nil, nil
+	}
+	rendered, err := tfrender.RenderGeneratedBindings(result.Resources)
+	if err != nil {
+		return nil, err
+	}
+	value, err := canonjson.ParseDataJSONLosslessly(rendered)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExpressionBindings(value, resource.Type)
+}
+
+// loadConfigItems reads one member's committed JSON tfvars into the item map
+// the deriver consumes -- the same lossless parse every other render-time
+// reader of this file uses, so numbers keep their source lexemes and the
+// derived expressions cannot drift from the ones transform derived over the
+// pre-render values. A non-object item is skipped rather than refused: the
+// schema and config gates downstream own that judgement, and they read the
+// same file.
+func loadConfigItems(config, itemsVariable string) (map[string]map[string]any, error) {
+	raw, err := os.ReadFile(config)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := canonjson.ParseDataJSONLosslessly(string(raw))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", config, err)
+	}
+	object, ok := parsed.(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	items, ok := object[itemsVariable].(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	output := make(map[string]map[string]any, len(items))
+	for key, value := range items {
+		if record, ok := value.(map[string]any); ok {
+			output[key] = record
+		}
+	}
+	return output, nil
 }
 
 // filterStatelessBindings drops generated bindings whose referenced root has no
@@ -1724,6 +1876,26 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			return EnvironmentGenerationResult{}, err
 		}
 
+		// The committed-token scan runs once, before any binding is loaded,
+		// because two decisions now key on it: whether an absent
+		// generated-bindings cache may be derived for a member (below) and
+		// whether the root's token gates apply at all (further down). One scan
+		// means the bridge and the totality gate can never disagree about what
+		// counts as a token; it also means a config whose token contract is
+		// broken outright -- token-shaped values in HCL tfvars, unparseable
+		// JSON -- is refused before the renderer reads anything derived from it.
+		tokenLeaves, err := enumerateCommittedReferenceTokens(
+			options.Deployment, options.Tenant, members, options.Root, topology,
+		)
+		if err != nil {
+			return EnvironmentGenerationResult{}, err
+		}
+		tokensPresent := len(tokenLeaves) > 0
+		tokenisedTypes := map[string]bool{}
+		for _, leaf := range tokenLeaves {
+			tokenisedTypes[leaf.ResourceType] = true
+		}
+
 		bindingsByType := map[string][]ExpressionBinding{}
 		operatorIdentitiesByType := map[string]map[string]bool{}
 		for _, resourceType := range members {
@@ -1731,7 +1903,10 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
-			bindings, operatorIdentities, err := loadBindingLayers(options.Deployment, members, onDiagnostic, res, options.Tenant)
+			bindings, operatorIdentities, err := loadBindingLayers(
+				options.Deployment, members, onDiagnostic, res, options.Tenant,
+				options.Root, topology, tokenisedTypes[resourceType],
+			)
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
@@ -1778,13 +1953,6 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		if err := validateRemoteStateReferences(remoteStateValidation, selectedRoot.Label, remoteStateReferences); err != nil {
 			return EnvironmentGenerationResult{}, err
 		}
-		tokenLeaves, err := enumerateCommittedReferenceTokens(
-			options.Deployment, options.Tenant, members, options.Root, topology,
-		)
-		if err != nil {
-			return EnvironmentGenerationResult{}, err
-		}
-		tokensPresent := len(tokenLeaves) > 0
 		// Detection is binding-mode-independent on purpose: committed tokens
 		// under a since-disabled mode would otherwise pass bare var.<name>
 		// straight through the root's opaque variable.

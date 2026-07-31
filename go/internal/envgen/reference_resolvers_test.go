@@ -41,6 +41,20 @@ func (f stateAwareFixture) readReferrerFile(t *testing.T, name string) string {
 	return string(content)
 }
 
+// committedBindingsFile is the generated-bindings cache the migration bridge
+// prefers when it exists: the file Part A of the sidecar-minimization design
+// makes optional.
+func (f stateAwareFixture) committedBindingsFile() string {
+	return filepath.Join(f.workspace, "config", "tenant", "zpa_application_segment.generated.expressions.json")
+}
+
+func (f stateAwareFixture) removeCommittedBindings(t *testing.T) {
+	t.Helper()
+	if err := os.Remove(f.committedBindingsFile()); err != nil {
+		t.Fatalf("remove committed bindings: %v", err)
+	}
+}
+
 // TestTokenisedRootEmitsLookupFirstResolvers pins the resolver shape: the
 // canonical selector wrapped lookup-first with the book literal as the
 // fallback arm, and the book local reading the committed sidecar at plan
@@ -105,13 +119,16 @@ func TestTokenisedRootSupersedesProbeFilter(t *testing.T) {
 // TestTokenisedRootWithoutBindingsFailsLoudly pins the mid-migration
 // misconfiguration: tokens in committed config with no binding evidence at
 // all cannot silently reach the module's type boundary; generation refuses,
-// naming the root and the remedy.
+// naming the root and the remedy. Since Part A the absent cache alone is no
+// longer "no evidence" -- render-derivation would serve it from the book --
+// so the book is removed too, leaving the tokens genuinely unresolvable.
 func TestTokenisedRootWithoutBindingsFailsLoudly(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.tokenise(t)
 	config := filepath.Join(fixture.workspace, "config", "tenant")
-	if err := os.Remove(filepath.Join(config, "zpa_application_segment.generated.expressions.json")); err != nil {
-		t.Fatalf("remove bindings: %v", err)
+	fixture.removeCommittedBindings(t)
+	if err := os.Remove(filepath.Join(config, "zpa_segment_group.lookup.json")); err != nil {
+		t.Fatalf("remove book: %v", err)
 	}
 
 	diagnostics := make([]string, 0)
@@ -270,9 +287,7 @@ func TestForeignReferentTokenRefused(t *testing.T) {
 			"segment_group_id": "zpa_application_server.stale_key",
 		}},
 	})
-	if err := os.Remove(filepath.Join(config, "zpa_application_segment.generated.expressions.json")); err != nil {
-		t.Fatalf("remove bindings: %v", err)
-	}
+	fixture.removeCommittedBindings(t)
 
 	outputRoot := fixture.outputRoot
 	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
@@ -346,5 +361,120 @@ func TestStaleBindingAtTokenPathRefused(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "no binding that resolves it") {
 		t.Fatalf("GenerateEnvironmentRoots error = %v, want the stale-binding refusal", err)
+	}
+}
+
+// The three tests below pin Part A of the sidecar-minimization design: the
+// committed .generated.expressions.json becomes a cache the renderer can
+// recompute, so gen-env derives the generated layer itself when the file is
+// absent and the config carries tokens. See
+// docs/superpowers/specs/2026-07-31-sidecar-minimization-design.md.
+
+// TestDerivedBindingsMatchCommittedCacheByteForByte is the parity pin: over
+// one fixture, the tree rendered from the committed (token-derived) cache and
+// the tree rendered with that cache deleted must be byte-identical. Same
+// derivation engine, same inputs, so any divergence is a defect in the
+// render-time wiring, not in the derivation.
+func TestDerivedBindingsMatchCommittedCacheByteForByte(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokenise(t)
+
+	fixture.generate(t, false)
+	bridged := fixture.referrerTree(t)
+	bridgedBindings, present := bridged[expressionBindingsTF]
+	if !present {
+		t.Fatalf("bridge tree = %v, want %s to compare against", mapKeysForTest(bridged), expressionBindingsTF)
+	}
+	// Guards against a vacuous pass: the bytes being compared must actually
+	// carry the resolver the cache encodes.
+	if !strings.Contains(bridgedBindings, "try(data.terraform_remote_state.zpa_segment_group") {
+		t.Fatalf("%s = %q, want the bridge path's lookup-first resolver", expressionBindingsTF, bridgedBindings)
+	}
+
+	fixture.removeCommittedBindings(t)
+	diagnostics := fixture.generate(t, false)
+	// The derivation accounting proves the second run actually derived rather
+	// than reusing anything the first run left in the output tree.
+	if !containsString(diagnostics, "NOTE bindings: zpa_application_segment: 1 bound, 0 skipped") {
+		t.Fatalf("diagnostics = %v, want the render-derivation accounting", diagnostics)
+	}
+	derived := fixture.referrerTree(t)
+	if got := derived[expressionBindingsTF]; got != bridgedBindings {
+		t.Errorf("%s derived at render =\n%q\nwant the bridge path's bytes:\n%q", expressionBindingsTF, got, bridgedBindings)
+	}
+	if !equalTrees(derived, bridged) {
+		t.Errorf("render-derived tree differs from the bridged tree:\ngot  %v\nwant %v",
+			mapKeysForTest(derived), mapKeysForTest(bridged))
+	}
+}
+
+// TestCommittedBindingsCacheWinsOverDerivation pins the migration bridge: a
+// committed cache still serves untouched when it exists. The cache carries an
+// extra binding derivation can never produce (no reference field declares
+// `description`), so its presence in the emitted root proves the file served
+// rather than the deriver.
+func TestCommittedBindingsCacheWinsOverDerivation(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokenise(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"app_one": map[string]any{
+			"segment_group_id": "zpa_segment_group.segment_one",
+			"description":      "text",
+		}},
+	})
+	writeJSONFile(t, fixture.committedBindingsFile(), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+				},
+				"description": map[string]any{"expression": "var.cache_only_description"},
+			},
+		},
+	})
+
+	fixture.generate(t, false)
+
+	bindings := fixture.readReferrerFile(t, expressionBindingsTF)
+	if !strings.Contains(bindings, "var.cache_only_description") {
+		t.Errorf("%s = %q, want the committed cache's un-derivable binding kept", expressionBindingsTF, bindings)
+	}
+	if !strings.Contains(bindings, "try(data.terraform_remote_state.zpa_segment_group") {
+		t.Errorf("%s = %q, want the cache's token resolver kept", expressionBindingsTF, bindings)
+	}
+}
+
+// TestOldShapeConfigNeverDerivesFromTheBook pins the bridge's other edge:
+// raw-ID derivation stays transform-only. With no committed cache, an
+// old-shape tree must render exactly the same bytes whether or not the
+// referent's book is on disk -- render output never depends on book contents
+// for a config that carries no tokens.
+func TestOldShapeConfigNeverDerivesFromTheBook(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.removeCommittedBindings(t)
+
+	fixture.generate(t, false)
+	bookless := fixture.referrerTree(t)
+	if bindings, present := bookless[expressionBindingsTF]; present {
+		t.Fatalf("%s = %q, want no bindings emitted without a committed cache", expressionBindingsTF, bindings)
+	}
+
+	// The book that WOULD resolve "sg-1" if raw-ID derivation ran at render.
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_segment_group.lookup.json"), map[string]any{
+		"by_id":     map[string]any{"sg-1": "Segment One"},
+		"id_by_key": map[string]any{"segment_one": "sg-1"},
+		"key_by_id": map[string]any{"sg-1": "segment_one"},
+	})
+	diagnostics := fixture.generate(t, false)
+	for _, message := range diagnostics {
+		if strings.HasPrefix(message, "NOTE bindings:") {
+			t.Errorf("diagnostics carry %q, want no derivation over an old-shape config", message)
+		}
+	}
+	booked := fixture.referrerTree(t)
+	if !equalTrees(booked, bookless) {
+		t.Errorf("old-shape tree changed once the book existed:\ngot  %v\nwant %v",
+			mapKeysForTest(booked), mapKeysForTest(bookless))
 	}
 }
