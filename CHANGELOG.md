@@ -29,6 +29,14 @@
   present; two-element lists and keyed-object collection bypasses fail before
   the provider can silently discard them.
 
+### Collectors
+
+- The HTTP transport's default per-attempt request timeout is raised from
+  30s to 60s (`Options.RequestTimeoutMs` and per-request `TimeoutMs`
+  overrides are unchanged). Slow tenant APIs were exceeding the ported
+  30s default in production fetches; the REST host probe's 15s parity
+  timeout is unaffected.
+
 ### Cross-state references
 
 - Every engine-emitted Terraform identifier drops the `infrawright_` prefix
