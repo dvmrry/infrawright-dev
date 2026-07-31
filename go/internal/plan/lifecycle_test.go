@@ -825,3 +825,37 @@ func TestRemoveSavedPlanArtifactsDoesNotRemoveDirectories(t *testing.T) {
 		t.Errorf("os.Stat(%q) = (%v, %v), want existing directory", planDirectory, info, err)
 	}
 }
+
+// TestRootRequiresReferenceBackendEnvironmentAcceptsLegacyVariable pins the
+// iw_ rename bridge at the gate that decides whether a root gets the
+// cross-state backend TF_VARs at all. A root generated before the rename
+// declares the legacy variable name; matching only the current declaration
+// leaves that root with no TF_VAR projection whatsoever -- the dual-name
+// alias downstream is unreachable -- and Terraform fails on the missing
+// required variable.
+func TestRootRequiresReferenceBackendEnvironmentAcceptsLegacyVariable(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		declaration string
+		want        bool
+	}{
+		{name: "current", declaration: `variable "` + ReferenceBackendVariable + `" {`, want: true},
+		{name: "legacy", declaration: `variable "` + LegacyReferenceBackendVariable + `" {`, want: true},
+		{name: "neither", declaration: `variable "items" {`, want: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			directory := t.TempDir()
+			content := "# GENERATED root\n\n" + testCase.declaration + "\n  type = any\n}\n"
+			if err := os.WriteFile(filepath.Join(directory, "main.tf"), []byte(content), 0o600); err != nil {
+				t.Fatalf("os.WriteFile(main.tf) error: %v", err)
+			}
+			got, err := rootRequiresReferenceBackendEnvironment(directory)
+			if err != nil {
+				t.Fatalf("rootRequiresReferenceBackendEnvironment(%s) error = %v, want nil", testCase.name, err)
+			}
+			if got != testCase.want {
+				t.Errorf("rootRequiresReferenceBackendEnvironment(%s) = %v, want %v", testCase.name, got, testCase.want)
+			}
+		})
+	}
+}

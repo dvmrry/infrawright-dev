@@ -208,13 +208,6 @@ func authoringWriteJSON(dependencies authoringCoreDependencies, value any, desti
 	return authoringWritePrepared(dependencies, *destination, rendered)
 }
 
-// authoringWriteText ports writeText from authoring/cli.ts. Callers hand it
-// fully rendered text, so parent preparation happens before the destination is
-// opened and cannot corrupt a previous file on preparation failure.
-func authoringWriteText(dependencies authoringCoreDependencies, value, destination string) error {
-	return authoringWritePrepared(dependencies, destination, []byte(value))
-}
-
 func authoringWritePrepared(dependencies authoringCoreDependencies, destination string, rendered []byte) error {
 	abs, err := filepath.Abs(destination)
 	if err != nil {
@@ -263,11 +256,6 @@ func authoringPacksRoot(dependencies authoringCoreDependencies) (string, error) 
 		return "", err
 	}
 	return filepath.Join(repositoryRoot, "packs"), nil
-}
-
-// reconcileCommand runs the v1 reconcile command.
-func reconcileCommand(arguments []string) (int, error) {
-	return reconcileCommandWithDependencies(arguments, defaultAuthoringCoreDependencies())
 }
 
 func reconcileCommandWithDependencies(arguments []string, dependencies authoringCoreDependencies) (int, error) {
@@ -393,12 +381,6 @@ func reconcileCommandInput(parsed commandInput, dependencies authoringCoreDepend
 	return 0, nil
 }
 
-// openAPIMapCommand composes the frozen generic OpenAPI diagnostic view. It
-// never treats the generic map as source-first readiness evidence.
-func openAPIMapCommand(arguments []string) (int, error) {
-	return openAPIMapCommandWithDependencies(arguments, defaultAuthoringCoreDependencies())
-}
-
 func openAPIMapCommandWithDependencies(arguments []string, dependencies authoringCoreDependencies) (int, error) {
 	return executeStandaloneCobra(newOpenAPIMapCobraCommand(dependencies), arguments)
 }
@@ -462,13 +444,6 @@ func openAPIMapCommandInput(parsed commandInput, dependencies authoringCoreDepen
 	}
 	_, err = dependencies.stdout.Write(rendered)
 	return 0, err
-}
-
-// transformAdoptParityCommand ports the contained operational-error contract:
-// usage errors remain top-level status 2, while fixture/domain failures emit a
-// concise stderr line and return status 2 after parsing succeeds.
-func transformAdoptParityCommand(arguments []string) (int, error) {
-	return transformAdoptParityCommandWithDependencies(arguments, defaultAuthoringCoreDependencies())
 }
 
 func transformAdoptParityCommandWithDependencies(arguments []string, dependencies authoringCoreDependencies) (status int, err error) {

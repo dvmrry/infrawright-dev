@@ -68,7 +68,7 @@ func loadRecipe(path string) (loadedRecipe, error) {
 		return loadedRecipe{}, fmt.Errorf("recipe root must be an object")
 	}
 
-	r := loadedRecipe{mode: LegacyV1, path: abs, directory: filepath.Dir(abs)}
+	r := loadedRecipe{path: abs, directory: filepath.Dir(abs)}
 	// Root scalars precede every section shape check, and section shapes
 	// precede nested fields so diagnostics remain deterministic.
 	if r.name, err = recipeString(root, "name", "name"); err != nil {
@@ -108,23 +108,17 @@ func loadRecipe(path string) (loadedRecipe, error) {
 	}
 	qualifiedRaw, qualified := root["source_provenance"]
 	qualified = qualified && qualifiedRaw != nil
+	if !qualified {
+		return loadedRecipe{}, fmt.Errorf("recipe requires a source_provenance manifest; the legacy v1 probe contract is retired")
+	}
 	r.openAPIPresent = recipeSectionPresent(root, "openapi")
 	if r.openAPI, err = decodeOpenAPI(openAPIObject); err != nil {
 		return loadedRecipe{}, err
-	}
-	if !qualified && falsey(r.openAPI.path) && falsey(r.openAPI.url) {
-		return loadedRecipe{}, fmt.Errorf("recipe openapi must include path or url")
 	}
 	r.sourcePresent = recipeSectionPresent(root, "source")
 	r.source, err = decodeSource(sourceObject)
 	if err != nil {
 		return loadedRecipe{}, err
-	}
-	if !qualified && falsey(r.source.path) && falsey(r.source.git) {
-		return loadedRecipe{}, fmt.Errorf("recipe source must include path or git")
-	}
-	if !qualified && !falsey(r.source.git) && falsey(r.source.ref) {
-		return loadedRecipe{}, fmt.Errorf("recipe source.ref is required when source.git is used")
 	}
 	r.schemaPresent = recipeSectionPresent(root, "terraform_schema")
 	r.schema, err = decodeSchema(schemaObject)
@@ -142,17 +136,11 @@ func loadRecipe(path string) (loadedRecipe, error) {
 		return loadedRecipe{}, err
 	}
 
-	if qualified {
-		p, decodeErr := decodeSourceProvenance(qualifiedRaw)
-		if decodeErr != nil {
-			return loadedRecipe{}, decodeErr
-		}
-		r.mode, r.provenance = QualifiedV2, &p
-		return r, nil
+	p, decodeErr := decodeSourceProvenance(qualifiedRaw)
+	if decodeErr != nil {
+		return loadedRecipe{}, decodeErr
 	}
-	if err := validateLegacySchemaFallback(r); err != nil {
-		return loadedRecipe{}, err
-	}
+	r.mode, r.provenance = QualifiedV2, &p
 	return r, nil
 }
 
@@ -290,38 +278,11 @@ func decodeSourceProvenance(value any) (sourceProvenance, error) {
 	return p, nil
 }
 
-func validateLegacySchemaFallback(r loadedRecipe) error {
-	if falsey(r.schema.path) {
-		if falsey(r.provider) {
-			return fmt.Errorf("recipe provider_source is required when terraform_schema.path is omitted")
-		}
-		if falsey(r.version) && falsey(r.terraform.version) {
-			return fmt.Errorf("recipe provider_version or terraform_provider.version is required when terraform_schema.path is omitted")
-		}
-	}
-	return nil
-}
-
 func falsey(value *string) bool { return value == nil || *value == "" }
-
-// nullishStringOr mirrors JavaScript's nullish coalescing: an explicit empty
-// string is data, while an absent or null field takes the fallback.
-func nullishStringOr(value *string, fallback string) string {
-	if value == nil {
-		return fallback
-	}
-	return *value
-}
 
 func stringOr(value *string, fallback string) string {
 	if falsey(value) {
 		return fallback
 	}
 	return *value
-}
-func recipePath(recipe loadedRecipe, value string) string {
-	if filepath.IsAbs(value) {
-		return value
-	}
-	return filepath.Join(recipe.directory, value)
 }

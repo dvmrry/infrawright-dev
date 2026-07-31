@@ -54,6 +54,16 @@ func newArtifactOptions(workspace, resourceType string) TransformArtifactCompile
 	}
 }
 
+// staleBookPlaceholder is the content the stale-lookup fixtures below commit at
+// a location publish must clean. It is a VALID lookup carrying one key the fresh
+// compile does not: every committed lookup is now read at compile time by the
+// key-shrinkage guard, so an unparseable placeholder would fail the compile
+// for reasons the test is not about, and a lookup with no dropped key would skip
+// the guard's dependent scan entirely rather than exercise it.
+func staleBookPlaceholder() string {
+	return `{"by_id":{"stale-id":"Stale"},"id_by_key":{"stale":"stale-id"},"key_by_id":{"stale-id":"stale"}}`
+}
+
 func defaultArtifactOptions(workspace string) TransformArtifactCompileOptions {
 	return newArtifactOptions(workspace, "sample_resource")
 }
@@ -151,6 +161,15 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
+func stringSliceContains(haystack []string, want string) bool {
+	for _, got := range haystack {
+		if got == want {
+			return true
+		}
+	}
+	return false
+}
+
 func writeFileMkdir(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
@@ -180,10 +199,19 @@ func TestRenderTransformLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderTransformLookup: %v", err)
 	}
+	// id_by_key keeps one row per item key even where key_by_id collapses
+	// colliding IDs to the last sorted key: alpha and omega genuinely share
+	// CUSTOM_01, so a hand-written token naming either key decodes to the
+	// right ID.
 	want := "{\n" +
 		"  \"by_id\": {\n" +
 		"    \"CUSTOM_01\": \"Omega\",\n" +
 		"    \"CUSTOM_02\": \"<unknown>\"\n" +
+		"  },\n" +
+		"  \"id_by_key\": {\n" +
+		"    \"alpha\": \"CUSTOM_01\",\n" +
+		"    \"beta\": \"CUSTOM_02\",\n" +
+		"    \"omega\": \"CUSTOM_01\"\n" +
 		"  },\n" +
 		"  \"key_by_id\": {\n" +
 		"    \"CUSTOM_01\": \"omega\",\n" +
@@ -315,7 +343,7 @@ func TestBatchPublicationRollsBackOnLaterMemberFailure(t *testing.T) {
 		writeFileMkdir(t, item.Paths.StaleConfig, "old stale config for "+item.ResourceType+"\n")
 		writeFileMkdir(t, item.Paths.GeneratedBindings, "old bindings for "+item.ResourceType+"\n")
 		writeFileMkdir(t, item.Paths.Imports, item.NewImports)
-		writeFileMkdir(t, item.Paths.Lookup, "old lookup for "+item.ResourceType+"\n")
+		writeFileMkdir(t, item.Paths.Lookup, staleBookPlaceholder())
 	}
 	var before []map[string]*string
 	for _, item := range seed {
@@ -577,12 +605,25 @@ func TestBatchCompilationUsesNewLookupResultsForBindingsAndComments(t *testing.T
 
 	referrerPaths := mustComputePaths(t, referrer)
 	configText := readFileText(t, referrerPaths.Config)
+	// HCL-format deployments keep literal IDs by design -- tokens are a
+	// JSON-format contract, because only JSON configs can be leaf-verified
+	// by the render-time totality gate. The comment still resolves through
+	// the fresh same-batch lookup, never the stale on-disk one.
 	if !regexp.MustCompile(`group_id\s+= "new-id"\s+# Fresh Group`).MatchString(configText) {
 		t.Fatalf("config text %q does not match /group_id\\s+= \"new-id\"\\s+# Fresh Group/", configText)
 	}
-	bindingsText := readFileText(t, referrerPaths.GeneratedBindings)
-	if !strings.Contains(bindingsText, "data.terraform_remote_state.sample_root.outputs.infrawright_reference_ids.sample_group[\\\"new_key\\\"]") {
-		t.Fatalf("generated bindings %q does not contain the fresh-lookup-keyed expression", bindingsText)
+	// The bindings cache is derivable, so publish never writes it (Task A2) --
+	// the fresh-lookup-keyed expression is asserted against the in-memory
+	// Binding result compilation produced, not a committed sidecar.
+	if fileExists(t, referrerPaths.GeneratedBindings) {
+		t.Fatalf("publish must not write %s; the binding is derivable at render time", referrerPaths.GeneratedBindings)
+	}
+	rendered, err := RenderGeneratedBindings(compiled[0].Binding.Resources)
+	if err != nil {
+		t.Fatalf("RenderGeneratedBindings: %v", err)
+	}
+	if !strings.Contains(rendered, "data.terraform_remote_state.sample_root.outputs.iw_reference_ids.sample_group[\\\"new_key\\\"]") {
+		t.Fatalf("derived bindings %q does not contain the fresh-lookup-keyed expression", rendered)
 	}
 }
 
@@ -632,6 +673,226 @@ func TestDisabledBindingsRetainLiteralIDsAndRemoveStaleArtifact(t *testing.T) {
 	}
 }
 
+// TestPublishTokenisedCompileWritesNoBindingsCache pins Task A2: a
+// cross-state compile still derives Binding.Resources in memory (so
+// assertMintedTokensCovered and every other in-process consumer keep
+// working), but PublishCompiledTransformArtifacts never writes
+// .generated.expressions.json for it -- the file is a cache of something
+// gen-env now derives at render time (predecessor commit), so committing it
+// is redundant. A pre-existing committed copy is stale-cleaned and reported
+// exactly like any other stale artifact.
+func TestPublishTokenisedCompileWritesNoBindingsCache(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "sample_item")
+	options.References = map[string]TransformReferenceSpec{
+		"group_id": {NameField: "name", Referent: "sample_group"},
+	}
+	options.Result = PullTransformResult{
+		Drops:     []string{},
+		Items:     map[string]map[string]any{"item": {"group_id": "group-id", "name": "Item"}},
+		Originals: map[string]map[string]any{"item": {"id": "item-id", "name": "Item"}},
+	}
+	options.BindingContext = BindingContext{
+		Mode:       deployment.ReferenceBindingCrossState,
+		Derived:    map[string]bool{},
+		Generated:  map[string]bool{"sample_group": true, "sample_item": true},
+		References: options.References,
+		ResourceRoots: map[string]string{
+			"sample_group": "sample_group",
+			"sample_item":  "sample_item",
+		},
+	}
+	options.LookupOverrides = map[string]*TransformLookupData{
+		"sample_group": {KeyByID: map[string]string{"group-id": "group_one"}},
+	}
+	var diagnostics []string
+	options.OnDiagnostic = func(message string) { diagnostics = append(diagnostics, message) }
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, paths.GeneratedBindings, "stale generated bindings\n")
+
+	compiled, err := CompileTransformArtifacts(options)
+	if err != nil {
+		t.Fatalf("CompileTransformArtifacts: %v", err)
+	}
+	if len(compiled.Binding.Resources) == 0 {
+		t.Fatal("expected a non-empty derived binding (a tokenised, cross-state compile) for this test to be meaningful")
+	}
+
+	result, err := PublishCompiledTransformArtifacts(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifacts: %v", err)
+	}
+	if fileExists(t, paths.GeneratedBindings) {
+		t.Errorf("publish must not write %s; the binding is derivable at render time", paths.GeneratedBindings)
+	}
+	if !stringSliceContains(result.Removed, paths.GeneratedBindings) {
+		t.Errorf("result.Removed = %v, want it to contain %s", result.Removed, paths.GeneratedBindings)
+	}
+	wantNote := "removed stale " + paths.GeneratedBindings
+	if !stringSliceContains(diagnostics, wantNote) {
+		t.Errorf("diagnostics = %v, want it to contain %q", diagnostics, wantNote)
+	}
+	config := readFileText(t, paths.Config)
+	if !strings.Contains(config, `"sample_group.group_one"`) {
+		t.Errorf("tokenised config = %q, want the substituted reference token", config)
+	}
+}
+
+// TestBatchPublishTokenisedCompileWritesNoBindingsCache is the batch-publish
+// counterpart of TestPublishTokenisedCompileWritesNoBindingsCache: the
+// mutation list PublishCompiledTransformArtifactBatch commits is assembled
+// independently of the single-artifact path (batchArtifactMutations, not
+// PublishCompiledTransformArtifacts), so the "never write, always
+// stale-clean" contract needs its own pin here.
+func TestBatchPublishTokenisedCompileWritesNoBindingsCache(t *testing.T) {
+	workspace := t.TempDir()
+	references := map[string]TransformReferenceSpec{
+		"group_id": {NameField: "name", Referent: "sample_group"},
+	}
+	generated := map[string]bool{"sample_group": true, "sample_item": true}
+	resourceRoots := map[string]string{"sample_group": "sample_root", "sample_item": "sample_root"}
+
+	referrer := newArtifactOptions(workspace, "sample_item")
+	referrer.References = references
+	referrer.Result = PullTransformResult{
+		Drops:     []string{},
+		Items:     map[string]map[string]any{"item": {"group_id": "group-id", "name": "Item"}},
+		Originals: map[string]map[string]any{"item": {"id": "item-id", "name": "Item"}},
+	}
+	referrer.BindingContext = BindingContext{
+		Mode:          deployment.ReferenceBindingCrossState,
+		Derived:       map[string]bool{},
+		Generated:     generated,
+		References:    references,
+		ResourceRoots: resourceRoots,
+	}
+	var diagnostics []string
+	referrer.OnDiagnostic = func(message string) { diagnostics = append(diagnostics, message) }
+
+	referent := newArtifactOptions(workspace, "sample_group")
+	referent.Result = PullTransformResult{
+		Drops:     []string{},
+		Items:     map[string]map[string]any{"group_one": {"name": "Group"}},
+		Originals: map[string]map[string]any{"group_one": {"id": "group-id", "name": "Group"}},
+	}
+	referent.BindingContext = BindingContext{
+		Mode:          deployment.ReferenceBindingCrossState,
+		Derived:       map[string]bool{},
+		Generated:     generated,
+		References:    map[string]TransformReferenceSpec{},
+		ResourceRoots: resourceRoots,
+	}
+
+	referrerPaths := mustComputePaths(t, referrer)
+	writeFileMkdir(t, referrerPaths.GeneratedBindings, "stale generated bindings\n")
+
+	compiled, err := CompileTransformArtifactBatch([]TransformArtifactCompileOptions{referrer, referent})
+	if err != nil {
+		t.Fatalf("CompileTransformArtifactBatch: %v", err)
+	}
+	if len(compiled[0].Binding.Resources) == 0 {
+		t.Fatal("expected a non-empty derived binding for the referrer (a tokenised, cross-state compile) for this test to be meaningful")
+	}
+
+	results, err := PublishCompiledTransformArtifactBatch(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifactBatch: %v", err)
+	}
+	if fileExists(t, referrerPaths.GeneratedBindings) {
+		t.Errorf("batch publish must not write %s; the binding is derivable at render time", referrerPaths.GeneratedBindings)
+	}
+	if !stringSliceContains(results[0].Removed, referrerPaths.GeneratedBindings) {
+		t.Errorf("results[0].Removed = %v, want it to contain %s", results[0].Removed, referrerPaths.GeneratedBindings)
+	}
+	wantNote := "removed stale " + referrerPaths.GeneratedBindings
+	if !stringSliceContains(diagnostics, wantNote) {
+		t.Errorf("diagnostics = %v, want it to contain %q", diagnostics, wantNote)
+	}
+}
+
+// TestPublishWritesLookupUnderLookupsAndStaleCleansLegacy pins Task B1's
+// single-artifact publish contract: the lookup lands at its current location
+// (config/<tenant>/lookups/<type>.lookup.json) and a pre-existing copy at
+// the pre-migration legacy location (config/<tenant>/<type>.lookup.json) is
+// stale-cleaned and reported, mirroring StaleConfig's own unconditional
+// cleanup.
+func TestPublishWritesLookupUnderLookupsAndStaleCleansLegacy(t *testing.T) {
+	workspace := t.TempDir()
+	options := defaultArtifactOptions(workspace)
+	var diagnostics []string
+	options.OnDiagnostic = func(message string) { diagnostics = append(diagnostics, message) }
+	paths := mustComputePaths(t, options)
+	if !strings.Contains(paths.Lookup, filepath.Join("lookups", "sample_resource.lookup.json")) {
+		t.Fatalf("sanity: paths.Lookup = %s, want it under a lookups/ subdirectory", paths.Lookup)
+	}
+	writeFileMkdir(t, paths.LegacyLookup, staleBookPlaceholder())
+
+	compiled, err := CompileTransformArtifacts(options)
+	if err != nil {
+		t.Fatalf("CompileTransformArtifacts: %v", err)
+	}
+	result, err := PublishCompiledTransformArtifacts(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifacts: %v", err)
+	}
+	if !fileExists(t, paths.Lookup) {
+		t.Error("expected the lookup to exist at the current lookups/ path after publish")
+	}
+	if fileExists(t, paths.LegacyLookup) {
+		t.Error("expected the legacy-path lookup to be removed after publish")
+	}
+	if !stringSliceContains(result.Written, paths.Lookup) {
+		t.Errorf("result.Written = %v, want it to contain %s", result.Written, paths.Lookup)
+	}
+	if !stringSliceContains(result.Removed, paths.LegacyLookup) {
+		t.Errorf("result.Removed = %v, want it to contain %s", result.Removed, paths.LegacyLookup)
+	}
+	wantNote := "removed stale legacy lookup " + paths.LegacyLookup
+	if !stringSliceContains(diagnostics, wantNote) {
+		t.Errorf("diagnostics = %v, want it to contain %q", diagnostics, wantNote)
+	}
+}
+
+// TestBatchPublishWritesLookupUnderLookupsAndStaleCleansLegacy is the
+// batch-publish counterpart of
+// TestPublishWritesLookupUnderLookupsAndStaleCleansLegacy: the mutation list
+// PublishCompiledTransformArtifactBatch commits is assembled independently
+// (batchArtifactMutations, not PublishCompiledTransformArtifacts), so the
+// "write current, stale-clean legacy" contract needs its own pin here.
+func TestBatchPublishWritesLookupUnderLookupsAndStaleCleansLegacy(t *testing.T) {
+	workspace := t.TempDir()
+	options := defaultArtifactOptions(workspace)
+	var diagnostics []string
+	options.OnDiagnostic = func(message string) { diagnostics = append(diagnostics, message) }
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, paths.LegacyLookup, staleBookPlaceholder())
+
+	compiled, err := CompileTransformArtifactBatch([]TransformArtifactCompileOptions{options})
+	if err != nil {
+		t.Fatalf("CompileTransformArtifactBatch: %v", err)
+	}
+	results, err := PublishCompiledTransformArtifactBatch(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifactBatch: %v", err)
+	}
+	if !fileExists(t, paths.Lookup) {
+		t.Error("expected the lookup to exist at the current lookups/ path after batch publish")
+	}
+	if fileExists(t, paths.LegacyLookup) {
+		t.Error("expected the legacy-path lookup to be removed after batch publish")
+	}
+	if !stringSliceContains(results[0].Written, paths.Lookup) {
+		t.Errorf("results[0].Written = %v, want it to contain %s", results[0].Written, paths.Lookup)
+	}
+	if !stringSliceContains(results[0].Removed, paths.LegacyLookup) {
+		t.Errorf("results[0].Removed = %v, want it to contain %s", results[0].Removed, paths.LegacyLookup)
+	}
+	wantNote := "removed stale legacy lookup " + paths.LegacyLookup
+	if !stringSliceContains(diagnostics, wantNote) {
+		t.Errorf("diagnostics = %v, want it to contain %q", diagnostics, wantNote)
+	}
+}
+
 // TestDeriveGeneratedBindingsNestedIndexedPaths ports "nested pack
 // references emit deterministic concrete indexed binding paths".
 func TestDeriveGeneratedBindingsNestedIndexedPaths(t *testing.T) {
@@ -670,11 +931,11 @@ func TestDeriveGeneratedBindingsNestedIndexedPaths(t *testing.T) {
 		"  \"resources\": {\n" +
 		"    \"zpa_app_connector_group.connector_one\": {\n" +
 		"      \"server_groups[0].id\": {\n" +
-		"        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group[\\\"server_two\\\"], data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group[\\\"server_one\\\"]]\",\n" +
+		"        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group[\\\"server_two\\\"], data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group[\\\"server_one\\\"]]\",\n" +
 		"        \"reason\": \"cross-state reference binding via zpa_server_group root output\"\n" +
 		"      },\n" +
 		"      \"server_groups[1].id\": {\n" +
-		"        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group[\\\"server_three\\\"]]\",\n" +
+		"        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group[\\\"server_three\\\"]]\",\n" +
 		"        \"reason\": \"cross-state reference binding via zpa_server_group root output\"\n" +
 		"      }\n" +
 		"    }\n" +
@@ -727,7 +988,7 @@ func TestDeriveGeneratedBindingsRetainsUnresolvedDiagnostics(t *testing.T) {
 		"  \"resources\": {\n" +
 		"    \"zpa_app_connector_group.connector_one\": {\n" +
 		"      \"server_groups[0].id\": {\n" +
-		"        \"expression\": \"[data.terraform_remote_state.zpa_app.outputs.infrawright_reference_ids.zpa_server_group[\\\"known\\\"], \\\"sg-missing\\\"]\",\n" +
+		"        \"expression\": \"[data.terraform_remote_state.zpa_app.outputs.iw_reference_ids.zpa_server_group[\\\"known\\\"], \\\"sg-missing\\\"]\",\n" +
 		"        \"reason\": \"cross-state reference binding via zpa_server_group root output\"\n" +
 		"      }\n" +
 		"    }\n" +
@@ -774,7 +1035,7 @@ func TestDeriveGeneratedBindingsTopLevel(t *testing.T) {
 		"  \"resources\": {\n" +
 		"    \"zpa_application_segment.app_one\": {\n" +
 		"      \"segment_group_id\": {\n" +
-		"        \"expression\": \"data.terraform_remote_state.zpa_custom.outputs.infrawright_reference_ids.zpa_segment_group[\\\"segment_one\\\"]\",\n" +
+		"        \"expression\": \"data.terraform_remote_state.zpa_custom.outputs.iw_reference_ids.zpa_segment_group[\\\"segment_one\\\"]\",\n" +
 		"        \"reason\": \"cross-state reference binding via zpa_segment_group root output\"\n" +
 		"      }\n" +
 		"    }\n" +
@@ -942,7 +1203,10 @@ func TestCompileTransformArtifactsRejectsConflictingMoveEvidence(t *testing.T) {
 }
 
 // TestComputeTransformArtifactPathsFlatLayout ports "artifact paths retain
-// the flat tenant/resource layout".
+// the flat tenant/resource layout", extended for Task B1: the lookup (Lookup)
+// is the one artifact that no longer sits flat in the tenant directory --
+// it lives under a lookups/ subdirectory -- while LegacyLookup keeps naming
+// its pre-migration flat location for dual-read and stale-cleanup.
 func TestComputeTransformArtifactPathsFlatLayout(t *testing.T) {
 	got, err := ComputeTransformArtifactPaths(testDeployment("overlay", false), "zia_rule_labels", "tenant")
 	if err != nil {
@@ -952,7 +1216,8 @@ func TestComputeTransformArtifactPathsFlatLayout(t *testing.T) {
 		Config:            path.Join("overlay", "config", "tenant", "zia_rule_labels.auto.tfvars.json"),
 		GeneratedBindings: path.Join("overlay", "config", "tenant", "zia_rule_labels.generated.expressions.json"),
 		Imports:           path.Join("overlay", "imports", "tenant", "zia_rule_labels_imports.tf"),
-		Lookup:            path.Join("overlay", "config", "tenant", "zia_rule_labels.lookup.json"),
+		Lookup:            path.Join("overlay", "config", "tenant", "lookups", "zia_rule_labels.lookup.json"),
+		LegacyLookup:      path.Join("overlay", "config", "tenant", "zia_rule_labels.lookup.json"),
 		Moves:             path.Join("overlay", "imports", "tenant", "zia_rule_labels_moves.tf"),
 		StaleConfig:       path.Join("overlay", "config", "tenant", "zia_rule_labels.auto.tfvars"),
 	}

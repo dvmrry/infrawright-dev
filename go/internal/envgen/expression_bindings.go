@@ -121,7 +121,7 @@ type ExpressionBinding struct {
 	// canonical, already-range-checked list index), in traversal order.
 	PathParts []any
 	// Expression is always non-empty and already validated against the v1
-	// allowlist (see ValidateExpression).
+	// allowlist (see validateExpression).
 	Expression string
 	Sensitive  bool
 	// Reason is nil for the TS source's `reason: string | null` being null.
@@ -143,13 +143,6 @@ type HclExpression struct {
 // throws from `validateExpression(expression, "HclExpression")`.
 func newHclExpression(expression string) *HclExpression {
 	return &HclExpression{Expression: validateExpression(expression, "HclExpression")}
-}
-
-// NewHclExpression ports the HclExpression constructor from
-// the original implementation.
-func NewHclExpression(expression string) (result *HclExpression, err error) {
-	defer recoverBindingsError(&err)
-	return newHclExpression(expression), nil
 }
 
 // pythonJSONString ports the local pythonJsonString helper from
@@ -410,7 +403,128 @@ func matchListElement(s string, pos int) int {
 	if p := matchDataSelector(s, pos); p >= 0 {
 		return p
 	}
-	return matchHclString(s, pos)
+	if p := matchHclString(s, pos); p >= 0 {
+		return p
+	}
+	// Composite literals extend the ported v1 grammar deliberately: a
+	// set-nested block can only be bound at its complete leaf, and the
+	// expression for that leaf reproduces the whole block value -- objects
+	// carrying faithfully-typed members around the resolved references.
+	// Every atom below is either already allowed (selectors, strings) or a
+	// closed literal (numbers, booleans, null); composites of them introduce
+	// no new reference root, so the injection surface this allowlist exists
+	// to close stays closed.
+	if p := matchNumberToken(s, pos); p >= 0 {
+		return p
+	}
+	if p := matchKeywordToken(s, pos); p >= 0 {
+		return p
+	}
+	if p := matchObjectLiteral(s, pos); p >= 0 {
+		return p
+	}
+	return matchListLiteral(s, pos)
+}
+
+// matchNumberToken scans a JSON-shaped number literal: an optional sign,
+// digits, an optional fraction, an optional exponent.
+func matchNumberToken(s string, pos int) int {
+	i := pos
+	if i < len(s) && s[i] == '-' {
+		i++
+	}
+	// JSON-canonical integer part: a single zero, or a nonzero digit
+	// followed by digits. A leading zero is not a number literal here.
+	if i >= len(s) || s[i] < '0' || s[i] > '9' {
+		return -1
+	}
+	if s[i] == '0' {
+		i++
+	} else {
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+	}
+	if i < len(s) && s[i] == '.' {
+		i++
+		fractionStart := i
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+		if i == fractionStart {
+			return -1
+		}
+	}
+	if i < len(s) && (s[i] == 'e' || s[i] == 'E') {
+		i++
+		if i < len(s) && (s[i] == '+' || s[i] == '-') {
+			i++
+		}
+		exponentStart := i
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+		if i == exponentStart {
+			return -1
+		}
+	}
+	return i
+}
+
+// matchKeywordToken scans the three closed HCL literal keywords.
+func matchKeywordToken(s string, pos int) int {
+	for _, keyword := range []string{"true", "false", "null"} {
+		end := pos + len(keyword)
+		if end <= len(s) && s[pos:end] == keyword {
+			// The keyword must end the token: "trueish" is an identifier,
+			// not a literal, and identifiers are not in this grammar.
+			if end == len(s) || !isIdentByte(s[end]) {
+				return end
+			}
+		}
+	}
+	return -1
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// matchObjectLiteral scans `{ ident = element, ... }`. Member values recurse
+// through the same element grammar, so an object can carry selectors, closed
+// literals, and nested composites -- and nothing else.
+func matchObjectLiteral(s string, pos int) int {
+	if pos >= len(s) || s[pos] != '{' {
+		return -1
+	}
+	i := matchWhitespaceRun(s, pos+1)
+	if i < len(s) && s[i] == '}' {
+		return i + 1
+	}
+	for {
+		nameEnd := matchIdent(s, i)
+		if nameEnd < 0 {
+			return -1
+		}
+		i = matchWhitespaceRun(s, nameEnd)
+		if i >= len(s) || s[i] != '=' {
+			return -1
+		}
+		i = matchWhitespaceRun(s, i+1)
+		valueEnd := matchListElement(s, i)
+		if valueEnd < 0 {
+			return -1
+		}
+		i = matchWhitespaceRun(s, valueEnd)
+		if i < len(s) && s[i] == ',' {
+			i = matchWhitespaceRun(s, i+1)
+			continue
+		}
+		if i < len(s) && s[i] == '}' {
+			return i + 1
+		}
+		return -1
+	}
 }
 
 // isPythonWhitespaceRune ports the PYTHON_WHITESPACE character class from
@@ -1346,7 +1460,7 @@ func sortInts(values []int) {
 // renderExpressionBindingsHcl accepts in
 // the original implementation. An empty field means "use the TS
 // source's default" (ItemsVariable defaults to "items", LocalName defaults
-// to "infrawright_expression_bound_items"), matching the TS source's own
+// to "iw_expression_bound_items"), matching the TS source's own
 // `options?.itemsVariable ?? "items"` fallback -- a caller can never
 // distinguish an explicit empty-string override from an omitted option
 // there either, so this port makes the same simplification.
@@ -1368,7 +1482,7 @@ func renderExpressionBindingsHcl(bindings []ExpressionBinding, options RenderExp
 	}
 	localName := options.LocalName
 	if localName == "" {
-		localName = "infrawright_expression_bound_items"
+		localName = "iw_expression_bound_items"
 	}
 	if !pathSegmentPattern.MatchString(itemsVariable) {
 		bindingsFail("items_var must be a Terraform identifier")
@@ -1522,8 +1636,12 @@ type RemoteStateReference struct {
 	Root         string
 }
 
+// remoteStateSelectorPattern admits both output-name spellings: committed
+// generated-bindings caches written before the iw_ rename embed the legacy
+// one and must keep validating until their next transform stale-cleans
+// them.
 var remoteStateSelectorPattern = regexp.MustCompile(
-	`^data\.terraform_remote_state\.([A-Za-z_][A-Za-z0-9_]*)\.outputs\.infrawright_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[`,
+	`^data\.terraform_remote_state\.([A-Za-z_][A-Za-z0-9_]*)\.outputs\.(?:iw|infrawright)_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[`,
 )
 
 // expressionRemoteStateReferences ports the exported
@@ -1562,7 +1680,7 @@ func expressionRemoteStateReferences(expression string) []RemoteStateReference {
 		}
 		match := remoteStateSelectorPattern.FindStringSubmatchIndex(expression[index:])
 		if match == nil {
-			bindingsFail("Infrawright terraform_remote_state expressions must use the canonical infrawright_reference_ids resource/key selector")
+			bindingsFail("Infrawright terraform_remote_state expressions must use the canonical iw_reference_ids resource/key selector")
 		}
 		root := expression[index+match[2] : index+match[3]]
 		resourceType := expression[index+match[4] : index+match[5]]

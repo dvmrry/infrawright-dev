@@ -1,6 +1,7 @@
 package assessment
 
 import (
+	"encoding/json"
 	"errors"
 	"math/big"
 	"os"
@@ -101,6 +102,12 @@ type AssessSavedPlansReportOptions struct {
 	Mode           AssessmentMode
 	Request        AssessmentReportRequest
 	GuidanceSource *AssessmentGuidanceSource
+
+	// SchemaTypes carries the active packs' set-typed attributes into both the
+	// classifier and the guidance walk. The zero value compares every array by
+	// position, so an assessment assembled without it behaves exactly as it did
+	// before schema types existed.
+	SchemaTypes PlanSchemaTypes
 }
 
 type capturedAssessmentOptions struct {
@@ -565,6 +572,7 @@ func attachAssessmentResourceTypes(
 			ResourceType: resourceType,
 			Actions:      append([]string{}, finding.Actions...),
 			Paths:        clonePaths(finding.Paths),
+			Changes:      clonePlanChanges(finding.Changes),
 		}
 	}
 	return result
@@ -579,16 +587,70 @@ func assessmentFindingMetadataBytes(finding AssessmentFinding) int {
 		bytes += len([]byte(action))
 	}
 	for _, path := range finding.Paths {
-		for _, segment := range path {
-			switch value := segment.(type) {
-			case string:
-				bytes += len([]byte(value))
-			case int:
-				bytes += len(strconv.Itoa(value))
-			}
+		bytes += assessmentPathBytes(path)
+	}
+	// Changes carry the values behind the paths, so they are the dominant
+	// contributor to report size -- a single leaf whose type changed can hold
+	// an entire prior subtree. Leaving them out would mean the fail-closed
+	// metadata budget no longer bounds the thing that actually grows: a plan
+	// with short paths and enormous values would sail under it.
+	for _, change := range finding.Changes {
+		bytes += assessmentPathBytes(change.Path)
+		bytes += len([]byte(change.Kind))
+		bytes += assessmentPlanValueBytes(change.Before)
+		bytes += assessmentPlanValueBytes(change.After)
+		for _, member := range change.Added {
+			bytes += assessmentPlanValueBytes(member)
+		}
+		for _, member := range change.Removed {
+			bytes += assessmentPlanValueBytes(member)
 		}
 	}
 	return bytes
+}
+
+func assessmentPathBytes(path PlanPath) int {
+	bytes := 0
+	for _, segment := range path {
+		switch value := segment.(type) {
+		case string:
+			bytes += len([]byte(value))
+		case int:
+			bytes += len(strconv.Itoa(value))
+		}
+	}
+	return bytes
+}
+
+// assessmentPlanValueBytes approximates a plan value's serialized size. It is
+// a budget input, not a serializer: the point is that every byte a value
+// contributes is counted, including inside a nested container, so no shape
+// escapes the bound.
+func assessmentPlanValueBytes(value any) int {
+	switch typed := value.(type) {
+	case nil:
+		return len("null")
+	case string:
+		return len([]byte(typed))
+	case bool:
+		return len("false")
+	case json.Number:
+		return len([]byte(typed))
+	case []any:
+		bytes := 0
+		for _, element := range typed {
+			bytes += assessmentPlanValueBytes(element)
+		}
+		return bytes
+	case map[string]any:
+		bytes := 0
+		for key, child := range typed {
+			bytes += len([]byte(key)) + assessmentPlanValueBytes(child)
+		}
+		return bytes
+	default:
+		return 0
+	}
 }
 
 func assessmentTotalStatus(clean, tolerated, blocked int) PlanStatus {
@@ -656,6 +718,7 @@ func cloneAssessmentFindings(values []AssessmentFinding) []AssessmentFinding {
 			ResourceType: cloneString(finding.ResourceType),
 			Actions:      append([]string{}, finding.Actions...),
 			Paths:        clonePaths(finding.Paths),
+			Changes:      clonePlanChanges(finding.Changes),
 		}
 	}
 	return result
@@ -766,6 +829,7 @@ func asyncAssessmentFinalizerValue(value any) bool {
 
 func runSavedPlanAssessment[T any](
 	options SavedPlanAssessmentTransactionOptions,
+	classifyOptions ClassifyPlanOptions,
 	finalize func(SavedPlanAssessmentCore, []AssessmentGuidanceGroup) (T, error),
 	guidanceSource *AssessmentGuidanceSource,
 	hooks assessmentHooks,
@@ -1046,7 +1110,12 @@ func runSavedPlanAssessment[T any](
 				ReferenceOutputTypes: append([]string{}, root.ReferenceOutputTypes...),
 			}
 		}
-		classification, err := ClassifyPlan(planValue, boundPolicy.Policy, contract)
+		classification, err := ClassifyPlanWithOptions(
+			planValue,
+			boundPolicy.Policy,
+			contract,
+			classifyOptions,
+		)
 		if err != nil {
 			primaryFailure = safeAssessmentFailure(err)
 			return completed, nil
@@ -1123,6 +1192,9 @@ func runSavedPlanAssessment[T any](
 					Members:  append([]string{}, root.Members...),
 					Plan:     planObject,
 					Findings: append([]PlanFinding{}, classification.Findings...),
+					// Taken from the options the findings above were classified
+					// under, never rebuilt, so the two walks cannot diverge.
+					SchemaTypes: classifyOptions.SchemaTypes,
 				},
 			))
 		}
@@ -1215,6 +1287,7 @@ func AssessSavedPlansWithOptions(
 ) (SavedPlanAssessmentCore, error) {
 	return runSavedPlanAssessment(
 		options,
+		ClassifyPlanOptions{},
 		func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
 			return core, nil
 		},
@@ -1259,6 +1332,13 @@ func AssessSavedPlansReport(
 	}
 	report, err := runSavedPlanAssessment(
 		options.Assessment,
+		// Adoption is the one caller that can neither clear refresh drift
+		// before the gate nor be helped by refusing on it. Every other
+		// entry point keeps the strict zero value.
+		ClassifyPlanOptions{
+			TolerateRefreshDrift: mode == AssertAdoptable,
+			SchemaTypes:          options.SchemaTypes,
+		},
 		func(core SavedPlanAssessmentCore, guidance []AssessmentGuidanceGroup) (SavedPlanAssessmentReport, error) {
 			return buildReportWithIsolatedGuidance(
 				func(isolated []AssessmentGuidanceGroup) (SavedPlanAssessmentReport, error) {

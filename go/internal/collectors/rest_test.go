@@ -1304,9 +1304,21 @@ func TestBoundedSchedulingRotatesProductsInsteadOfDrainingOneProductFirst(t *tes
 	if len(transport.requests) < 2 {
 		t.Fatalf("concurrency 2: requests = %v, want at least 2", transport.requests)
 	}
-	firstTwo := map[string]struct{}{transport.requests[0]: {}, transport.requests[1]: {}}
-	want := map[string]struct{}{"/api/alpha-a": {}, "/api/beta-a": {}}
-	if !reflect.DeepEqual(firstTwo, want) {
-		t.Errorf("concurrency 2: first two dispatched requests = %v, want one from each product (%v)", firstTwo, want)
+	// No ordering assertion here. Rotation is asserted directly against
+	// runFetchWorkers in scheduler_test.go, because the order requests reach
+	// the transport is not the order work was handed out: everything between
+	// take() returning and the HTTP call is unsynchronised, so a worker can
+	// take beta-a, be descheduled, and let another worker issue alpha-b first
+	// under perfect rotation. Asserting it here failed on loaded CI runners
+	// while the property still held.
+	//
+	// What this case still covers is that concurrency changes nothing
+	// observable: every request is issued exactly once, and the same set as
+	// the serial run above.
+	if !equalStrings(canonjson.SortedStrings(transport.requests), canonjson.SortedStrings(paths)) {
+		t.Errorf(
+			"concurrency 2: requests = %v, want the same set the serial run issued (%v)",
+			transport.requests, paths,
+		)
 	}
 }

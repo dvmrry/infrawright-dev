@@ -8,7 +8,14 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-const infrawrightReferenceOutput = "infrawright_reference_ids"
+const infrawrightReferenceOutput = "iw_reference_ids"
+
+// legacyInfrawrightReferenceOutput is the engine output's pre-rename
+// spelling. A root regenerated after the rename, planned against a state
+// applied before it, retires the legacy output in the same plan that
+// proves the current one; validateOutputChanges permits exactly that
+// retirement shape.
+const legacyInfrawrightReferenceOutput = "infrawright_reference_ids"
 
 // MaxAssessmentChangeRecords ports MAX_ASSESSMENT_CHANGE_RECORDS from
 // the original implementation.
@@ -473,6 +480,18 @@ func validateOutputChanges(plan map[string]any, contract *AssessmentPlanContract
 		if name == infrawrightReferenceOutput && len(resourceTypes) > 0 {
 			validateReferenceOutputChange(change, plan, resourceTypes)
 			continue
+		}
+		// The iw_ rename transition: under an active reference contract --
+		// which has already proven the current output against
+		// provider-observed IDs above -- the legacy output's lone delete
+		// ending at null is the expected retirement. Any other change to the
+		// legacy name, and any appearance without a contract, falls through
+		// to the generic no-op-only gate below.
+		if name == legacyInfrawrightReferenceOutput && len(resourceTypes) > 0 &&
+			len(actions) == 1 && actions[0] == "delete" {
+			if after, hasAfter := change["after"]; !hasAfter || after == nil {
+				continue
+			}
 		}
 		if len(actions) != 1 || actions[0] != "no-op" {
 			assessmentFail("non-no-op output changes are not supported by saved-plan assessment")

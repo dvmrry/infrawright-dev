@@ -18,31 +18,22 @@ func authoringProbeTestDependencies(stdout, stderr *bytes.Buffer) authoringProbe
 	dependencies := defaultAuthoringProbeDependencies()
 	dependencies.core.stdout = stdout
 	dependencies.core.stderr = stderr
-	dependencies.inspectMode = func(string) (providerprobe.Mode, error) { return providerprobe.LegacyV1, nil }
+	dependencies.inspectMode = func(string) (providerprobe.Mode, error) { return providerprobe.QualifiedV2, nil }
 	dependencies.prepareWorkDirectory = func(string) error { return nil }
 	return dependencies
 }
 
-func authoringProbeArtifacts(mode providerprobe.Mode, optionalMap bool) []providerprobe.Artifact {
+func authoringProbeArtifacts(optionalMap bool) []providerprobe.Artifact {
 	names := []string{
 		"source-registry.json",
 		"source-diagnostics.json",
 		"summary.json",
 		"summary.md",
+		"input-provenance.json",
+		"openapi-diagnostics.json",
 	}
-	if mode == providerprobe.LegacyV1 {
-		names = []string{
-			"source-registry.json",
-			"source-diagnostics.json",
-			"openapi-map.json",
-			"summary.json",
-			"summary.md",
-		}
-	} else {
-		names = append(names, "input-provenance.json", "openapi-diagnostics.json")
-		if optionalMap {
-			names = append(names, "openapi-map.json")
-		}
+	if optionalMap {
+		names = append(names, "openapi-map.json")
 	}
 	artifacts := make([]providerprobe.Artifact, len(names))
 	for index, name := range names {
@@ -79,32 +70,24 @@ func (files *authoringProbeMemoryFiles) dependencies(stdout, stderr *bytes.Buffe
 	return dependencies
 }
 
-func TestProviderProbeCommandPublishesSealedLegacySetThenCopiesInNodeOrder(t *testing.T) {
+func TestProviderProbeCommandPublishesSealedSetThenCopiesInOrder(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	var files authoringProbeMemoryFiles
 	dependencies := files.dependencies(&stdout, &stderr)
-	workDirectory := filepath.Join(t.TempDir(), "work")
-	expectedEnvironment := map[string]string{"PATH": "/fixture/bin", "TOKEN": "fixture"}
-	dependencies.environment = func() map[string]string { return expectedEnvironment }
+	workDirectory, absoluteErr := filepath.Abs("requested-work")
+	if absoluteErr != nil {
+		t.Fatal(absoluteErr)
+	}
 	runCalls := 0
 	dependencies.run = func(_ context.Context, options providerprobe.RunOptions) (authoringProbeResult, error) {
 		runCalls++
-		expectedWorkDirectory, absoluteErr := filepath.Abs("requested-work")
-		if absoluteErr != nil {
-			t.Fatal(absoluteErr)
-		}
-		if options.RecipePath != "recipe.json" || options.WorkDirectory != expectedWorkDirectory {
+		if options.RecipePath != "recipe.json" || options.ExpectedMode != providerprobe.QualifiedV2 {
 			t.Fatalf("provider probe run options = %#v", options)
 		}
-		if diff := reflect.DeepEqual(options.Environment, expectedEnvironment); !diff {
-			t.Fatalf("provider probe environment = %#v, want %#v", options.Environment, expectedEnvironment)
-		}
-		options.Environment["TOKEN"] = "mutated"
 		return authoringProbeResult{
-			artifacts:     authoringProbeArtifacts(providerprobe.LegacyV1, false),
-			markdownCopy:  []byte("copy:summary.md\n"),
-			mode:          providerprobe.LegacyV1,
-			workDirectory: workDirectory,
+			artifacts:    authoringProbeArtifacts(false),
+			markdownCopy: []byte("copy:summary.md\n"),
+			mode:         providerprobe.QualifiedV2,
 		}, nil
 	}
 	var published artifactpublish.Options
@@ -125,13 +108,10 @@ func TestProviderProbeCommandPublishesSealedLegacySetThenCopiesInNodeOrder(t *te
 	if runCalls != 1 || publishCalls != 1 {
 		t.Fatalf("run/publish calls = %d/%d, want 1/1", runCalls, publishCalls)
 	}
-	if expectedEnvironment["TOKEN"] != "fixture" {
-		t.Fatalf("command environment mutated = %#v", expectedEnvironment)
-	}
 	if got, want := published.Destination, filepath.Join(workDirectory, "artifacts"); got != want {
 		t.Errorf("publication destination = %q, want %q", got, want)
 	}
-	if got, want := published.Vocabulary, providerProbeLegacyVocabulary; !reflect.DeepEqual(got, want) {
+	if got, want := published.Vocabulary, providerProbeQualifiedVocabulary; !reflect.DeepEqual(got, want) {
 		t.Errorf("publication vocabulary = %#v, want %#v", got, want)
 	}
 	publishedSummary, _ := publishedProbeArtifact(published.Artifacts, "summary.json")
@@ -164,14 +144,13 @@ func TestProviderProbeCommandPublishesSealedLegacySetThenCopiesInNodeOrder(t *te
 	}
 }
 
-func TestProviderProbeCommandQualifiedRequiresWorkDirectoryBeforeRunOrPublish(t *testing.T) {
+func TestProviderProbeCommandRequiresWorkDirectoryBeforeRunOrPublish(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	dependencies := authoringProbeTestDependencies(&stdout, &stderr)
-	dependencies.inspectMode = func(string) (providerprobe.Mode, error) { return providerprobe.QualifiedV2, nil }
 	runCalls, publishCalls := 0, 0
 	dependencies.run = func(_ context.Context, _ providerprobe.RunOptions) (authoringProbeResult, error) {
 		runCalls++
-		return authoringProbeResult{artifacts: authoringProbeArtifacts(providerprobe.QualifiedV2, false), markdownCopy: []byte("sealed:summary.md\n"), mode: providerprobe.QualifiedV2}, nil
+		return authoringProbeResult{artifacts: authoringProbeArtifacts(false), markdownCopy: []byte("sealed:summary.md\n"), mode: providerprobe.QualifiedV2}, nil
 	}
 	dependencies.publish = func(context.Context, artifactpublish.Options) error {
 		publishCalls++
@@ -179,38 +158,34 @@ func TestProviderProbeCommandQualifiedRequiresWorkDirectoryBeforeRunOrPublish(t 
 	}
 	status, err := providerProbeCommandWithDependencies([]string{"recipe.json"}, dependencies)
 	if status != 0 {
-		t.Fatalf("qualified providerProbeCommandWithDependencies status = %d, want deferred usage status", status)
+		t.Fatalf("providerProbeCommandWithDependencies status = %d, want deferred usage status", status)
 	}
-	requireSourceUsageError(t, err, "provider-probe source-first mode requires --work-dir")
+	requireSourceUsageError(t, err, "provider-probe requires --work-dir")
 	if runCalls != 0 || publishCalls != 0 {
-		t.Errorf("qualified run/publish calls = %d/%d, want 0/0", runCalls, publishCalls)
+		t.Errorf("run/publish calls = %d/%d, want 0/0", runCalls, publishCalls)
 	}
 	if got := stderr.String(); got != "" {
-		t.Errorf("qualified stderr = %q, want top-level usage rendering only", got)
+		t.Errorf("stderr = %q, want top-level usage rendering only", got)
 	}
 	if got := stdout.String(); got != "" {
-		t.Errorf("qualified stdout = %q, want empty", got)
+		t.Errorf("stdout = %q, want empty", got)
 	}
 }
 
-func TestProviderProbeCommandQualifiedPublishesCompleteVocabularyAndOptionalMap(t *testing.T) {
+func TestProviderProbeCommandPublishesCompleteVocabularyAndOptionalMap(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	dependencies := authoringProbeTestDependencies(&stdout, &stderr)
-	dependencies.inspectMode = func(string) (providerprobe.Mode, error) { return providerprobe.QualifiedV2, nil }
 	workDirectory := filepath.Join(t.TempDir(), "fresh-work")
 	dependencies.prepareWorkDirectory = prepareProviderProbeWorkDirectory
 	dependencies.run = func(_ context.Context, options providerprobe.RunOptions) (authoringProbeResult, error) {
-		if options.WorkDirectory != workDirectory {
-			t.Fatalf("qualified work directory = %q, want %q", options.WorkDirectory, workDirectory)
-		}
 		if options.ExpectedMode != providerprobe.QualifiedV2 {
-			t.Fatalf("qualified expected mode = %q, want %q", options.ExpectedMode, providerprobe.QualifiedV2)
+			t.Fatalf("expected mode = %q, want %q", options.ExpectedMode, providerprobe.QualifiedV2)
 		}
 		info, err := os.Lstat(workDirectory)
 		if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
-			t.Fatalf("qualified prepared work directory = (%v, %v), want private 0700", info, err)
+			t.Fatalf("prepared work directory = (%v, %v), want private 0700", info, err)
 		}
-		return authoringProbeResult{artifacts: authoringProbeArtifacts(providerprobe.QualifiedV2, true), markdownCopy: []byte("sealed:summary.md\n"), mode: providerprobe.QualifiedV2}, nil
+		return authoringProbeResult{artifacts: authoringProbeArtifacts(true), markdownCopy: []byte("sealed:summary.md\n"), mode: providerprobe.QualifiedV2}, nil
 	}
 	var published artifactpublish.Options
 	dependencies.publish = func(_ context.Context, options artifactpublish.Options) error {
@@ -219,33 +194,32 @@ func TestProviderProbeCommandQualifiedPublishesCompleteVocabularyAndOptionalMap(
 	}
 	status, err := providerProbeCommandWithDependencies([]string{"recipe.json", "--work-dir", workDirectory}, dependencies)
 	if err != nil || status != 0 {
-		t.Fatalf("qualified providerProbeCommandWithDependencies = (%d, %v), want (0, nil)", status, err)
+		t.Fatalf("providerProbeCommandWithDependencies = (%d, %v), want (0, nil)", status, err)
 	}
 	if got, want := published.Destination, filepath.Join(workDirectory, "artifacts"); got != want {
-		t.Errorf("qualified publication destination = %q, want %q", got, want)
+		t.Errorf("publication destination = %q, want %q", got, want)
 	}
 	if got, want := published.Vocabulary, providerProbeQualifiedVocabulary; !reflect.DeepEqual(got, want) {
-		t.Errorf("qualified publication vocabulary = %#v, want %#v", got, want)
+		t.Errorf("publication vocabulary = %#v, want %#v", got, want)
 	}
 	if _, found := publishedProbeArtifact(published.Artifacts, "openapi-map.json"); !found {
-		t.Fatal("qualified optional OpenAPI map did not reach the complete-set publisher")
+		t.Fatal("optional OpenAPI map did not reach the complete-set publisher")
 	}
 	if got, want := stdout.String(), "wrote "+filepath.Join(workDirectory, "artifacts", "summary.json")+"\n"+"wrote "+filepath.Join(workDirectory, "artifacts", "summary.md")+"\n"; got != want {
-		t.Errorf("qualified stdout = %q, want %q", got, want)
+		t.Errorf("stdout = %q, want %q", got, want)
 	}
 }
 
-func TestProviderProbeCommandQualifiedReplacementRemovesOptionalMapOnlyAfterSuccess(t *testing.T) {
+func TestProviderProbeCommandReplacementRemovesOptionalMapOnlyAfterSuccess(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	dependencies := authoringProbeTestDependencies(&stdout, &stderr)
-	dependencies.inspectMode = func(string) (providerprobe.Mode, error) { return providerprobe.QualifiedV2, nil }
 	dependencies.prepareWorkDirectory = prepareProviderProbeWorkDirectory
 	dependencies.publish = artifactpublish.Publish
 	workDirectory := filepath.Join(t.TempDir(), "fresh-work")
 	optionalMap := true
 	dependencies.run = func(context.Context, providerprobe.RunOptions) (authoringProbeResult, error) {
 		return authoringProbeResult{
-			artifacts:    authoringProbeArtifacts(providerprobe.QualifiedV2, optionalMap),
+			artifacts:    authoringProbeArtifacts(optionalMap),
 			markdownCopy: []byte("sealed:summary.md\n"),
 			mode:         providerprobe.QualifiedV2,
 		}, nil
@@ -254,7 +228,7 @@ func TestProviderProbeCommandQualifiedReplacementRemovesOptionalMapOnlyAfterSucc
 		return providerProbeCommandWithDependencies([]string{"recipe.json", "--work-dir", workDirectory}, dependencies)
 	}
 	if status, err := run(); err != nil || status != 0 {
-		t.Fatalf("qualified publish with optional map = (%d, %v), want (0, nil)", status, err)
+		t.Fatalf("publish with optional map = (%d, %v), want (0, nil)", status, err)
 	}
 	mapPath := filepath.Join(workDirectory, "artifacts", "openapi-map.json")
 	if _, err := os.Stat(mapPath); err != nil {
@@ -263,7 +237,7 @@ func TestProviderProbeCommandQualifiedReplacementRemovesOptionalMapOnlyAfterSucc
 
 	optionalMap = false
 	if status, err := run(); err != nil || status != 0 {
-		t.Fatalf("qualified publish without optional map = (%d, %v), want (0, nil)", status, err)
+		t.Fatalf("publish without optional map = (%d, %v), want (0, nil)", status, err)
 	}
 	if _, err := os.Stat(mapPath); !os.IsNotExist(err) {
 		t.Fatalf("stale optional map after successful replacement: %v", err)
@@ -271,14 +245,14 @@ func TestProviderProbeCommandQualifiedReplacementRemovesOptionalMapOnlyAfterSucc
 
 	optionalMap = true
 	if status, err := run(); err != nil || status != 0 {
-		t.Fatalf("qualified republish with optional map = (%d, %v), want (0, nil)", status, err)
+		t.Fatalf("republish with optional map = (%d, %v), want (0, nil)", status, err)
 	}
 	dependencies.publish = func(context.Context, artifactpublish.Options) error {
 		return errors.New("injected publication failure")
 	}
 	optionalMap = false
 	if status, err := run(); err != nil || status != 2 {
-		t.Fatalf("qualified failed replacement = (%d, %v), want contained status 2", status, err)
+		t.Fatalf("failed replacement = (%d, %v), want contained status 2", status, err)
 	}
 	if _, err := os.Stat(mapPath); err != nil {
 		t.Fatalf("failed replacement removed previously committed optional map: %v", err)
@@ -296,7 +270,7 @@ func TestProviderProbeCommandContainsOperationalFailuresAndDebugOrdering(t *test
 		t.Fatal("publisher ran after runner failure")
 		return nil
 	}
-	status, err := providerProbeCommandWithDependencies([]string{"recipe.json"}, dependencies)
+	status, err := providerProbeCommandWithDependencies([]string{"recipe.json", "--work-dir", t.TempDir()}, dependencies)
 	if err != nil || status != 2 {
 		t.Fatalf("providerProbeCommandWithDependencies = (%d, %v), want (2, nil)", status, err)
 	}
@@ -317,9 +291,8 @@ func TestProviderProbeCommandRefusesToRebuildMissingMarkdownCopy(t *testing.T) {
 	dependencies := authoringProbeTestDependencies(&stdout, &stderr)
 	dependencies.run = func(context.Context, providerprobe.RunOptions) (authoringProbeResult, error) {
 		return authoringProbeResult{
-			artifacts:     authoringProbeArtifacts(providerprobe.LegacyV1, false),
-			mode:          providerprobe.LegacyV1,
-			workDirectory: t.TempDir(),
+			artifacts: authoringProbeArtifacts(false),
+			mode:      providerprobe.QualifiedV2,
 		}, nil
 	}
 	publishCalls := 0
@@ -327,7 +300,9 @@ func TestProviderProbeCommandRefusesToRebuildMissingMarkdownCopy(t *testing.T) {
 		publishCalls++
 		return nil
 	}
-	status, err := providerProbeCommandWithDependencies([]string{"recipe.json", "--markdown", filepath.Join(t.TempDir(), "copy.md")}, dependencies)
+	status, err := providerProbeCommandWithDependencies([]string{
+		"recipe.json", "--work-dir", t.TempDir(), "--markdown", filepath.Join(t.TempDir(), "copy.md"),
+	}, dependencies)
 	if err != nil || status != 2 {
 		t.Fatalf("providerProbeCommandWithDependencies = (%d, %v), want (2, nil)", status, err)
 	}

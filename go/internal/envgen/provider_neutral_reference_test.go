@@ -117,7 +117,7 @@ func TestProviderNeutralReferenceBuildExercisesPackLoadAndCrossStateGeneration(t
 		"resources": map[string]any{
 			"fixture_consumer.consumer_one": map[string]any{
 				"source_id": map[string]any{
-					"expression": `data.terraform_remote_state.fixture_source.outputs.infrawright_reference_ids.fixture_source["source_one"]`,
+					"expression": `data.terraform_remote_state.fixture_source.outputs.iw_reference_ids.fixture_source["source_one"]`,
 				},
 			},
 		},
@@ -161,16 +161,16 @@ func TestProviderNeutralReferenceBuildExercisesPackLoadAndCrossStateGeneration(t
 	}
 
 	sourceMain := readFileString(t, filepath.Join(outputRoot, "tenant", "fixture_source", "main.tf"))
-	mustMatch(t, sourceMain, `output "infrawright_reference_ids"`)
+	mustMatch(t, sourceMain, `output "iw_reference_ids"`)
 	mustMatch(t, sourceMain, `fixture_source = \{ for key, item in module\.fixture_source\.items : key => item\.id \}`)
 	consumerMain := readFileString(t, filepath.Join(outputRoot, "tenant", "fixture_consumer", "main.tf"))
 	mustMatch(t, consumerMain, `data "terraform_remote_state" "fixture_source"`)
 	mustMatch(t, consumerMain, `path = "\.\./fixture_source/terraform\.tfstate"`)
 	overlay := readFileString(t, filepath.Join(outputRoot, "tenant", "fixture_consumer", "expression_bindings.tf"))
-	mustMatch(t, overlay, `data\.terraform_remote_state\.fixture_source\.outputs\.infrawright_reference_ids\.fixture_source\["source_one"\]`)
+	mustMatch(t, overlay, `data\.terraform_remote_state\.fixture_source\.outputs\.iw_reference_ids\.fixture_source\["source_one"\]`)
 	smoke := readFileString(t, filepath.Join(outputRoot, "tenant", "fixture_consumer", "tests", "smoke.tftest.hcl"))
 	mustMatch(t, smoke, `override_data \{\n  target = data\.terraform_remote_state\.fixture_source\n  values = \{`)
-	mustMatch(t, smoke, `fixture_source = \{\n          "source_one" = "infrawright-test-reference-id"`)
+	mustMatch(t, smoke, `fixture_source = \{\n          "source_one" = "20090001"`)
 
 	t.Run("Terraform parses generated HCL", func(t *testing.T) {
 		executable := terraformTestExecutable(t)

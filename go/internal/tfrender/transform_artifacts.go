@@ -104,6 +104,33 @@ type BindingContext struct {
 	Generated     map[string]bool
 	ResourceRoots map[string]string
 	References    map[string]TransformReferenceSpec
+	// SetBlockFields maps a dotted reference field to the index of the first
+	// segment that names a set-nested block in the referrer's provider schema.
+	// A set block's members have no stable order, so an indexed path into one
+	// (services[0].id) names nothing; the binding for such a field must land
+	// on the complete block leaf (services) with an expression that renders
+	// the entire block value. gen-env's schema-path validator refuses the
+	// indexed form, so a producer that emits it writes bindings that can
+	// never generate an environment.
+	SetBlockFields map[string]int
+	// TokensOnly restricts resolve to committed reference tokens: a raw
+	// tenant ID is skipped WITHOUT consulting the referent's lookup.
+	//
+	// Raw-ID derivation is transform-only by contract. A raw ID names nothing
+	// on its own -- only the lookup translates it -- so a derivation that
+	// resolved one would make the artifact it produces a function of lookup
+	// contents. That is exactly right at transform time (the lookup is being
+	// written by the same run) and exactly wrong at render time: a later
+	// referent-only transform that added the ID to the lookup would silently
+	// rebind a committed leaf no re-transform ever touched, and if state and
+	// lookup disagree, the resolver can select a different ID than the literal
+	// the operator committed.
+	//
+	// gen-env's render-derivation sets this; transform and adopt do not, so
+	// their behaviour -- including substitution's minted-coverage assert --
+	// is unchanged. The two paths still agree over a tokenised leaf, which is
+	// the only leaf render-derivation is responsible for.
+	TokensOnly bool
 }
 
 // GeneratedBindingsResult is the Go analogue of the GeneratedBindingsResult
@@ -125,9 +152,28 @@ type TransformArtifactPaths struct {
 	Config            string
 	GeneratedBindings string
 	Imports           string
-	Lookup            string
-	Moves             string
-	StaleConfig       string
+	// LegacyLookup is the lookup's pre-migration location
+	// (<configDir>/<type>.lookup.json, the same directory the config and
+	// generated-bindings files sit in). Never written. Unlike StaleConfig,
+	// publish does not stale-clean it unconditionally on every run: it is
+	// only ever removed inside the same two branches that touch Lookup
+	// itself -- a fresh write (LookupText != nil) or an inferred-absent
+	// removal (RemoveLookupWhenAbsent, when this run's active pack root
+	// declares no surviving inbound reference into this type). When neither
+	// branch fires -- this run's scope simply has no opinion on this type's
+	// lookup, e.g. a selective/partial run whose active root omits the
+	// referrer that declares the edge -- the legacy copy is left alone
+	// rather than risk deleting a lookup's only surviving copy on a run that
+	// never decided it should go. Every lookup reader falls back to it when
+	// Lookup does not exist on disk, so a tenant that has not re-transformed
+	// since this migration keeps rendering unchanged.
+	LegacyLookup string
+	// Lookup is the lookup's current, authoritative location:
+	// <configDir>/lookups/<type>.lookup.json. Publish creates the lookups/
+	// subdirectory as needed.
+	Lookup      string
+	Moves       string
+	StaleConfig string
 }
 
 // TransformArtifactWriteResult is the Go analogue of the
@@ -140,9 +186,13 @@ type TransformArtifactWriteResult struct {
 }
 
 // TransformLookupData is the Go analogue of the TransformLookupData
-// interface in the original implementation.
+// interface in the original implementation, extended with IDByKey: the
+// inverse lookup the plan-time reference-token fallback expression indexes.
+// The parser derives it from key_by_id when a committed sidecar predates
+// the field, so both directions decode for every lookup ever written.
 type TransformLookupData struct {
 	ByID    map[string]string
+	IDByKey map[string]string
 	KeyByID map[string]string
 }
 
@@ -480,6 +530,7 @@ func lookupIdentity(value any) (*string, error) {
 // lookup sidecar, including last-key-wins IDs."
 func RenderTransformLookup(items, originals map[string]map[string]any, nameField string) (string, error) {
 	byID := map[string]any{}
+	idByKey := map[string]any{}
 	keyByID := map[string]any{}
 	for _, key := range canonjson.SortedStrings(mapKeys(items)) {
 		projected, ok := items[key]
@@ -506,13 +557,14 @@ func RenderTransformLookup(items, originals map[string]map[string]any, nameField
 			text = display
 		}
 		byID[*ident] = text
+		idByKey[key] = *ident
 		keyByID[*ident] = key
 	}
 	var payload map[string]any
 	if len(keyByID) == 0 {
 		payload = byID
 	} else {
-		payload = map[string]any{"by_id": byID, "key_by_id": keyByID}
+		payload = map[string]any{"by_id": byID, "id_by_key": idByKey, "key_by_id": keyByID}
 	}
 	return canonjson.RenderLosslessArtifactJSON(payload)
 }
@@ -530,12 +582,14 @@ func ParseLookupSidecar(value any) (TransformLookupData, error) {
 		return TransformLookupData{}, errors.New("lookup sidecar must contain a JSON object")
 	}
 	nestedByID, hasNestedByID := asObject(root["by_id"])
+	nestedIDs, hasNestedIDs := asObject(root["id_by_key"])
 	nestedKeys, hasNestedKeys := asObject(root["key_by_id"])
 	rawByID := root
 	if hasNestedByID {
 		rawByID = nestedByID
 	}
 	byID := map[string]string{}
+	idByKey := map[string]string{}
 	keyByID := map[string]string{}
 	for key, display := range rawByID {
 		if s, ok := display.(string); ok {
@@ -551,7 +605,21 @@ func ParseLookupSidecar(value any) (TransformLookupData, error) {
 			}
 		}
 	}
-	return TransformLookupData{ByID: byID, KeyByID: keyByID}, nil
+	if hasNestedIDs {
+		for key, ident := range nestedIDs {
+			if s, ok := ident.(string); ok && s != "" {
+				idByKey[key] = s
+			}
+		}
+	} else {
+		// A sidecar written before id_by_key existed still decodes both
+		// directions: key_by_id is a bijection over its rows, so the
+		// inverse is derivable rather than absent.
+		for ident, itemKey := range keyByID {
+			idByKey[itemKey] = ident
+		}
+	}
+	return TransformLookupData{ByID: byID, IDByKey: idByKey, KeyByID: keyByID}, nil
 }
 
 var integerTokenPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
@@ -699,6 +767,221 @@ func fieldCandidates(items map[string]map[string]any, field string) []fieldCandi
 	return candidates
 }
 
+// substituteReferenceTokens rewrites declared reference-field values in
+// items from raw tenant IDs to qualified tokens ("<referent>.<key>"), in
+// place, immediately before the config artifact renders. It applies the
+// same field-level gates DeriveGeneratedBindings applies -- disabled mode,
+// self-reference, bindableReference, lookup presence -- so a value is
+// tokenised precisely where derivation would bind it; the two passes can
+// never disagree about which leaves are reference leaves. It emits no
+// diagnostics of its own: DeriveGeneratedBindings runs over the same live
+// item maps immediately afterwards and remains the reporting layer for
+// every skip class (missing lookups, unknown IDs, unsafe keys).
+// mintedReferenceToken records one leaf the substitution rewrote, at the
+// candidate-style path binding coverage is checked against.
+type mintedReferenceToken struct {
+	ItemKey string
+	Path    string
+	Token   string
+}
+
+func substituteReferenceTokens(
+	items map[string]map[string]any,
+	context BindingContext,
+	resourceType string,
+	lookupKeys map[string]map[string]string,
+) []mintedReferenceToken {
+	var minted []mintedReferenceToken
+	if context.Mode == deployment.ReferenceBindingDisabled {
+		return nil
+	}
+	for _, field := range canonjson.SortedStrings(mapKeys(context.References)) {
+		spec, ok := context.References[field]
+		if !ok {
+			continue
+		}
+		if !bindableReference(resourceType, spec.Referent, context) {
+			continue
+		}
+		keyMap := lookupKeys[spec.Referent]
+		if len(keyMap) == 0 {
+			continue
+		}
+		// Mirror fieldCandidates' dotted-name rule exactly: a field whose
+		// segments are not all identifier-shaped is one literal field name
+		// containing dots, never a traversal path.
+		segments := strings.Split(field, ".")
+		for _, segment := range segments {
+			if !identifierSegmentPattern.MatchString(segment) {
+				segments = []string{field}
+				break
+			}
+		}
+		for _, key := range canonjson.SortedStrings(mapKeys(items)) {
+			item, ok := items[key]
+			if !ok {
+				continue
+			}
+			substituteAtPath(item, segments, key, "", spec.Referent, keyMap, &minted)
+		}
+	}
+	return minted
+}
+
+// substituteAtPath descends container segment by segment -- fanning out
+// over list elements at every level with the same index bookkeeping as
+// fieldCandidates -- and rewrites the terminal segment's value(s).
+// Substitution is value-level, so the set-block/plain-path distinction that
+// matters for binding addressing does not arise here: both walks reach the
+// same leaves, and every rewrite is recorded so CompileTransformArtifacts
+// can prove a covering binding was derived for it.
+func substituteAtPath(
+	container map[string]any,
+	segments []string,
+	itemKey, concretePath, referent string,
+	keyMap map[string]string,
+	minted *[]mintedReferenceToken,
+) {
+	head := segments[0]
+	leafPath := head
+	if concretePath != "" {
+		leafPath = concretePath + "." + head
+	}
+	if len(segments) == 1 {
+		switch value := container[head].(type) {
+		case []any:
+			substituteListElements(value, itemKey, leafPath, referent, keyMap, minted)
+		default:
+			if token, ok := referenceToken(value, referent, keyMap); ok {
+				container[head] = token
+				*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
+			}
+		}
+		return
+	}
+	next, present := container[head]
+	if !present {
+		return
+	}
+	substituteThroughValue(next, segments[1:], itemKey, leafPath, referent, keyMap, minted)
+}
+
+// substituteThroughValue continues the descent through one intermediate
+// value, fanning arrays (including arrays of arrays) with fieldCandidates'
+// exact index bookkeeping.
+func substituteThroughValue(
+	value any,
+	rest []string,
+	itemKey, concretePath, referent string,
+	keyMap map[string]string,
+	minted *[]mintedReferenceToken,
+) {
+	switch typed := value.(type) {
+	case map[string]any:
+		substituteAtPath(typed, rest, itemKey, concretePath, referent, keyMap, minted)
+	case []any:
+		for index, child := range typed {
+			if child == nil {
+				continue
+			}
+			substituteThroughValue(child, rest, itemKey, fmt.Sprintf("%s[%d]", concretePath, index), referent, keyMap, minted)
+		}
+	}
+}
+
+// substituteListElements rewrites token-eligible elements of one terminal
+// list, replicating bindValue's whole-list bail exactly: a list holding any
+// non-zero-sentinel element the binder calls unbindable (null, nested
+// lists, objects, empty strings) is left entirely untouched, because
+// derivation will refuse to bind it and a minted token would otherwise have
+// no resolver.
+func substituteListElements(
+	arr []any,
+	itemKey, leafPath, referent string,
+	keyMap map[string]string,
+	minted *[]mintedReferenceToken,
+) {
+	for _, child := range arr {
+		if zeroSentinel(child) {
+			continue
+		}
+		if !bindableListElement(child) {
+			return
+		}
+	}
+	for index, child := range arr {
+		if zeroSentinel(child) {
+			continue
+		}
+		if token, ok := referenceToken(child, referent, keyMap); ok {
+			arr[index] = token
+			*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
+		}
+	}
+}
+
+// BindingPathCovers reports whether a binding at bindingPath resolves the
+// leaf at leafPath: an exact match, or the leaf sitting anywhere below the
+// binding's path (the set-block complete-leaf form binds the block and
+// resolves every reference member under it). Exported because envgen's
+// render-time totality gate applies the identical rule against committed
+// bindings.
+func BindingPathCovers(bindingPath, leafPath string) bool {
+	return leafPath == bindingPath ||
+		strings.HasPrefix(leafPath, bindingPath+".") ||
+		strings.HasPrefix(leafPath, bindingPath+"[")
+}
+
+// assertMintedTokensCovered fails the compile if any token the substitution
+// minted has no covering derived binding. Substitution and derivation walk
+// the same gates over the same items, so a gap between them is a traversal
+// divergence bug; publishing it would commit a token nothing resolves,
+// which on a string-typed provider field would flow to the provider as a
+// literal. Loud beats silent.
+func assertMintedTokensCovered(minted []mintedReferenceToken, binding GeneratedBindingsResult, resourceType string) error {
+	for _, m := range minted {
+		fields, _ := binding.Resources[resourceType+"."+m.ItemKey].(map[string]any)
+		covered := false
+		for bindingPath := range fields {
+			if BindingPathCovers(bindingPath, m.Path) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return fmt.Errorf(
+				"substitution minted token %s at %s.%s.%s but derivation produced no covering binding; refusing to publish an unresolvable token (traversal divergence)",
+				jsonQuote(m.Token), resourceType, m.ItemKey, m.Path,
+			)
+		}
+	}
+	return nil
+}
+
+// referenceToken maps a raw ID present in keyMap to its qualified token.
+// Everything else -- sentinels, unknown IDs, values already token-shaped,
+// non-scalar values, and keys the interpolation guard would refuse -- is
+// left untouched for DeriveGeneratedBindings to classify and report. The
+// interpolation check here prevents ever *minting* a committed token that
+// the derive layer's unsafe_key guard would then strand unresolvable.
+func referenceToken(value any, referent string, keyMap map[string]string) (string, bool) {
+	ident, err := pythonTransformString(value)
+	if err != nil {
+		return "", false
+	}
+	if tokenShaped(ident) {
+		return "", false
+	}
+	referentKey, ok := keyMap[ident]
+	if !ok {
+		return "", false
+	}
+	if strings.Contains(referentKey, "${") || strings.Contains(referentKey, "%{") {
+		return "", false
+	}
+	return referent + "." + referentKey, true
+}
+
 // generatedBindingsBuilder holds the mutable state
 // deriveGeneratedBindings's TS closures (resolve, bindValue, count) share
 // via lexical capture; Go has no closures-over-enclosing-locals convenient
@@ -712,6 +995,11 @@ type generatedBindingsBuilder struct {
 	bound        int
 	skipped      int
 	reasons      map[string]int
+	// keySets caches each referent's key_by_id value set, built on first
+	// token lookup for that referent. resolve runs once per candidate value
+	// and keyMap is the same map object across every call for one referent,
+	// so this is keyed by referent (not rebuilt per value).
+	keySets map[string]map[string]struct{}
 }
 
 func (b *generatedBindingsBuilder) count(reason string, amount int) {
@@ -725,17 +1013,84 @@ func (b *generatedBindingsBuilder) note(format string, args ...any) {
 	b.notes = append(b.notes, fmt.Sprintf(format, args...))
 }
 
-// resolve ports deriveGeneratedBindings's local `resolve` closure.
+// keySetFor returns the set of keys keyMap's ID->key entries map onto for
+// the given referent, building and caching it the first time a token is
+// seen for that referent. A token is validated by key membership alone, so
+// this set -- not the ID->key map itself -- is the only structure a token
+// lookup ever consults.
+func (b *generatedBindingsBuilder) keySetFor(referent string, keyMap map[string]string) map[string]struct{} {
+	if set, ok := b.keySets[referent]; ok {
+		return set
+	}
+	set := make(map[string]struct{}, len(keyMap))
+	for _, referentKey := range keyMap {
+		set[referentKey] = struct{}{}
+	}
+	if b.keySets == nil {
+		b.keySets = map[string]map[string]struct{}{}
+	}
+	b.keySets[referent] = set
+	return set
+}
+
+// tokenShaped reports whether ident has the qualified-token shape (an
+// identifier segment, a dot, a remainder) without regard to which referent
+// it names. It classifies a value that fails the spec.Referent prefix
+// check as a mismatched token rather than a plain ID: provider tenant IDs
+// in this pipeline are never dotted, so a dotted, identifier-prefixed
+// value is exhaustively a token for some other referent, never a
+// coincidental ID.
+func tokenShaped(ident string) bool {
+	dot := strings.IndexByte(ident, '.')
+	return dot > 0 && identifierSegmentPattern.MatchString(ident[:dot])
+}
+
+// resolve ports deriveGeneratedBindings's local `resolve` closure, extended
+// to consume the qualified reference token ("<spec.Referent>.<key>") the P1
+// substitution pass commits in place of a raw tenant ID. A token is
+// recognised by an exact "<spec.Referent>." prefix, stripped verbatim --
+// never a general dot split, because a referent's key may itself contain
+// dots -- and validated by key membership in key_by_id's value set (never
+// an ID->key hop; the key is already in the value). Old-shape raw IDs
+// remain valid indefinitely: the migration path this file's task brief
+// requires.
 func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap map[string]string, key, fieldPath string, value any) (*string, error) {
 	ident, err := pythonTransformString(value)
 	if err != nil {
 		return nil, err
 	}
-	referentKey, ok := keyMap[ident]
-	if !ok {
-		b.count("id_absent", 1)
-		b.note("%s.%s.%s value %s skipped; id is absent from %s lookup", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+	var referentKey string
+	ownPrefix := spec.Referent + "."
+	switch {
+	case strings.HasPrefix(ident, ownPrefix):
+		tokenKey := ident[len(ownPrefix):]
+		if _, known := b.keySetFor(spec.Referent, keyMap)[tokenKey]; !known {
+			b.count("token_key_unknown", 1)
+			b.note("%s.%s.%s value %s skipped; token key is unknown to %s", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+			return nil, nil
+		}
+		referentKey = tokenKey
+	case tokenShaped(ident):
+		b.count("token_referent_mismatch", 1)
+		b.note("%s.%s.%s value %s skipped; token does not name %s", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
 		return nil, nil
+	default:
+		// The keyMap is deliberately not consulted before this return: under
+		// TokensOnly the outcome for a raw ID must not depend on the lookup at
+		// all, not merely produce no binding when the lookup misses. See
+		// BindingContext.TokensOnly.
+		if b.context.TokensOnly {
+			b.count("raw_id_render_only", 1)
+			b.note("%s.%s.%s value %s skipped; raw ids bind at transform, not render", b.resourceType, key, fieldPath, jsonQuote(ident))
+			return nil, nil
+		}
+		found, ok := keyMap[ident]
+		if !ok {
+			b.count("id_absent", 1)
+			b.note("%s.%s.%s value %s skipped; id is absent from %s lookup", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+			return nil, nil
+		}
+		referentKey = found
 	}
 	if strings.Contains(referentKey, "${") || strings.Contains(referentKey, "%{") {
 		b.count("unsafe_key", 1)
@@ -750,7 +1105,7 @@ func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap m
 	if err != nil {
 		return nil, err
 	}
-	expr := "data.terraform_remote_state." + referentRoot + ".outputs.infrawright_reference_ids." + spec.Referent + "[" + quoted + "]"
+	expr := "data.terraform_remote_state." + referentRoot + ".outputs.iw_reference_ids." + spec.Referent + "[" + quoted + "]"
 	return &expr, nil
 }
 
@@ -824,6 +1179,269 @@ func (b *generatedBindingsBuilder) bindValue(spec TransformReferenceSpec, keyMap
 	return expression, nil
 }
 
+// bindSetBlockField binds a reference field whose dotted path crosses a
+// set-nested block. An indexed path into a set block names nothing -- set
+// members have no stable order -- and gen-env's schema-path validator refuses
+// it with "bind the complete block leaf". So this emits exactly that: one
+// binding per concrete block occurrence, at the path of the set block itself,
+// whose expression renders the entire block value with the reference members
+// resolved to remote-state lookups and everything else reproduced literally.
+func (b *generatedBindingsBuilder) bindSetBlockField(
+	spec TransformReferenceSpec,
+	keyMap map[string]string,
+	items map[string]map[string]any,
+	field string,
+	setIndex int,
+	reason string,
+) error {
+	segments := strings.Split(field, ".")
+	prefix := segments[:setIndex+1]
+	remainder := segments[setIndex+1:]
+	for _, key := range canonjson.SortedStrings(mapKeys(items)) {
+		item, ok := items[key]
+		if !ok {
+			continue
+		}
+		var visit func(value any, segmentIndex int, concretePath string) error
+		visit = func(value any, segmentIndex int, concretePath string) error {
+			if segmentIndex == len(prefix) {
+				expression, err := b.renderSetBlockLeaf(spec, keyMap, key, concretePath, value, remainder)
+				if err != nil {
+					return err
+				}
+				if expression != nil {
+					b.assign(key, concretePath, *expression, reason)
+				}
+				return nil
+			}
+			if arr, ok := value.([]any); ok {
+				for index, child := range arr {
+					if child == nil {
+						continue
+					}
+					if err := visit(child, segmentIndex, fmt.Sprintf("%s[%d]", concretePath, index)); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			record, ok := value.(map[string]any)
+			if !ok {
+				return nil
+			}
+			childValue, present := record[prefix[segmentIndex]]
+			if !present {
+				return nil
+			}
+			nextPath := prefix[segmentIndex]
+			if concretePath != "" {
+				nextPath = concretePath + "." + prefix[segmentIndex]
+			}
+			return visit(childValue, segmentIndex+1, nextPath)
+		}
+		if err := visit(item, 0, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderSetBlockLeaf renders one set block's complete value as an HCL
+// expression, resolving the reference member named by remainder. A block
+// value this cannot reproduce faithfully binds nothing -- the tfvars literal
+// underneath stays authoritative -- because a complete-leaf expression that
+// silently dropped or reshaped a member would rewrite configuration the
+// operator never asked to change.
+func (b *generatedBindingsBuilder) renderSetBlockLeaf(
+	spec TransformReferenceSpec,
+	keyMap map[string]string,
+	key, leafPath string,
+	value any,
+	remainder []string,
+) (*string, error) {
+	arr, isArray := value.([]any)
+	if !isArray {
+		if value == nil {
+			return nil, nil
+		}
+		b.count("unbindable_set_block", 1)
+		b.skipped++
+		b.note("%s.%s.%s skipped; set block value is not a list", b.resourceType, key, leafPath)
+		return nil, nil
+	}
+	boundBefore := b.bound
+	elements := make([]string, 0, len(arr))
+	for index, element := range arr {
+		rendered, err := b.renderSetBlockMember(spec, keyMap, key, fmt.Sprintf("%s[%d]", leafPath, index), element, remainder)
+		if err != nil {
+			return nil, err
+		}
+		if rendered == nil {
+			b.count("unbindable_set_block", 1)
+			b.skipped++
+			b.note("%s.%s.%s skipped; set block member cannot be rendered faithfully", b.resourceType, key, leafPath)
+			return nil, nil
+		}
+		elements = append(elements, *rendered)
+	}
+	if b.bound == boundBefore {
+		return nil, nil
+	}
+	expr := "[" + strings.Join(elements, ", ") + "]"
+	return &expr, nil
+}
+
+// renderSetBlockMember renders one value inside a set block. At the remainder
+// path's end sits the reference member, whose values resolve through the
+// referent lookup exactly as list bindings do; every other member is
+// reproduced as a literal, faithfully typed -- a number stays a number --
+// because the expression replaces the whole block value in the generated
+// root.
+func (b *generatedBindingsBuilder) renderSetBlockMember(
+	spec TransformReferenceSpec,
+	keyMap map[string]string,
+	key, fieldPath string,
+	value any,
+	remainder []string,
+) (*string, error) {
+	if len(remainder) == 0 {
+		if arr, ok := value.([]any); ok {
+			fragments := make([]string, 0, len(arr))
+			for index, child := range arr {
+				if zeroSentinel(child) {
+					continue
+				}
+				if !bindableListElement(child) {
+					return nil, nil
+				}
+				resolved, err := b.resolve(spec, keyMap, key, fmt.Sprintf("%s[%d]", fieldPath, index), child)
+				if err != nil {
+					return nil, err
+				}
+				if resolved == nil {
+					b.skipped++
+					literal, ok, err := renderHclLiteral(child)
+					if err != nil {
+						return nil, err
+					}
+					if !ok {
+						return nil, nil
+					}
+					fragments = append(fragments, literal)
+					continue
+				}
+				b.bound++
+				fragments = append(fragments, *resolved)
+			}
+			expr := "[" + strings.Join(fragments, ", ") + "]"
+			return &expr, nil
+		}
+		if value == nil || !bindableListElement(value) {
+			return nil, nil
+		}
+		resolved, err := b.resolve(spec, keyMap, key, fieldPath, value)
+		if err != nil {
+			return nil, err
+		}
+		if resolved != nil {
+			b.bound++
+			return resolved, nil
+		}
+		b.skipped++
+		literal, ok, err := renderHclLiteral(value)
+		if err != nil || !ok {
+			return nil, err
+		}
+		return &literal, nil
+	}
+	record, isRecord := value.(map[string]any)
+	if !isRecord {
+		return nil, nil
+	}
+	memberNames := canonjson.SortedStrings(mapKeys(record))
+	parts := make([]string, 0, len(record))
+	for _, name := range memberNames {
+		var rendered *string
+		if name == remainder[0] {
+			child, err := b.renderSetBlockMember(spec, keyMap, key, fieldPath+"."+name, record[name], remainder[1:])
+			if err != nil {
+				return nil, err
+			}
+			rendered = child
+		} else {
+			literal, ok, err := renderHclLiteral(record[name])
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				rendered = &literal
+			}
+		}
+		if rendered == nil {
+			return nil, nil
+		}
+		parts = append(parts, name+" = "+*rendered)
+	}
+	expr := "{ " + strings.Join(parts, ", ") + " }"
+	return &expr, nil
+}
+
+// renderHclLiteral reproduces a JSON value as HCL, faithfully typed. The
+// false return marks a value this cannot render (and the binding that
+// contains it must not be emitted); it is distinct from an error, which marks
+// malformed input.
+func renderHclLiteral(value any) (string, bool, error) {
+	switch typed := value.(type) {
+	case nil:
+		return "null", true, nil
+	case bool:
+		if typed {
+			return "true", true, nil
+		}
+		return "false", true, nil
+	case string:
+		quoted, err := RenderHclQuotedString(typed)
+		if err != nil {
+			return "", false, err
+		}
+		return quoted, true, nil
+	case json.Number:
+		token, err := canonjson.CanonicalNumberToken(string(typed))
+		if err != nil {
+			return "", false, nil
+		}
+		return token, true, nil
+	case float64:
+		token, err := pythonTransformString(typed)
+		if err != nil {
+			return "", false, nil
+		}
+		return token, true, nil
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, child := range typed {
+			rendered, ok, err := renderHclLiteral(child)
+			if err != nil || !ok {
+				return "", false, err
+			}
+			parts = append(parts, rendered)
+		}
+		return "[" + strings.Join(parts, ", ") + "]", true, nil
+	case map[string]any:
+		parts := make([]string, 0, len(typed))
+		for _, name := range canonjson.SortedStrings(mapKeys(typed)) {
+			rendered, ok, err := renderHclLiteral(typed[name])
+			if err != nil || !ok {
+				return "", false, err
+			}
+			parts = append(parts, name+" = "+rendered)
+		}
+		return "{ " + strings.Join(parts, ", ") + " }", true, nil
+	default:
+		return "", false, nil
+	}
+}
+
 func (b *generatedBindingsBuilder) reasonFor(spec TransformReferenceSpec) string {
 	return "cross-state reference binding via " + spec.Referent + " root output"
 }
@@ -848,6 +1466,29 @@ func DeriveGeneratedBindings(context BindingContext, items map[string]map[string
 	}
 	if context.Mode == deployment.ReferenceBindingDisabled {
 		return GeneratedBindingsResult{Resources: b.resources, Notes: b.notes}, nil
+	}
+	// Two reference fields crossing the same set block would each bind the
+	// complete block leaf at the same (item, path) key: the second assign
+	// overwrites the first, whose references are then reproduced literally
+	// inside the surviving expression (adversarial-review finding). Grouped
+	// block resolution is not implemented, so the shape is refused up
+	// front, before any value can be minted or bound. No shipped pack
+	// declares it (corpus audited 2026-07-30).
+	blockOwners := map[string]string{}
+	for _, field := range canonjson.SortedStrings(mapKeys(context.References)) {
+		setIndex, throughSet := context.SetBlockFields[field]
+		if !throughSet {
+			continue
+		}
+		segments := strings.Split(field, ".")
+		prefix := strings.Join(segments[:setIndex+1], ".")
+		if other, taken := blockOwners[prefix]; taken {
+			return GeneratedBindingsResult{}, fmt.Errorf(
+				"reference fields %s and %s both cross set block %s of %s; binding them independently would overwrite one resolution with the other, so this shape is refused until grouped set-block resolution exists",
+				other, field, prefix, resourceType,
+			)
+		}
+		blockOwners[prefix] = field
 	}
 	for _, field := range canonjson.SortedStrings(mapKeys(context.References)) {
 		spec, ok := context.References[field]
@@ -885,6 +1526,12 @@ func DeriveGeneratedBindings(context BindingContext, items map[string]map[string
 		}
 		reason := b.reasonFor(spec)
 		if strings.Contains(field, ".") {
+			if setIndex, throughSet := context.SetBlockFields[field]; throughSet {
+				if err := b.bindSetBlockField(spec, keyMap, items, field, setIndex, reason); err != nil {
+					return GeneratedBindingsResult{}, err
+				}
+				continue
+			}
 			for _, candidate := range candidates {
 				expression, err := b.bindValue(spec, keyMap, candidate.key, candidate.path, candidate.value)
 				if err != nil {
@@ -972,7 +1619,8 @@ func ComputeTransformArtifactPaths(dep deployment.Deployment, resourceType, tena
 		StaleConfig:       staleConfig,
 		GeneratedBindings: path.Join(configDirectory, resourceType+".generated.expressions.json"),
 		Imports:           path.Join(importsDirectory, resourceType+"_imports.tf"),
-		Lookup:            path.Join(configDirectory, resourceType+".lookup.json"),
+		Lookup:            path.Join(configDirectory, "lookups", resourceType+".lookup.json"),
+		LegacyLookup:      path.Join(configDirectory, resourceType+".lookup.json"),
 		Moves:             path.Join(importsDirectory, resourceType+"_moves.tf"),
 	}, nil
 }
@@ -1030,26 +1678,389 @@ func loadLookup(file string) (*TransformLookupData, error) {
 	if text == nil {
 		return nil, nil
 	}
+	// Lookups are read from two possible locations (current and legacy), and
+	// since the key-shrinkage guard they are read during compiles that never
+	// mention the lookup otherwise. A bare parse error names neither which file
+	// nor which of the two paths it came from, so the exact path is attached.
 	value, err := canonjson.ParseDataJSONLosslessly(*text)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	data, err := ParseLookupSidecar(value)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	return &data, nil
+}
+
+// tokenDependents reports the committed config artifacts in
+// configDirectory that carry a qualified reference token for resourceType.
+// The scan is textual (a quoted string opening with "<resourceType>."), the
+// same signal the renderer keys on, so both format variants of tfvars are
+// served and a refusal errs toward keeping the lookup.
+func tokenDependents(configDirectory, resourceType string) ([]string, error) {
+	entries, err := os.ReadDir(configDirectory)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	prefix := resourceType + "."
+	var dependents []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() ||
+			!(strings.HasSuffix(name, ".auto.tfvars.json") || strings.HasSuffix(name, ".auto.tfvars")) {
+			continue
+		}
+		raw, err := os.ReadFile(path.Join(configDirectory, name))
+		if err != nil {
+			return nil, err
+		}
+		// JSON configs are parsed so only string VALUES count -- a dotted
+		// map key or field name can never block retirement. HCL configs
+		// cannot be parsed here; their quoted-text scan stays conservative.
+		if strings.HasSuffix(name, ".auto.tfvars.json") {
+			if parsed, parseErr := canonjson.ParseDataJSONLosslessly(string(raw)); parseErr == nil {
+				if jsonValueHasPrefix(parsed, prefix) {
+					dependents = append(dependents, name)
+				}
+				continue
+			}
+		}
+		if strings.Contains(string(raw), `"`+prefix) {
+			dependents = append(dependents, name)
+		}
+	}
+	return canonjson.SortedStrings(dependents), nil
+}
+
+// configOwnerType maps a committed tfvars filename back to the resource type
+// that owns it, or "" when the name is not a config artifact.
+func configOwnerType(name string) string {
+	for _, suffix := range []string{".auto.tfvars.json", ".auto.tfvars"} {
+		if strings.HasSuffix(name, suffix) {
+			return strings.TrimSuffix(name, suffix)
+		}
+	}
+	return ""
+}
+
+// jsonStringValues collects every string VALUE in the decoded JSON. Keys and
+// field names are never collected: a token is always a whole value, so exact
+// value equality is both the precise test and the one that cannot be tripped
+// by a dotted map key.
+func jsonStringValues(value any, into map[string]bool) {
+	switch typed := value.(type) {
+	case string:
+		into[typed] = true
+	case []any:
+		for _, child := range typed {
+			jsonStringValues(child, into)
+		}
+	case map[string]any:
+		for _, child := range typed {
+			jsonStringValues(child, into)
+		}
+	}
+}
+
+// droppedBookKeys reports every key the committed lookup decodes that the
+// freshly compiled one no longer does. The committed lookup is read through
+// resolveLookup, so a tenant still holding its lookup at the pre-migration
+// path is compared against, not silently treated as having no lookup at all.
+func droppedBookKeys(configDirectory, resourceType string, fresh *TransformLookupData) ([]string, error) {
+	committed, err := resolveLookup(configDirectory, resourceType, nil)
+	if err != nil || committed == nil {
+		return nil, err
+	}
+	var dropped []string
+	for key := range committed.IDByKey {
+		if _, kept := fresh.IDByKey[key]; !kept {
+			dropped = append(dropped, key)
+		}
+	}
+	return canonjson.SortedStrings(dropped), nil
+}
+
+// configTextTokenKeys reports which of the dropped keys one config document
+// names as "<resourceType>.<key>".
+//
+// A JSON document is parsed and matched on whole string VALUES: a token is
+// always an entire value, so exact equality is both the precise test and the
+// one a dotted map key cannot trip. An HCL document cannot be parsed here, so
+// it is matched on the quoted token text -- and an unparseable JSON document
+// falls to the same textual rule rather than being read as clean.
+func configTextTokenKeys(text string, jsonFormat bool, resourceType string, dropped []string) []string {
+	values := map[string]bool{}
+	parsed := false
+	if jsonFormat {
+		if decoded, err := canonjson.ParseDataJSONLosslessly(text); err == nil {
+			jsonStringValues(decoded, values)
+			parsed = true
+		}
+	}
+	var named []string
+	for _, key := range dropped {
+		token := resourceType + "." + key
+		held := values[token]
+		if !parsed {
+			held = strings.Contains(text, `"`+token+`"`)
+		}
+		if held {
+			named = append(named, key)
+		}
+	}
+	return named
+}
+
+// tokenKeyDependents reports, per dropped key, the committed config artifacts
+// in configDirectory that still name "<resourceType>.<key>". Every config
+// artifact is scanned, this type's own included: no file is exempt, because no
+// publication path here is transactional enough to justify excusing one (see
+// assertNoLookupKeyStranding).
+func tokenKeyDependents(
+	configDirectory, resourceType string,
+	dropped []string,
+) (map[string][]string, error) {
+	entries, err := os.ReadDir(configDirectory)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	dependents := map[string][]string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || configOwnerType(name) == "" {
+			continue
+		}
+		raw, err := os.ReadFile(path.Join(configDirectory, name))
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range configTextTokenKeys(
+			string(raw), strings.HasSuffix(name, ".auto.tfvars.json"), resourceType, dropped,
+		) {
+			dependents[key] = append(dependents[key], name)
+		}
+	}
+	for key, files := range dependents {
+		dependents[key] = canonjson.SortedStrings(files)
+	}
+	return dependents, nil
+}
+
+// assertNoLookupKeyStranding refuses a lookup update that would drop a key some
+// committed config still names by token.
+//
+// This is the symmetric half of the whole-lookup retirement guard above, and it
+// is what makes lookup membership a SOUND signal for every consumer that keys on
+// it -- gen-env's dropped-edge orphan scan most of all. Without it an ordinary
+// referent re-transform (item renamed or deleted) shrinks the key set, the
+// orphaned token stops decoding, and every render-time gate goes blind to it
+// (adversarial-review finding, round 5).
+//
+// No dependent is exempt, including one the same run also selects. An
+// exemption is only sound inside a successfully preflighted, rollback-capable
+// publication transaction, and this repository has no such invocation path:
+// the transform and adopt runners compile and publish each type immediately
+// and independently and continue past a later member that skips or fails
+// (round-3 re-review's deterministic repro), and even the batch helper's
+// rollback is best-effort. A selection-scoped exemption therefore published
+// the new lookup and then simply did not repair the dependent.
+//
+// The compiling type's OWN config is scanned too, on both sides of the write.
+// It was briefly skipped on the argument that a type never mints a token
+// naming itself (bindableReference refuses a self-reference outright). That
+// argument covers MINTING a declared self-reference and nothing else: gen-env
+// classifies a token by lookup membership over every string leaf, with no
+// own-config exception, so an ordinary description reading
+// "<type>.<key>" is a token claim to every render-time gate. Two checks,
+// guarding two different failures, neither subsuming the other:
+//
+//   - the COMMITTED copy on disk guards the publication window.
+//     PublishCompiledTransformArtifacts writes the lookup before the config, and
+//     writes them directly rather than transactionally, so a failure between
+//     the two leaves the old config beside the new lookup. A planned replacement
+//     is not a transactional justification.
+//   - the freshly compiled CONFIG TEXT guards the steady state after a
+//     successful publish: a value this compile is about to commit that the new
+//     lookup will not decode. A disk-only scan sees a clean tree and misses it
+//     entirely.
+//
+// The cost is a real deadlock: renaming a referent item refuses until the
+// referrer's committed reference is updated, and re-transforming the referrer
+// first re-mints the same departing key from the still-committed lookup, so the
+// operator must break the tie by hand. That is accepted deliberately -- loud
+// and self-consistent beats quiet and stranded -- and is documented in the
+// design spec's residuals. The message below states the manual remedy and
+// claims no automatic one.
+//
+// Residual, deliberately named rather than claimed away: this guards the
+// pipeline's own writes. A lookup deleted or edited by hand outside the pipeline
+// is not covered.
+func assertNoLookupKeyStranding(
+	configDirectory, resourceType, configFile, configText string,
+	fresh *TransformLookupData,
+) error {
+	dropped, err := droppedBookKeys(configDirectory, resourceType, fresh)
+	if err != nil || len(dropped) == 0 {
+		return err
+	}
+	dependents, err := tokenKeyDependents(configDirectory, resourceType, dropped)
+	if err != nil {
+		return err
+	}
+	if dependents == nil {
+		dependents = map[string][]string{}
+	}
+	for _, key := range configTextTokenKeys(
+		configText, strings.HasSuffix(configFile, ".json"), resourceType, dropped,
+	) {
+		dependents[key] = append(dependents[key], path.Base(configFile)+" (this run's pending output)")
+	}
+	if len(dependents) == 0 {
+		return nil
+	}
+	var stranded []string
+	for _, key := range dropped {
+		if files, ok := dependents[key]; ok {
+			stranded = append(stranded, fmt.Sprintf("%s.%s (%s)", resourceType, key, strings.Join(files, ", ")))
+		}
+	}
+	return fmt.Errorf(
+		"cannot publish %s's lookup sidecar: it would drop key(s) committed config still references by token — %s; nothing published. Re-running transform for those dependents first will NOT help (they re-mint the same key from the still-committed lookup): either restore the referent item whose key is leaving the lookup, or update each dependent's committed reference to the new key by hand (or delete that config and re-transform it after this one succeeds)",
+		resourceType, strings.Join(stranded, "; "),
+	)
+}
+
+// jsonValueHasPrefix reports whether any string VALUE in the decoded JSON
+// carries the prefix -- keys and field names are never inspected.
+func jsonValueHasPrefix(value any, prefix string) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.HasPrefix(typed, prefix)
+	case []any:
+		for _, child := range typed {
+			if jsonValueHasPrefix(child, prefix) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, child := range typed {
+			if jsonValueHasPrefix(child, prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // resolveLookup ports resolveLookup from
 // the original implementation. See TransformArtifactCompileOptions's
 // LookupOverrides doc comment for why no separate "overrides provided"
 // flag is threaded here.
+//
+// Dual-read for the Part B lookup migration (config/<tenant>/<type>.lookup.json
+// -> config/<tenant>/lookups/<type>.lookup.json): the current path is tried
+// first; only when it is absent (loadLookup's nil-without-error result) does
+// this fall back to the legacy path. A malformed file at the current path
+// still fails loudly rather than silently falling through to a stale legacy
+// copy. Every resolveLookup caller -- deriveHclComments (HCL comments) and
+// lookupKeyMaps (bindings derivation, including gen-env's LookupKeyMaps) --
+// inherits this fallback for free.
 func resolveLookup(configDirectory, referent string, overrides map[string]*TransformLookupData) (*TransformLookupData, error) {
 	if data, ok := overrides[referent]; ok {
 		return data, nil
 	}
+	data, err := loadLookup(path.Join(configDirectory, "lookups", referent+".lookup.json"))
+	if err != nil {
+		return nil, err
+	}
+	if data != nil {
+		return data, nil
+	}
 	return loadLookup(path.Join(configDirectory, referent+".lookup.json"))
+}
+
+// lookupSidecarSuffix is the committed lookup's filename suffix, shared by
+// both locations ComputeTransformArtifactPaths names (Lookup and
+// LegacyLookup) and by resolveLookup's dual read.
+const lookupSidecarSuffix = ".lookup.json"
+
+// CommittedLookupReferents lists every resource type carrying a committed lookup
+// under configDirectory, reading BOTH locations the migration spans: the
+// current one (ComputeTransformArtifactPaths.Lookup, <dir>/lookups/) and the
+// legacy one (ComputeTransformArtifactPaths.LegacyLookup, <dir>/ itself). A
+// type present in both is listed once.
+//
+// Exported for gen-env's dropped-edge orphan scan, which must recognise a
+// committed token whose referent the CURRENT pack no longer declares an edge
+// to: pack metadata cannot name that type, but its lookup -- the only decoder
+// the token has -- is still on disk. An absent directory is not an error;
+// a tenant may have no lookups at all.
+func CommittedLookupReferents(configDirectory string) ([]string, error) {
+	seen := map[string]bool{}
+	for _, directory := range []string{
+		path.Join(configDirectory, "lookups"),
+		configDirectory,
+	} {
+		entries, err := os.ReadDir(directory)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, lookupSidecarSuffix) {
+				continue
+			}
+			seen[strings.TrimSuffix(name, lookupSidecarSuffix)] = true
+		}
+	}
+	referents := make([]string, 0, len(seen))
+	for referent := range seen {
+		referents = append(referents, referent)
+	}
+	return canonjson.SortedStrings(referents), nil
+}
+
+// CommittedLookupKeys returns, per referent, the set of item keys its committed
+// lookup decodes -- id_by_key's keys, including the parser's inversion of
+// key_by_id for a sidecar written before id_by_key existed. A referent with
+// no committed lookup gets no entry at all, so a caller cannot mistake "no
+// lookup" for "lookup with no keys".
+//
+// Lookup membership is what makes a token claim distinguishable from an
+// innocent dotted string: only a key the lookup decodes could ever have been
+// minted, and the retirement guard (tokenDependents) refuses to remove a lookup
+// while any committed config still references it by token, so a lookup's
+// presence is a sound signal rather than a race.
+func CommittedLookupKeys(configDirectory string, referents []string) (map[string]map[string]bool, error) {
+	output := map[string]map[string]bool{}
+	for _, referent := range referents {
+		if _, done := output[referent]; done {
+			continue
+		}
+		lookup, err := resolveLookup(configDirectory, referent, nil)
+		if err != nil {
+			return nil, err
+		}
+		if lookup == nil {
+			continue
+		}
+		keys := make(map[string]bool, len(lookup.IDByKey))
+		for key := range lookup.IDByKey {
+			keys[key] = true
+		}
+		output[referent] = keys
+	}
+	return output, nil
 }
 
 var systemConstantPattern = regexp.MustCompile(`^[A-Z0-9_]+$`)
@@ -1073,6 +2084,23 @@ func displayFor(value any, mapping map[string]string) (string, error) {
 		return ident, nil
 	}
 	return "<unknown>", nil
+}
+
+// displayForReference resolves a committed reference value to its display
+// name: a qualified token maps key -> id through the lookup before the
+// ordinary id -> display lookup, so tokenised HCL trees keep the same
+// human-readable comments raw-ID trees always had. Every other value keeps
+// displayFor's legacy semantics.
+func displayForReference(value any, referent string, lookup *TransformLookupData) (string, error) {
+	if text, ok := value.(string); ok {
+		prefix := referent + "."
+		if strings.HasPrefix(text, prefix) {
+			if id, ok := lookup.IDByKey[text[len(prefix):]]; ok {
+				return displayFor(id, lookup.ByID)
+			}
+		}
+	}
+	return displayFor(value, lookup.ByID)
 }
 
 // deriveHclComments ports deriveHclComments from
@@ -1123,7 +2151,7 @@ func deriveHclComments(
 				continue
 			}
 			commentFor := func(child any) (string, error) {
-				display, err := displayFor(child, lookup.ByID)
+				display, err := displayForReference(child, spec.Referent, lookup)
 				if err != nil {
 					return "", err
 				}
@@ -1222,6 +2250,23 @@ func lookupKeyMaps(
 	return output, nil
 }
 
+// LookupKeyMaps exposes lookupKeyMaps to render-time binding derivation
+// (gen-env, once the committed generated-bindings cache became optional).
+// Only the on-disk arm is offered: the override map exists for a compile
+// batch whose members' fresh lookups are authoritative for same-batch
+// references, and no such batch exists at render time -- the renderer reads
+// exactly the lookups that are committed. Keeping this a delegation rather
+// than a second lookup reader is what guarantees the derivation gen-env runs
+// sees byte-identical key maps to the one transform ran, including a
+// referent whose lookup is absent (a nil entry, which the deriver reports as
+// a missing lookup rather than binding past).
+func LookupKeyMaps(
+	configDirectory string,
+	references map[string]TransformReferenceSpec,
+) (map[string]map[string]string, error) {
+	return lookupKeyMaps(configDirectory, references, nil)
+}
+
 // compileLookup ports compileLookup from
 // the original implementation.
 func compileLookup(options TransformArtifactCompileOptions) (*TransformLookupData, *string, error) {
@@ -1252,9 +2297,24 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
-	_, lookupText, err := compileLookup(options)
+	freshLookup, lookupText, err := compileLookup(options)
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
+	}
+	// Once committed configs reference this type by token, its lookup is the
+	// only decoder those tokens have: inferred-lifecycle removal must refuse
+	// while any dependent survives, not strand them.
+	if lookupText == nil && options.RemoveLookupWhenAbsent {
+		dependents, err := tokenDependents(path.Dir(paths.Config), options.ResourceType)
+		if err != nil {
+			return CompiledTransformArtifacts{}, err
+		}
+		if len(dependents) > 0 {
+			return CompiledTransformArtifacts{}, fmt.Errorf(
+				"cannot remove %s's lookup sidecar: committed config still references it by token (%s); re-run transform for the dependents or restore the referent before retiring its lookup",
+				options.ResourceType, strings.Join(dependents, ", "),
+			)
+		}
 	}
 
 	var template *string
@@ -1298,6 +2358,29 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 		)
 	}
 
+	// The key maps are resolved before the config renders so committed
+	// reference fields can be rewritten to qualified tokens first. The
+	// sidecar compiled above this point deliberately still maps real IDs
+	// -- it is the lookup the tokens decode through -- and imports/moves
+	// render from Originals, which the substitution never touches.
+	configDirectory := path.Dir(paths.Config)
+	keyMaps, err := lookupKeyMaps(configDirectory, options.References, options.LookupOverrides)
+	if err != nil {
+		return CompiledTransformArtifacts{}, err
+	}
+	// Tokens are a JSON-format contract: only JSON tfvars can be
+	// leaf-verified end to end by the render-time totality gate, so
+	// HCL-format deployments keep literal IDs entirely (and envgen refuses
+	// token-shaped values that appear in an HCL config by other means).
+	tfvarsFormat, err := deployment.DeploymentTfvarsFormat(options.Deployment)
+	if err != nil {
+		return CompiledTransformArtifacts{}, err
+	}
+	var minted []mintedReferenceToken
+	if tfvarsFormat == "json" {
+		minted = substituteReferenceTokens(options.Result.Items, options.BindingContext, options.ResourceType, keyMaps)
+	}
+
 	configText, err := renderDeploymentTfvars(
 		options.Deployment, options.Result.Items, options.References,
 		options.ResourceType, options.Tenant, options.VariableName, options.LookupOverrides,
@@ -1306,13 +2389,24 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 		return CompiledTransformArtifacts{}, err
 	}
 
-	configDirectory := path.Dir(paths.Config)
-	keyMaps, err := lookupKeyMaps(configDirectory, options.References, options.LookupOverrides)
+	// A lookup that keeps existing but stops decoding a key strands its tokens
+	// exactly as thoroughly as a removed lookup does, so the same refusal applies
+	// key by key. This runs after the config renders because the check needs
+	// this compile's own pending config text as well as what is on disk; it is
+	// still pure compilation, so nothing has been published when it refuses.
+	if lookupText != nil && freshLookup != nil {
+		if err := assertNoLookupKeyStranding(
+			path.Dir(paths.Config), options.ResourceType, paths.Config, configText, freshLookup,
+		); err != nil {
+			return CompiledTransformArtifacts{}, err
+		}
+	}
+
+	binding, err := DeriveGeneratedBindings(options.BindingContext, options.Result.Items, keyMaps, options.ResourceType)
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
-	binding, err := DeriveGeneratedBindings(options.BindingContext, options.Result.Items, keyMaps, options.ResourceType)
-	if err != nil {
+	if err := assertMintedTokensCovered(minted, binding, options.ResourceType); err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
 
@@ -1348,8 +2442,11 @@ func CompileTransformArtifactBatch(items []TransformArtifactCompileOptions) ([]C
 		// Iterated in the same order as transformArtifactPaths's TS object
 		// literal (config, staleConfig, generatedBindings, imports, lookup,
 		// moves) so a multi-way collision is reported against the same
-		// "first" path the Node source would report.
-		ordered := []string{paths.Config, paths.StaleConfig, paths.GeneratedBindings, paths.Imports, paths.Lookup, paths.Moves}
+		// "first" path the Node source would report. LegacyLookup is a Part
+		// B addition with no TS counterpart, appended after Lookup: like
+		// StaleConfig, it is a write target for no member (only ever
+		// stale-cleaned), so it belongs beside StaleConfig in spirit.
+		ordered := []string{paths.Config, paths.StaleConfig, paths.GeneratedBindings, paths.Imports, paths.Lookup, paths.LegacyLookup, paths.Moves}
 		for _, outputPath := range ordered {
 			if owner, ok := pathOwners[outputPath]; ok {
 				return nil, fmt.Errorf(
@@ -1416,6 +2513,10 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 	if err := os.MkdirAll(importsDirectory, 0o777); err != nil {
 		return TransformArtifactWriteResult{}, err
 	}
+	lookupDirectory := path.Dir(compiled.Paths.Lookup)
+	if err := os.MkdirAll(lookupDirectory, 0o777); err != nil {
+		return TransformArtifactWriteResult{}, err
+	}
 
 	if compiled.LookupText != nil {
 		if err := os.WriteFile(compiled.Paths.Lookup, []byte(*compiled.LookupText), 0o666); err != nil {
@@ -1423,6 +2524,18 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		}
 		written = append(written, compiled.Paths.Lookup)
 		note("wrote " + compiled.Paths.Lookup)
+		// The lookup just landed at its current location; any copy left at
+		// the pre-migration path is stale the instant this write commits,
+		// the same "cache the instant a fresher artifact exists" logic
+		// GeneratedBindings already applies to itself.
+		removedLegacy, err := removeIfPresent(compiled.Paths.LegacyLookup)
+		if err != nil {
+			return TransformArtifactWriteResult{}, err
+		}
+		if removedLegacy {
+			removed = append(removed, compiled.Paths.LegacyLookup)
+			note("removed stale legacy lookup " + compiled.Paths.LegacyLookup)
+		}
 	} else if compiled.RemoveLookupWhenAbsent {
 		removedNow, err := removeIfPresent(compiled.Paths.Lookup)
 		if err != nil {
@@ -1431,6 +2544,14 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		if removedNow {
 			removed = append(removed, compiled.Paths.Lookup)
 			note("removed stale inferred lookup " + compiled.Paths.Lookup)
+		}
+		removedLegacy, err := removeIfPresent(compiled.Paths.LegacyLookup)
+		if err != nil {
+			return TransformArtifactWriteResult{}, err
+		}
+		if removedLegacy {
+			removed = append(removed, compiled.Paths.LegacyLookup)
+			note("removed stale legacy lookup " + compiled.Paths.LegacyLookup)
 		}
 	}
 
@@ -1474,25 +2595,21 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 	for _, message := range compiled.Binding.Notes {
 		note("NOTE bindings: " + message)
 	}
-	if len(compiled.Binding.Resources) > 0 {
-		rendered, err := RenderGeneratedBindings(compiled.Binding.Resources)
-		if err != nil {
-			return TransformArtifactWriteResult{}, err
-		}
-		if err := os.WriteFile(compiled.Paths.GeneratedBindings, []byte(rendered), 0o666); err != nil {
-			return TransformArtifactWriteResult{}, err
-		}
-		written = append(written, compiled.Paths.GeneratedBindings)
-		note("wrote " + compiled.Paths.GeneratedBindings)
-	} else {
-		removedNow, err := removeIfPresent(compiled.Paths.GeneratedBindings)
-		if err != nil {
-			return TransformArtifactWriteResult{}, err
-		}
-		if removedNow {
-			removed = append(removed, compiled.Paths.GeneratedBindings)
-			note("removed stale " + compiled.Paths.GeneratedBindings)
-		}
+	// compiled.Binding is never written to disk: it is a pure function of
+	// (items, pack reference edges, schema, lookups) that gen-env now
+	// recomputes at render time via this same DeriveGeneratedBindings (the
+	// predecessor commit's render-derivation bridge), so a committed
+	// .generated.expressions.json is a stale cache the instant it exists.
+	// Any copy left over from before this change -- or from a tree that has
+	// not re-transformed yet -- is stale-cleaned like any other retired
+	// artifact so it disappears on the tree's next transform/adopt run.
+	removedBindings, err := removeIfPresent(compiled.Paths.GeneratedBindings)
+	if err != nil {
+		return TransformArtifactWriteResult{}, err
+	}
+	if removedBindings {
+		removed = append(removed, compiled.Paths.GeneratedBindings)
+		note("removed stale " + compiled.Paths.GeneratedBindings)
 	}
 
 	if err := os.WriteFile(compiled.Paths.Imports, []byte(compiled.NewImports), 0o666); err != nil {
@@ -1528,22 +2645,30 @@ func assertRegularBatchArtifactTarget(target string) error {
 }
 
 // batchArtifactMutations ports batchArtifactMutations from
-// the original implementation. Unlike the TS source (which never
-// fails: renderGeneratedBindings there cannot throw for a
-// deriveGeneratedBindings-produced value), this returns an error rather
-// than assuming that invariant silently -- RenderGeneratedBindings's
-// contract already returns one, and propagating it here is strictly safer
-// than a Go idiom for "this cannot happen" (a bare panic) would be.
-func batchArtifactMutations(compiled CompiledTransformArtifacts) ([]batchArtifactMutation, error) {
+// the original implementation, adapted for the retired bindings cache
+// (Task A2): the TS source's fallible renderGeneratedBindings/write branch
+// is gone -- compiled.Binding is never rendered to a file, only
+// stale-cleaned, mirroring PublishCompiledTransformArtifacts's single-path
+// behavior exactly -- so this function has no remaining failure mode and
+// returns a plain slice rather than an error nothing can produce.
+func batchArtifactMutations(compiled CompiledTransformArtifacts) []batchArtifactMutation {
 	var mutations []batchArtifactMutation
 	if compiled.LookupText != nil {
 		mutations = append(mutations, batchArtifactMutation{
 			contents: compiled.LookupText, kind: mutationWrite,
 			resourceType: compiled.ResourceType, target: compiled.Paths.Lookup,
 		})
+		// See PublishCompiledTransformArtifacts: the lookup just landed at its
+		// current location, so any copy at the pre-migration path is stale.
+		mutations = append(mutations, batchArtifactMutation{
+			kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.LegacyLookup,
+		})
 	} else if compiled.RemoveLookupWhenAbsent {
 		mutations = append(mutations, batchArtifactMutation{
 			kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.Lookup,
+		})
+		mutations = append(mutations, batchArtifactMutation{
+			kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.LegacyLookup,
 		})
 	}
 	if compiled.ExistingMoves == nil && compiled.RenderedMoves != nil {
@@ -1560,26 +2685,17 @@ func batchArtifactMutations(compiled CompiledTransformArtifacts) ([]batchArtifac
 		contents: &configText, kind: mutationWrite,
 		resourceType: compiled.ResourceType, target: compiled.Paths.Config,
 	})
-	if len(compiled.Binding.Resources) > 0 {
-		rendered, err := RenderGeneratedBindings(compiled.Binding.Resources)
-		if err != nil {
-			return nil, err
-		}
-		mutations = append(mutations, batchArtifactMutation{
-			contents: &rendered, kind: mutationWrite,
-			resourceType: compiled.ResourceType, target: compiled.Paths.GeneratedBindings,
-		})
-	} else {
-		mutations = append(mutations, batchArtifactMutation{
-			kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.GeneratedBindings,
-		})
-	}
+	// See PublishCompiledTransformArtifacts: the bindings cache is derivable
+	// at render time, so it is always stale-cleaned here, never written.
+	mutations = append(mutations, batchArtifactMutation{
+		kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.GeneratedBindings,
+	})
 	newImports := compiled.NewImports
 	mutations = append(mutations, batchArtifactMutation{
 		contents: &newImports, kind: mutationWrite,
 		resourceType: compiled.ResourceType, target: compiled.Paths.Imports,
 	})
-	return mutations, nil
+	return mutations
 }
 
 // removeTransactionDirectories ports removeTransactionDirectories from
@@ -1602,20 +2718,6 @@ func prepareBatchArtifactMutations(mutations []batchArtifactMutation) ([]prepare
 	return prepareBatchArtifactMutationsWithFilesystem(
 		mutations,
 		os.WriteFile,
-		removeTransactionDirectories,
-	)
-}
-
-// prepareBatchArtifactMutationsWithStageWriter keeps the stage write as an
-// injected leaf so tests can exercise its otherwise unreachable failure path
-// without mutable package state or timing races.
-func prepareBatchArtifactMutationsWithStageWriter(
-	mutations []batchArtifactMutation,
-	writeStageFile func(string, []byte, os.FileMode) error,
-) ([]preparedBatchArtifactMutation, []string, error) {
-	return prepareBatchArtifactMutationsWithFilesystem(
-		mutations,
-		writeStageFile,
 		removeTransactionDirectories,
 	)
 }
@@ -1827,6 +2929,9 @@ func completedBatchArtifactResult(compiled CompiledTransformArtifacts, applied [
 	} else if removedSet[compiled.Paths.Lookup] {
 		note("removed stale inferred lookup " + compiled.Paths.Lookup)
 	}
+	if removedSet[compiled.Paths.LegacyLookup] {
+		note("removed stale legacy lookup " + compiled.Paths.LegacyLookup)
+	}
 	if compiled.ExistingMoves == nil && compiled.RenderedMoves != nil {
 		note(fmt.Sprintf(
 			"RENAME(S) DETECTED: %d item(s) re-keyed — moved blocks staged in %s; copy into the env root alongside the imports file before plan/apply (RUNBOOK: Drift)",
@@ -1852,9 +2957,9 @@ func completedBatchArtifactResult(compiled CompiledTransformArtifacts, applied [
 	for _, message := range compiled.Binding.Notes {
 		note("NOTE bindings: " + message)
 	}
-	if len(compiled.Binding.Resources) > 0 {
-		note("wrote " + compiled.Paths.GeneratedBindings)
-	} else if removedSet[compiled.Paths.GeneratedBindings] {
+	// The bindings cache is never written (see batchArtifactMutations); only
+	// its stale-removal, if any, is ever worth reporting.
+	if removedSet[compiled.Paths.GeneratedBindings] {
 		note("removed stale " + compiled.Paths.GeneratedBindings)
 	}
 	note("wrote " + compiled.Paths.Config)
@@ -1877,11 +2982,7 @@ func completedBatchArtifactResult(compiled CompiledTransformArtifacts, applied [
 func PublishCompiledTransformArtifactBatch(compiled []CompiledTransformArtifacts) ([]TransformArtifactWriteResult, error) {
 	var mutations []batchArtifactMutation
 	for _, item := range compiled {
-		itemMutations, err := batchArtifactMutations(item)
-		if err != nil {
-			return nil, err
-		}
-		mutations = append(mutations, itemMutations...)
+		mutations = append(mutations, batchArtifactMutations(item)...)
 	}
 	targetOwners := map[string]string{}
 	for _, mutation := range mutations {

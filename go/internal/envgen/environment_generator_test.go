@@ -335,7 +335,7 @@ func TestCrossStateModeEmitsSingletonOutputsAndRemoteStateConsumers(t *testing.T
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`,
 				},
 			},
 		},
@@ -360,7 +360,7 @@ func TestCrossStateModeEmitsSingletonOutputsAndRemoteStateConsumers(t *testing.T
 	}
 
 	referentMain := readFileString(t, filepath.Join(outputRoot, "tenant", "zpa_segment_group", "main.tf"))
-	mustMatch(t, referentMain, `output "infrawright_reference_ids"`)
+	mustMatch(t, referentMain, `output "iw_reference_ids"`)
 	mustMatch(t, referentMain, `zpa_segment_group = \{ for key, item in module\.zpa_segment_group\.items : key => item\.id \}`)
 	referrerMain := readFileString(t, filepath.Join(outputRoot, "tenant", "zpa_application_segment", "main.tf"))
 	mustMatch(t, referrerMain, `data "terraform_remote_state" "zpa_segment_group"`)
@@ -370,7 +370,7 @@ func TestCrossStateModeEmitsSingletonOutputsAndRemoteStateConsumers(t *testing.T
 	mustMatch(t, overlay, `data\.terraform_remote_state\.zpa_segment_group`)
 	smoke := readFileString(t, filepath.Join(outputRoot, "tenant", "zpa_application_segment", "tests", "smoke.tftest.hcl"))
 	mustMatch(t, smoke, `override_data`)
-	mustMatch(t, smoke, `infrawright-test-reference-id`)
+	mustMatch(t, smoke, `"20090001"`)
 	mustMatch(t, smoke, `run "config_plan"`)
 	mustNotMatch(t, smoke, `run "empty_plan"`)
 
@@ -386,12 +386,12 @@ func TestCrossStateModeEmitsSingletonOutputsAndRemoteStateConsumers(t *testing.T
 		t.Fatalf("remote labels = %v, want %v", got, wantLabels)
 	}
 	remoteMain := readFileString(t, filepath.Join(remoteOutputRoot, "tenant", "zpa_application_segment", "main.tf"))
-	mustMatch(t, remoteMain, `variable "infrawright_remote_state_backend_config"`)
+	mustMatch(t, remoteMain, `variable "iw_remote_state_backend_config"`)
 	mustMatch(t, remoteMain, `sensitive\s+= true`)
-	mustMatch(t, remoteMain, `config = merge\(var\.infrawright_remote_state_backend_config`)
+	mustMatch(t, remoteMain, `config = merge\(var\.iw_remote_state_backend_config`)
 	mustMatch(t, remoteMain, `key = "tenant/zpa_segment_group\.tfstate"`)
 	remoteSmoke := readFileString(t, filepath.Join(remoteOutputRoot, "tenant", "zpa_application_segment", "tests", "smoke.tftest.hcl"))
-	mustMatch(t, remoteSmoke, `infrawright_remote_state_backend_config = \{`)
+	mustMatch(t, remoteSmoke, `iw_remote_state_backend_config = \{`)
 	mustMatch(t, remoteSmoke, `use_azuread_auth\s+= true`)
 	mustMatch(t, remoteSmoke, `run "config_plan"`)
 	mustNotMatch(t, remoteSmoke, `run "empty_plan"`)
@@ -444,25 +444,25 @@ func TestAbsentAndExplicitCrossStateProduceIdenticalDeclaredBindingArtifacts(t *
 		})
 		writeJSONFile(t, filepath.Join(config, "zpa_application_segment.generated.expressions.json"), map[string]any{
 			"resources": map[string]any{"zpa_application_segment.app_one": map[string]any{
-				"segment_group_id":    map[string]any{"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`},
-				"server_groups[0].id": map[string]any{"expression": `[data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group["server_one"]]`},
+				"segment_group_id":    map[string]any{"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`},
+				"server_groups[0].id": map[string]any{"expression": `[data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group["server_one"]]`},
 			}},
 		})
 		writeJSONFile(t, filepath.Join(config, "zpa_server_group.generated.expressions.json"), map[string]any{
 			"resources": map[string]any{"zpa_server_group.server_one": map[string]any{
-				"app_connector_groups[0].id": map[string]any{"expression": `[data.terraform_remote_state.zpa_app_connector_group.outputs.infrawright_reference_ids.zpa_app_connector_group["connector_one"]]`},
-				"servers[0].id":              map[string]any{"expression": `[data.terraform_remote_state.zpa_application_server.outputs.infrawright_reference_ids.zpa_application_server["application_server"]]`},
+				"app_connector_groups[0].id": map[string]any{"expression": `[data.terraform_remote_state.zpa_app_connector_group.outputs.iw_reference_ids.zpa_app_connector_group["connector_one"]]`},
+				"servers[0].id":              map[string]any{"expression": `[data.terraform_remote_state.zpa_application_server.outputs.iw_reference_ids.zpa_application_server["application_server"]]`},
 			}},
 		})
 		writeJSONFile(t, filepath.Join(config, "zia_url_filtering_rules.generated.expressions.json"), map[string]any{
 			"resources": map[string]any{"zia_url_filtering_rules.rule_one": map[string]any{
-				"url_categories": map[string]any{"expression": `[data.terraform_remote_state.zia_url_categories.outputs.infrawright_reference_ids.zia_url_categories["category_one"]]`},
+				"url_categories": map[string]any{"expression": `[data.terraform_remote_state.zia_url_categories.outputs.iw_reference_ids.zia_url_categories["category_one"]]`},
 			}},
 		})
 		writeJSONFile(t, filepath.Join(config, "zcc_forwarding_profile.generated.expressions.json"), map[string]any{
 			"resources": map[string]any{"zcc_forwarding_profile.profile_one": map[string]any{
-				"trusted_network_ids":          map[string]any{"expression": `[data.terraform_remote_state.zcc_trusted_network.outputs.infrawright_reference_ids.zcc_trusted_network["network_one"]]`},
-				"trusted_network_ids_selected": map[string]any{"expression": `[data.terraform_remote_state.zcc_trusted_network.outputs.infrawright_reference_ids.zcc_trusted_network["network_one"]]`},
+				"trusted_network_ids":          map[string]any{"expression": `[data.terraform_remote_state.zcc_trusted_network.outputs.iw_reference_ids.zcc_trusted_network["network_one"]]`},
+				"trusted_network_ids_selected": map[string]any{"expression": `[data.terraform_remote_state.zcc_trusted_network.outputs.iw_reference_ids.zcc_trusted_network["network_one"]]`},
 			}},
 		})
 	}
@@ -493,10 +493,10 @@ func TestAbsentAndExplicitCrossStateProduceIdenticalDeclaredBindingArtifacts(t *
 		t.Fatalf("explicit true artifact tree differs from absent default (-want +got):\nwant=%#v\ngot=%#v", absent, explicit)
 	}
 	for _, expression := range []string{
-		`data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group`,
-		`data.terraform_remote_state.zia_url_categories.outputs.infrawright_reference_ids.zia_url_categories`,
+		`data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group`,
+		`data.terraform_remote_state.zia_url_categories.outputs.iw_reference_ids.zia_url_categories`,
 		`trusted_network_ids_selected`,
-		`data.terraform_remote_state.zcc_trusted_network.outputs.infrawright_reference_ids.zcc_trusted_network`,
+		`data.terraform_remote_state.zcc_trusted_network.outputs.iw_reference_ids.zcc_trusted_network`,
 	} {
 		if !strings.Contains(strings.Join([]string{
 			explicit["tenant/zpa_application_segment/expression_bindings.tf"],
@@ -507,7 +507,7 @@ func TestAbsentAndExplicitCrossStateProduceIdenticalDeclaredBindingArtifacts(t *
 		}
 	}
 	zccBindings := explicit["tenant/zcc_forwarding_profile/expression_bindings.tf"]
-	if got := strings.Count(zccBindings, "data.terraform_remote_state.zcc_trusted_network.outputs.infrawright_reference_ids.zcc_trusted_network"); got != 2 {
+	if got := strings.Count(zccBindings, "data.terraform_remote_state.zcc_trusted_network.outputs.iw_reference_ids.zcc_trusted_network"); got != 2 {
 		t.Errorf("zcc shared referent output count = %d, want 2", got)
 	}
 }
@@ -582,7 +582,7 @@ func TestExplicitCrossStateDisableDoesNotActivateOperatorDataSelectors(t *testin
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`,
 				},
 			},
 		},
@@ -622,7 +622,7 @@ func TestCrossStateOperatorSelectorsMustTargetDeclaredEdge(t *testing.T) {
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_app_connector_group.outputs.infrawright_reference_ids.zpa_app_connector_group["group_one"]`,
+					"expression": `data.terraform_remote_state.zpa_app_connector_group.outputs.iw_reference_ids.zpa_app_connector_group["group_one"]`,
 				},
 			},
 		},
@@ -714,7 +714,7 @@ func TestPackDeclaredNestedZpaReferencesValidateIndexedPathsAndDependencyRoots(t
 		"resources": map[string]any{
 			"zpa_application_segment.app": map[string]any{
 				"server_groups[0].id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group["server"]`,
+					"expression": `data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group["server"]`,
 				},
 			},
 		},
@@ -731,10 +731,10 @@ func TestPackDeclaredNestedZpaReferencesValidateIndexedPathsAndDependencyRoots(t
 		"resources": map[string]any{
 			"zpa_server_group.server": map[string]any{
 				"app_connector_groups[0].id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_app_connector_group.outputs.infrawright_reference_ids.zpa_app_connector_group["connector"]`,
+					"expression": `data.terraform_remote_state.zpa_app_connector_group.outputs.iw_reference_ids.zpa_app_connector_group["connector"]`,
 				},
 				"servers[0].id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_application_server.outputs.infrawright_reference_ids.zpa_application_server["application_server"]`,
+					"expression": `data.terraform_remote_state.zpa_application_server.outputs.iw_reference_ids.zpa_application_server["application_server"]`,
 				},
 			},
 		},
@@ -1039,7 +1039,7 @@ func TestSingletonCrossStateDisableRemovesStaleGeneratedBindings(t *testing.T) {
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`,
 				},
 			},
 		},

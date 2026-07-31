@@ -1,5 +1,10 @@
 # Cross-state reference fallback — implementation plan
 
+> **Amended by `2026-07-30-cross-state-backend-probe-plan.md`:** the probe's
+> state acquisition was reworked to ask the backend from a scratch directory;
+> the `.terraform`-beside-the-root acquisition this plan produced never fired
+> in clean-workspace pipelines.
+
 Companion to `docs/superpowers/specs/2026-07-25-cross-state-fallback-design.md`.
 Read that first; this plan assumes its established facts and constraints.
 
@@ -40,7 +45,7 @@ generated output. Procedure (all in scratch, worktree untouched):
      ```
 
    - **Control** (hand-written `terraform.tfstate` for
-     `zpa_app_connector_group` with the `infrawright_reference_ids` output):
+     `zpa_app_connector_group` with the `iw_reference_ids` output):
      the remote-state error disappears entirely; only the unrelated
      provider-credential error remains. The failure is caused by state
      absence, nothing else.
@@ -78,7 +83,7 @@ No new report file, no structured output, no acknowledgement gate —
 Distinguish three outcomes:
 
 - **Absent** (no state object; or state parses but carries no
-  `infrawright_reference_ids` entry for the referenced resource type) →
+  `iw_reference_ids` entry for the referenced resource type) →
   fall back, report.
 - **Probe error** (unreadable file, corrupt state JSON; for azurerm later:
   init/pull failure, missing backend config) → **fail closed** with an error
@@ -100,7 +105,7 @@ its lenient `ListState` mapping.
 existence, not key-level.** Concretely for local state: the file at
 `<tenantDirectory>/<label>/terraform.tfstate` (the exact path
 `renderRemoteStateBlocks` embeds, `environment_generator.go:1282`) exists,
-parses as JSON, and has `outputs.infrawright_reference_ids.value.<referent
+parses as JSON, and has `outputs.iw_reference_ids.value.<referent
 type>` present as an object.
 
 - Existence-only is empirically insufficient: a destroyed root leaves a state
@@ -204,7 +209,7 @@ Step 4.
    diagnostics. **Red proof**: run against current code (option not yet
    consumed) — data block present, test fails.
 2. *Usable state keeps the binding* — same fixture plus a state file whose
-   `outputs.infrawright_reference_ids.value.<referent>` contains the key:
+   `outputs.iw_reference_ids.value.<referent>` contains the key:
    `StateAware: true` output byte-identical (`snapshotTree`) to
    `StateAware: false` output; a second `StateAware: true` run is
    byte-identical to the first (repeat determinism). Guards against the

@@ -1,5 +1,11 @@
 # Cross-state reference fallback — design
 
+> **Amended by `2026-07-30-cross-state-backend-probe-design.md`:** state
+> acquisition now asks the backend from a scratch directory. The
+> workspace-dependent probe this design led to could never fire in a
+> clean-workspace pipeline, so state-aware runs silently degraded every
+> reference to a literal. The fallback semantics below stand.
+
 ## Problem
 
 When cross-state reference binding is enabled, a generated env root emits a

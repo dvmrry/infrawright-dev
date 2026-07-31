@@ -15,7 +15,7 @@ import (
 // package, deliberately not a generated struct (see the Go runtime contract
 // Slice 0). It is produced by encoding/json's default decoding (with
 // UseNumber enabled) and is documentation-only: any Go value handled by
-// Render and ByteLength below is a valid Value.
+// Render below is a valid Value.
 //
 //   - JSON null    -> untyped nil
 //   - JSON boolean  -> bool
@@ -39,7 +39,7 @@ import (
 // encoding/json's last-key-wins behavior (see decode.go).
 type Value = any
 
-// ErrNotJSONValue is returned by Render and ByteLength when they encounter a
+// ErrNotJSONValue is returned by Render when it encounters a
 // Go value that is not one of the Value shapes documented above, or a
 // non-finite plain float64. It is this package's single sentinel for the
 // several `throw new TypeError(...)` call sites scattered across
@@ -105,21 +105,6 @@ func utf16Units(s string) []uint16 {
 	return utf16.Encode([]rune(s))
 }
 
-// escapedUnitLen returns the number of ASCII characters
-// renderPythonCompatibleJson's string encoder emits for one UTF-16 code
-// unit, matching the branches of encodedStringLength in
-// the original implementation.
-func escapedUnitLen(unit uint16) int {
-	switch unit {
-	case 0x08, 0x09, 0x0a, 0x0c, 0x0d, 0x22, 0x5c:
-		return 2
-	}
-	if unit < 0x20 || unit >= 0x80 {
-		return 6
-	}
-	return 1
-}
-
 // encodeStringUnit appends the ASCII bytes renderPythonCompatibleJson's
 // string encoder emits for one UTF-16 code unit to sb, matching
 // encodeString in the original implementation (JSON.stringify's
@@ -168,21 +153,6 @@ func encodeString(value string) string {
 	}
 	sb.WriteByte('"')
 	return sb.String()
-}
-
-// encodedStringLength returns the exact byte length encodeString(value)
-// would produce, stopping early (returning maximum+1) once it is certain to
-// exceed maximum. Ports encodedStringLength in
-// the original implementation.
-func encodedStringLength(value string, maximum int) int {
-	length := 2 // the two quote characters
-	for _, unit := range utf16Units(value) {
-		length += escapedUnitLen(unit)
-		if length > maximum {
-			return maximum + 1
-		}
-	}
-	return length
 }
 
 // maxSafeInteger is JavaScript's Number.MAX_SAFE_INTEGER (2^53 - 1), the
@@ -328,110 +298,4 @@ func Render(value Value) (string, error) {
 	}
 	sb.WriteByte('\n')
 	return sb.String(), nil
-}
-
-// MaxByteLengthLimit is the largest maximumBytes value ByteLength accepts,
-// matching the Node source's validation
-// (Number.MAX_SAFE_INTEGER - 1 in the original implementation) and
-// also serving as its default when no limit is given.
-const MaxByteLengthLimit = maxSafeInteger - 1
-
-// encodedLength returns the exact byte length encode(value, level) would
-// produce, short-circuiting to maximum+1 once the output is certain to
-// exceed maximum. Ports encodedLength in
-// the original implementation.
-func encodedLength(value any, level, maximum int) (int, error) {
-	switch v := value.(type) {
-	case nil:
-		return 4, nil // "null"
-	case bool:
-		if v {
-			return 4, nil // "true"
-		}
-		return 5, nil // "false"
-	case json.Number, float64:
-		token, err := formatNumber(v)
-		if err != nil {
-			return 0, err
-		}
-		return len(token), nil
-	case string:
-		return encodedStringLength(v, maximum), nil
-	case []any:
-		return encodedArrayLength(v, level, maximum)
-	case map[string]any:
-		return encodedObjectLength(v, level, maximum)
-	default:
-		return 0, fmt.Errorf("canonjson: %w: unsupported value type %T", ErrNotJSONValue, value)
-	}
-}
-
-func encodedArrayLength(items []any, level, maximum int) (int, error) {
-	if len(items) == 0 {
-		return 2, nil
-	}
-	currentIndent := level * 2
-	childIndent := currentIndent + 2
-	length := 4 + currentIndent + (len(items)-1)*2
-	for _, item := range items {
-		itemLength, err := encodedLength(item, level+1, maximum)
-		if err != nil {
-			return 0, err
-		}
-		length += childIndent + itemLength
-		if length > maximum {
-			return maximum + 1, nil
-		}
-	}
-	return length, nil
-}
-
-func encodedObjectLength(object map[string]any, level, maximum int) (int, error) {
-	if len(object) == 0 {
-		return 2, nil
-	}
-	currentIndent := level * 2
-	childIndent := currentIndent + 2
-	length := 4 + currentIndent + (len(object)-1)*2
-	for key, child := range object {
-		childLength, err := encodedLength(child, level+1, maximum)
-		if err != nil {
-			return 0, err
-		}
-		length += childIndent + encodedStringLength(key, maximum) + 2 + childLength
-		if length > maximum {
-			return maximum + 1, nil
-		}
-	}
-	return length, nil
-}
-
-// ByteLength measures the exact UTF-8 byte length Render(value) would
-// produce, short-circuiting the computation (returning maximumBytes+1)
-// as soon as the rendered value is certain not to fit. Ports
-// pythonCompatibleJsonByteLength from the original implementation.
-//
-// maximumBytes is variadic to mirror the Node function's optional
-// parameter (default Number.MAX_SAFE_INTEGER - 1): pass zero or one value.
-// Passing more than one is a programmer error and panics.
-func ByteLength(value Value, maximumBytes ...int) (int, error) {
-	limit := MaxByteLengthLimit
-	switch len(maximumBytes) {
-	case 0:
-	case 1:
-		limit = maximumBytes[0]
-	default:
-		panic("canonjson: ByteLength accepts at most one maximumBytes argument")
-	}
-	if limit < 0 || limit > MaxByteLengthLimit {
-		return 0, fmt.Errorf("canonjson: maximumBytes must be within [0, %d]", MaxByteLengthLimit)
-	}
-	body, err := encodedLength(value, 0, limit)
-	if err != nil {
-		return 0, err
-	}
-	if body >= limit {
-		return limit + 1, nil
-	}
-	return body + 1, nil
 }

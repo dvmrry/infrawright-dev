@@ -1,0 +1,14 @@
+{
+  "by_id": {
+    "2809": "WG-Demo-One",
+    "2810": "WG-Demo-Two"
+  },
+  "id_by_key": {
+    "wg_demo_one": "2809",
+    "wg_demo_two": "2810"
+  },
+  "key_by_id": {
+    "2809": "wg_demo_one",
+    "2810": "wg_demo_two"
+  }
+}

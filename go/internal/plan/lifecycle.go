@@ -306,9 +306,13 @@ func rootRequiresReferenceBackendEnvironment(directory string) (bool, error) {
 			procerr.CategoryIO,
 		)
 	}
+	// A root generated before the iw_ rename declares the legacy variable
+	// name; either declaration requires the projection, which sets both
+	// TF_VAR names to the identical payload.
 	want := `variable "` + ReferenceBackendVariable + `" {`
+	legacyWant := `variable "` + LegacyReferenceBackendVariable + `" {`
 	for _, line := range normalizedLifecycleLines(string(content)) {
-		if line == want {
+		if line == want || line == legacyWant {
 			return true, nil
 		}
 	}

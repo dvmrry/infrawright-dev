@@ -49,7 +49,7 @@ func newStateAwareFixture(t *testing.T) stateAwareFixture {
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`,
 				},
 			},
 		},
@@ -104,7 +104,7 @@ func (f stateAwareFixture) writeReferentState(t *testing.T, outputs map[string]a
 }
 
 // referenceIDOutputs is the shape a generated root actually publishes: the
-// infrawright_reference_ids output carrying a per-resource-type key map.
+// iw_reference_ids output carrying a per-resource-type key map.
 // The type metadata is emitted alongside the value because Terraform writes
 // both and refuses a state output carrying only one. A fixture without it is
 // not state, so a probe that accepted it would prove nothing about the files
@@ -115,7 +115,7 @@ func referenceIDOutputs(referentType string, keys map[string]any) map[string]any
 		keyTypes[key] = "string"
 	}
 	return map[string]any{
-		"infrawright_reference_ids": map[string]any{
+		"iw_reference_ids": map[string]any{
 			"value": map[string]any{referentType: keys},
 			"type": []any{
 				"object",
@@ -170,7 +170,7 @@ func TestStateAwareFallsBackWhenReferencedRootHasNoState(t *testing.T) {
 // TestStateAwareFallsBackWhenReferencedStateHasNoReferenceOutputs covers the
 // destroyed-or-never-published root: the state file exists, so a probe that
 // only checks for the file's presence calls it usable, but the state carries
-// no infrawright_reference_ids output for the referent type.
+// no iw_reference_ids output for the referent type.
 //
 // Terraform halts on that shape too -- "Unsupported attribute ... outputs is
 // object with N attributes" -- and unlike a missing key, it is a degenerate
@@ -311,12 +311,12 @@ func TestStateAwareProbesEachReferenceOnce(t *testing.T) {
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`,
 				},
 			},
 			"zpa_application_segment.app_two": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`,
 				},
 			},
 		},
@@ -347,7 +347,7 @@ func TestReferenceIDsPresentRejectsNonObjectReferenceMap(t *testing.T) {
 		{name: "list", value: `["sg-1"]`, valueType: `["list","string"]`},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			raw := []byte(`{"version":4,"outputs":{"infrawright_reference_ids":{` +
+			raw := []byte(`{"version":4,"outputs":{"iw_reference_ids":{` +
 				`"value":{"zpa_segment_group":` + testCase.value + `},` +
 				`"type":["object",{"zpa_segment_group":` + testCase.valueType + `}]}}}`)
 			result, err := ReferenceIDsPresent(raw, "zpa_segment_group", "zpa_segment_group")
@@ -369,11 +369,11 @@ func TestReferenceIDsPresentValidatesOutputTypeAgainstValue(t *testing.T) {
 	for _, testCase := range []struct{ name, raw string }{
 		{
 			name: "type is not a type",
-			raw:  `{"version":4,"outputs":{"infrawright_reference_ids":{"value":{},"type":"garbage"}}}`,
+			raw:  `{"version":4,"outputs":{"iw_reference_ids":{"value":{},"type":"garbage"}}}`,
 		},
 		{
 			name: "value disagrees with declared type",
-			raw: `{"version":4,"outputs":{"infrawright_reference_ids":` +
+			raw: `{"version":4,"outputs":{"iw_reference_ids":` +
 				`{"value":{"zpa_segment_group":{"segment_one":"sg-1"}},` +
 				`"type":["object",{"zpa_segment_group":"string"}]}}}`,
 		},
@@ -442,7 +442,7 @@ func TestStateAwareKeepsOperatorRemoteStateBinding(t *testing.T) {
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["` + operatorKey + `"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["` + operatorKey + `"]`,
 				},
 			},
 		},
@@ -558,7 +558,7 @@ func TestStateAwareStillRefusesUnknownReferencedRoot(t *testing.T) {
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.unknown_root.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+					"expression": `data.terraform_remote_state.unknown_root.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`,
 				},
 			},
 		},
@@ -582,7 +582,7 @@ func TestStateAwareStillRefusesBindingOutsideProviderSchema(t *testing.T) {
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"not_a_provider_field": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`,
 				},
 			},
 		},
@@ -608,8 +608,8 @@ func TestFilterProbesEveryReferenceSoErrorsBeatAbsence(t *testing.T) {
 		Address: "zpa_application_segment.app_one",
 		Key:     "app_one",
 		Path:    "segment_group_id",
-		Expression: `[data.terraform_remote_state.absent_root.outputs.infrawright_reference_ids.zpa_segment_group["a"], ` +
-			`data.terraform_remote_state.failing_root.outputs.infrawright_reference_ids.zpa_segment_group["b"]]`,
+		Expression: `[data.terraform_remote_state.absent_root.outputs.iw_reference_ids.zpa_segment_group["a"], ` +
+			`data.terraform_remote_state.failing_root.outputs.iw_reference_ids.zpa_segment_group["b"]]`,
 	}
 	probeFailure := errors.New("probe state for root failing_root: boom")
 	probe := func(rootLabel, referentType string) (StateProbeResult, error) {
@@ -640,8 +640,8 @@ func TestReferenceIDsPresentRequiresStateEnvelope(t *testing.T) {
 		{name: "no version", raw: `{"outputs":{}}`},
 		{name: "unsupported version", raw: `{"version":3,"outputs":{}}`},
 		{name: "null outputs", raw: `{"version":4,"outputs":null}`},
-		{name: "output without type", raw: `{"version":4,"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":{"segment_one":"sg-1"}}}}}`},
-		{name: "output without value", raw: `{"version":4,"outputs":{"infrawright_reference_ids":{"type":["object",{}]}}}`},
+		{name: "output without type", raw: `{"version":4,"outputs":{"iw_reference_ids":{"value":{"zpa_segment_group":{"segment_one":"sg-1"}}}}}`},
+		{name: "output without value", raw: `{"version":4,"outputs":{"iw_reference_ids":{"type":["object",{}]}}}`},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			if _, err := ReferenceIDsPresent([]byte(testCase.raw), "zpa_segment_group", "zpa_segment_group"); err == nil {
@@ -657,7 +657,7 @@ func TestReferenceIDsPresentRequiresStateEnvelope(t *testing.T) {
 // and type.
 func TestReferenceIDsPresentAcceptsAppliedStateShape(t *testing.T) {
 	applied := `{"version":4,"terraform_version":"1.15.4","serial":1,"lineage":"fixture",` +
-		`"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":{"segment_one":"sg-1"}},` +
+		`"outputs":{"iw_reference_ids":{"value":{"zpa_segment_group":{"segment_one":"sg-1"}},` +
 		`"type":["object",{"zpa_segment_group":["object",{"segment_one":"string"}]}]}},"resources":[]}`
 	result, err := ReferenceIDsPresent([]byte(applied), "zpa_segment_group", "zpa_segment_group")
 	if err != nil {
@@ -747,7 +747,7 @@ func TestStateAwareKeepsOperatorBindingWhenAnotherFallsBack(t *testing.T) {
 // individual key being missing is the case try() is deliberately left to catch
 // at plan time. Reporting it unusable here would suppress that failure.
 func TestReferenceIDsPresentAcceptsEmptyPerTypeMap(t *testing.T) {
-	raw := `{"version":4,"outputs":{"infrawright_reference_ids":{"value":{"zpa_segment_group":{}},` +
+	raw := `{"version":4,"outputs":{"iw_reference_ids":{"value":{"zpa_segment_group":{}},` +
 		`"type":["object",{"zpa_segment_group":["object",{}]}]}}}`
 	result, err := ReferenceIDsPresent([]byte(raw), "zpa_segment_group", "zpa_segment_group")
 	if err != nil {
@@ -792,8 +792,8 @@ func TestStateAwareStillRefusesBindingCycle(t *testing.T) {
 					// With the module target alone the filter finds no
 					// reference, never probes, and the ordering mutation
 					// survives.
-					"expression": `[module.zpa_application_segment.infrawright_reference_ids["app_one"], ` +
-						`data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]]`,
+					"expression": `[module.zpa_application_segment.iw_reference_ids["app_one"], ` +
+						`data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]]`,
 				},
 			},
 		},
@@ -817,5 +817,178 @@ func TestStateAwareStillRefusesBindingCycle(t *testing.T) {
 	}
 	if len(calls) != 0 {
 		t.Errorf("probe calls = %v, want none: a cycle is refused before any state is read", calls)
+	}
+}
+
+// writeBackendMarker writes the tenant's .backend marker, the file gen-env
+// itself maintains, so a test can express a tenant whose backend was chosen
+// on an earlier run without passing the flag on this one.
+func (f stateAwareFixture) writeBackendMarker(t *testing.T, backend string) {
+	t.Helper()
+	directory := filepath.Join(f.outputRoot, "tenant")
+	if err := os.MkdirAll(directory, 0o777); err != nil {
+		t.Fatalf("create tenant directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, ".backend"), []byte(backend+"\n"), 0o666); err != nil {
+		t.Fatalf("write .backend marker: %v", err)
+	}
+}
+
+// generateWith runs GenerateEnvironmentRoots with the fixture's baseline
+// options after applying mutate, returning diagnostics and the error, so
+// factory-seam tests can install StateProbeFor without duplicating the
+// fixture wiring.
+func (f stateAwareFixture) generateWith(
+	t *testing.T,
+	mutate func(*GenerateEnvironmentRootsOptions),
+) ([]string, error) {
+	t.Helper()
+	diagnostics := make([]string, 0)
+	outputRoot := f.outputRoot
+	options := GenerateEnvironmentRootsOptions{
+		Deployment:   loadDeploymentFile(t, f.deploymentPath),
+		FormatHcl:    identityFormatter,
+		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
+		OutputRoot:   &outputRoot,
+		Root:         syntheticRootForTopology(t),
+		Selectors:    []string{"zpa_application_segment"},
+		StateAware:   true,
+		Tenant:       "tenant",
+	}
+	mutate(&options)
+	_, err := GenerateEnvironmentRoots(options)
+	return diagnostics, err
+}
+
+// TestStateProbeForReceivesResolvedBackend pins that the factory sees the
+// backend the run actually resolved -- here the .backend marker, with no
+// backend option passed -- not the flag alone. Otherwise a marker-configured
+// azurerm tenant would silently probe local state files that cannot exist.
+func TestStateProbeForReceivesResolvedBackend(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.writeBackendMarker(t, "azurerm")
+
+	seen := make([]string, 0)
+	_, err := fixture.generateWith(t, func(options *GenerateEnvironmentRootsOptions) {
+		options.StateProbeFor = func(backend *string) (StateProbe, error) {
+			if backend == nil {
+				seen = append(seen, "<nil>")
+			} else {
+				seen = append(seen, *backend)
+			}
+			return func(string, string) (StateProbeResult, error) {
+				return StateProbeResult{Usable: true}, nil
+			}, nil
+		}
+	})
+	if err != nil {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(seen, []string{"azurerm"}) {
+		t.Errorf("factory saw backends %v, want [azurerm] resolved from the marker", seen)
+	}
+}
+
+// TestStateProbeForErrorAbortsGeneration pins fail-closed at the seam: a
+// factory that cannot build a probe (azurerm without backend config being
+// the motivating case) must abort the run before any root is written, not
+// degrade references.
+func TestStateProbeForErrorAbortsGeneration(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+
+	_, err := fixture.generateWith(t, func(options *GenerateEnvironmentRootsOptions) {
+		options.StateProbeFor = func(*string) (StateProbe, error) {
+			return nil, errors.New("backend config required")
+		}
+	})
+	if err == nil || !strings.Contains(err.Error(), "backend config required") {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want the factory's refusal", err)
+	}
+	if _, statErr := os.Stat(fixture.referrerFile("main.tf")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(main.tf) error = %v, want os.ErrNotExist after an aborted run", statErr)
+	}
+}
+
+// TestDirectStateProbeBeatsFactory pins precedence so existing library
+// callers and every test above keep meaning what they said: an explicitly
+// injected probe wins and the factory is never consulted.
+func TestDirectStateProbeBeatsFactory(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+
+	factoryCalled := false
+	_, err := fixture.generateWith(t, func(options *GenerateEnvironmentRootsOptions) {
+		options.StateProbe = func(string, string) (StateProbeResult, error) {
+			return StateProbeResult{Usable: true}, nil
+		}
+		options.StateProbeFor = func(*string) (StateProbe, error) {
+			factoryCalled = true
+			return nil, errors.New("factory must not be consulted")
+		}
+	})
+	if err != nil {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil", err)
+	}
+	if factoryCalled {
+		t.Errorf("StateProbeFor was consulted despite an explicit StateProbe")
+	}
+}
+
+// TestNilFactoryResultFallsBackToLocalProbe pins the local path: a factory
+// answering (nil, nil) declines to build a probe, and generation must use
+// the local prober exactly as when no factory is installed -- proven here by
+// the fallback note only the local prober's absent answer can produce.
+func TestNilFactoryResultFallsBackToLocalProbe(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+
+	diagnostics, err := fixture.generateWith(t, func(options *GenerateEnvironmentRootsOptions) {
+		options.StateProbeFor = func(*string) (StateProbe, error) {
+			return nil, nil
+		}
+	})
+	if err != nil {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil", err)
+	}
+	if !containsDiagnostic(diagnostics, "no usable state") {
+		t.Errorf("diagnostics = %#v, want the local prober's fallback note", diagnostics)
+	}
+}
+
+// TestReferenceIDsPresentReadsLegacyOutputName pins the iw_reference_ids
+// rename bridge. A referent applied before the rename still publishes
+// infrawright_reference_ids, and the probe must keep reading it until that
+// root's next apply renames the output. When both names are present the
+// current one is authoritative in both directions: a malformed legacy output
+// beside a valid current one must not fail the probe, and a valid legacy one
+// must not rescue a malformed current one.
+func TestReferenceIDsPresentReadsLegacyOutputName(t *testing.T) {
+	validOutput := `{"value":{"zpa_segment_group":{"segment_one":"sg-1"}},` +
+		`"type":["object",{"zpa_segment_group":["object",{"segment_one":"string"}]}]}`
+	malformedOutput := `{"value":{"zpa_segment_group":{"segment_one":"sg-1"}}}`
+
+	legacyOnly := `{"version":4,"outputs":{"infrawright_reference_ids":` + validOutput + `}}`
+	result, err := ReferenceIDsPresent([]byte(legacyOnly), "zpa_segment_group", "zpa_segment_group")
+	if err != nil {
+		t.Fatalf("ReferenceIDsPresent(legacy output name) error = %v, want nil", err)
+	}
+	if !result.Usable {
+		t.Errorf("ReferenceIDsPresent(legacy output name) usable = false, want true")
+	}
+
+	currentBesideMalformedLegacy := `{"version":4,"outputs":{` +
+		`"infrawright_reference_ids":` + malformedOutput + `,` +
+		`"iw_reference_ids":` + validOutput + `}}`
+	result, err = ReferenceIDsPresent([]byte(currentBesideMalformedLegacy), "zpa_segment_group", "zpa_segment_group")
+	if err != nil {
+		t.Fatalf("ReferenceIDsPresent(current beside malformed legacy) error = %v, want the current output to be authoritative", err)
+	}
+	if !result.Usable {
+		t.Errorf("ReferenceIDsPresent(current beside malformed legacy) usable = false, want true")
+	}
+
+	malformedCurrentBesideValidLegacy := `{"version":4,"outputs":{` +
+		`"infrawright_reference_ids":` + validOutput + `,` +
+		`"iw_reference_ids":` + malformedOutput + `}}`
+	if _, err := ReferenceIDsPresent([]byte(malformedCurrentBesideValidLegacy), "zpa_segment_group", "zpa_segment_group"); err == nil {
+		t.Errorf("ReferenceIDsPresent(malformed current beside valid legacy) error = nil, want the current output to be authoritative")
 	}
 }

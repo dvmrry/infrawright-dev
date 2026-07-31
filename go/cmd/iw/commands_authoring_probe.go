@@ -18,14 +18,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var providerProbeLegacyVocabulary = artifactpublish.Vocabulary{Required: []string{
-	"source-registry.json",
-	"source-diagnostics.json",
-	"openapi-map.json",
-	"summary.json",
-	"summary.md",
-}}
-
 var providerProbeQualifiedVocabulary = artifactpublish.Vocabulary{
 	Required: []string{
 		"source-registry.json",
@@ -42,10 +34,9 @@ var providerProbeQualifiedVocabulary = artifactpublish.Vocabulary{
 // boundary. Tests may inject this narrow value, but production builds it only
 // from providerprobe.Result's defensive-copy accessors.
 type authoringProbeResult struct {
-	artifacts     []providerprobe.Artifact
-	markdownCopy  []byte
-	mode          providerprobe.Mode
-	workDirectory string
+	artifacts    []providerprobe.Artifact
+	markdownCopy []byte
+	mode         providerprobe.Mode
 }
 
 type authoringProbeDependencies struct {
@@ -74,22 +65,12 @@ func defaultAuthoringProbeDependencies() authoringProbeDependencies {
 				return authoringProbeResult{}, err
 			}
 			return authoringProbeResult{
-				artifacts:     result.Artifacts(),
-				markdownCopy:  markdownCopy,
-				mode:          result.Mode(),
-				workDirectory: result.WorkDirectory(),
+				artifacts:    result.Artifacts(),
+				markdownCopy: markdownCopy,
+				mode:         result.Mode(),
 			}, nil
 		},
 	}
-}
-
-// providerProbeCommand ports providerProbeCommand from
-// the original implementation. The frozen v1 contract retains the legacy
-// work-directory destination. Qualified v2 requires an explicit work root so
-// the caller grants the complete-set publisher ownership of its artifacts
-// child and its sibling transaction names.
-func providerProbeCommand(arguments []string) (int, error) {
-	return providerProbeCommandWithDependencies(arguments, defaultAuthoringProbeDependencies())
 }
 
 func providerProbeCommandWithDependencies(arguments []string, dependencies authoringProbeDependencies) (int, error) {
@@ -122,25 +103,19 @@ func providerProbeCommandInput(parsed commandInput, dependencies authoringProbeD
 		return providerProbeFailure(dependencies.core.stderr, environment, debugRequested, modeErr)
 	}
 	workDirectory := authoringLastOption(parsed, "--work-dir")
-	if mode == providerprobe.QualifiedV2 && workDirectory == nil {
-		return 0, usageError("provider-probe source-first mode requires --work-dir")
+	if workDirectory == nil {
+		return 0, usageError("provider-probe requires --work-dir")
 	}
-	runWorkDirectory := ""
-	if workDirectory != nil {
-		absolute, absoluteErr := filepath.Abs(*workDirectory)
-		if absoluteErr != nil {
-			return providerProbeFailure(dependencies.core.stderr, environment, debugRequested, absoluteErr)
-		}
-		runWorkDirectory = absolute
-		if prepareErr := dependencies.prepareWorkDirectory(runWorkDirectory); prepareErr != nil {
-			return providerProbeFailure(dependencies.core.stderr, environment, debugRequested, prepareErr)
-		}
+	absolute, absoluteErr := filepath.Abs(*workDirectory)
+	if absoluteErr != nil {
+		return providerProbeFailure(dependencies.core.stderr, environment, debugRequested, absoluteErr)
+	}
+	if prepareErr := dependencies.prepareWorkDirectory(absolute); prepareErr != nil {
+		return providerProbeFailure(dependencies.core.stderr, environment, debugRequested, prepareErr)
 	}
 	result, runErr := dependencies.run(context.Background(), providerprobe.RunOptions{
-		RecipePath:    parsed.Positionals[0],
-		WorkDirectory: runWorkDirectory,
-		Environment:   cloneCommandEnvironment(environment),
-		ExpectedMode:  mode,
+		RecipePath:   parsed.Positionals[0],
+		ExpectedMode: mode,
 	})
 	if runErr != nil {
 		return providerProbeFailure(dependencies.core.stderr, environment, debugRequested, runErr)
@@ -193,33 +168,21 @@ func prepareProviderProbeWorkDirectory(path string) error {
 }
 
 func providerProbeArtifactsDirectory(result authoringProbeResult, requestedWorkDirectory *string) (string, error) {
-	var root string
-	switch result.mode {
-	case providerprobe.LegacyV1:
-		if result.workDirectory == "" {
-			return "", fmt.Errorf("legacy provider probe returned no work directory")
-		}
-		root = result.workDirectory
-	case providerprobe.QualifiedV2:
-		if requestedWorkDirectory == nil || *requestedWorkDirectory == "" {
-			return "", fmt.Errorf("provider-probe source-first mode requires --work-dir")
-		}
-		absolute, err := filepath.Abs(*requestedWorkDirectory)
-		if err != nil {
-			return "", fmt.Errorf("resolve provider-probe work directory: %w", err)
-		}
-		root = absolute
-	default:
+	if result.mode != providerprobe.QualifiedV2 {
 		return "", fmt.Errorf("unsupported provider-probe mode %q", result.mode)
 	}
-	return filepath.Join(root, "artifacts"), nil
+	if requestedWorkDirectory == nil || *requestedWorkDirectory == "" {
+		return "", fmt.Errorf("provider-probe requires --work-dir")
+	}
+	absolute, err := filepath.Abs(*requestedWorkDirectory)
+	if err != nil {
+		return "", fmt.Errorf("resolve provider-probe work directory: %w", err)
+	}
+	return filepath.Join(absolute, "artifacts"), nil
 }
 
 func providerProbePublishOptions(result authoringProbeResult, destination string) (artifactpublish.Options, error) {
-	vocabulary := providerProbeLegacyVocabulary
-	if result.mode == providerprobe.QualifiedV2 {
-		vocabulary = providerProbeQualifiedVocabulary
-	}
+	vocabulary := providerProbeQualifiedVocabulary
 	artifacts := make([]artifactpublish.Artifact, len(result.artifacts))
 	for index, artifact := range result.artifacts {
 		artifacts[index] = artifactpublish.Artifact{Name: artifact.Name, Bytes: append([]byte(nil), artifact.Bytes...)}

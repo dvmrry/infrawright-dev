@@ -92,11 +92,6 @@ func findPackageRoot(start string) (string, error) {
 	}
 }
 
-// transformCommand runs the transform command.
-func transformCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newTransformCobraCommand(), arguments)
-}
-
 func transformCommandInput(parsed commandInput) (int, error) {
 	rootDirectory, err := packageRoot()
 	if err != nil {

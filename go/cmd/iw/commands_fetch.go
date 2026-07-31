@@ -25,28 +25,6 @@ const fetchDiagnosticTimeoutMs = 15_000
 
 var positiveFetchConcurrency = regexp.MustCompile(`^[1-9][0-9]*$`)
 
-// deferredFetchPerformanceRecorder is a compile-time witness that a value
-// can satisfy collectors.PerformanceRecorder, the one recorder seam this
-// command still has (httptransport, unlike the retired resthttp package,
-// does not expose a per-attempt/per-retry HTTP telemetry seam of its own --
-// nothing wired it to real telemetry, so there was nothing to preserve; see
-// the Go runtime contract §7). Block E will provide the real recorder and
-// atomic report writer. Until then dispatch passes nil; the interface keeps
-// this command from inventing a second telemetry contract.
-type deferredFetchPerformanceRecorder struct{}
-
-var _ collectors.PerformanceRecorder = deferredFetchPerformanceRecorder{}
-
-func (deferredFetchPerformanceRecorder) Now() float64 { return 0 }
-
-func (deferredFetchPerformanceRecorder) DurationSince(float64) float64 { return 0 }
-
-func (deferredFetchPerformanceRecorder) SetFetchConcurrency(int) error { return nil }
-
-func (deferredFetchPerformanceRecorder) RecordSpan(collectors.PerformanceSpan) error {
-	return nil
-}
-
 type fetchCommandOptions struct {
 	pack        packOptionDefaults
 	concurrency int
@@ -193,13 +171,6 @@ func (transport *deferredProbeTransport) Close() error {
 	return transport.transport.Close()
 }
 
-func fetchCommand(
-	arguments []string,
-	performance collectors.PerformanceRecorder,
-) (int, error) {
-	return executeStandaloneCobra(newFetchCobraCommand(performance), arguments)
-}
-
 func newFetchCobraCommand(performance collectors.PerformanceRecorder) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "fetch", short: "Fetch provider resources",
@@ -229,12 +200,20 @@ func fetchCommandInput(parsed commandInput, performance collectors.PerformanceRe
 	if err != nil {
 		return 0, err
 	}
-	selected, err := collectors.SelectFetchResources(collectors.SelectFetchResourcesOptions{
-		Root:      root,
-		Selectors: options.resources,
-	})
+	selected, skipped, err := collectors.SelectFetchResourcesWithSkips(
+		collectors.SelectFetchResourcesOptions{
+			Root:      root,
+			Selectors: options.resources,
+		},
+	)
 	if err != nil {
 		return 0, usageError(err.Error())
+	}
+	// A type the registry declares unfetchable on purpose is skipped rather
+	// than refused, but never silently: the operator asked for it, and the
+	// registry has a reason worth reading.
+	for _, entry := range skipped {
+		fmt.Fprintf(os.Stderr, "%s: skipped (%s)\n", entry.Type, entry.Reason)
 	}
 	products, err := selectedFetchProducts(root, selected)
 	if err != nil {
@@ -324,10 +303,6 @@ func probeRestHostWithOwnedTransport(
 		return collectors.RestHostProbeResult{}, transport.setupErr
 	}
 	return result, nil
-}
-
-func fetchDiagCommand(arguments []string) (int, error) {
-	return executeStandaloneCobra(newFetchDiagCobraCommand(), arguments)
 }
 
 func newFetchDiagCobraCommand() *cobra.Command {

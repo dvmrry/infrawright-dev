@@ -15,7 +15,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 )
 
-const environmentRootsCompatibilitySHA256 = "5672e8f8de2154c6022fd96a14939f1f18c5faa5c9cada63d5c6cfa2f9de0067"
+const environmentRootsCompatibilitySHA256 = "619040911feb448e3b5d78de8702b5e48138a861654aa2c374508f94aeda469c"
 
 type environmentRootsCompatibilityFixture struct {
 	SchemaVersion       int                                  `json:"schema_version"`

@@ -53,8 +53,8 @@ func TestReferenceBackendEnvironmentFromConfigProjectsExactAllowlist(t *testing.
 	if got[ReferenceBackendEnvironment] != want {
 		t.Errorf("ReferenceBackendEnvironmentFromConfig(%q)[%q] = %q, want %q", backend, ReferenceBackendEnvironment, got[ReferenceBackendEnvironment], want)
 	}
-	if len(got) != 1 {
-		t.Errorf("len(ReferenceBackendEnvironmentFromConfig(%q)) = %d, want 1", backend, len(got))
+	if len(got) != 2 {
+		t.Errorf("len(ReferenceBackendEnvironmentFromConfig(%q)) = %d, want 2 (current and legacy TF_VAR names)", backend, len(got))
 	}
 }
 
@@ -200,4 +200,30 @@ func TestReferenceBackendEnvironmentFromConfigClassifiesReadFailures(t *testing.
 	directory := t.TempDir()
 	_, err = ReferenceBackendEnvironmentFromConfig(directory)
 	requireReferenceBackendFailure(t, err, "INVALID_REFERENCE_BACKEND_CONFIG")
+}
+
+// TestReferenceBackendEnvironmentEmitsLegacyVariableAlias pins the
+// iw_remote_state_backend_config rename bridge: a binary planning a root
+// generated before the rename must still satisfy that root's declared
+// infrawright_remote_state_backend_config variable, so the projection sets
+// both TF_VAR names to the identical payload (Terraform ignores whichever
+// one the root does not declare).
+func TestReferenceBackendEnvironmentEmitsLegacyVariableAlias(t *testing.T) {
+	backend := writeReferenceBackendTestFile(t, []byte(`{"storage_account_name":"example","use_oidc":true}`))
+
+	got, err := ReferenceBackendEnvironmentFromConfig(backend)
+	if err != nil {
+		t.Fatalf("ReferenceBackendEnvironmentFromConfig(%q) error: %v", backend, err)
+	}
+	if len(got) != 2 {
+		t.Errorf("len(ReferenceBackendEnvironmentFromConfig(%q)) = %d, want the current and legacy TF_VAR names", backend, len(got))
+	}
+	current, currentPresent := got[ReferenceBackendEnvironment]
+	legacy, legacyPresent := got[LegacyReferenceBackendEnvironment]
+	if !currentPresent || !legacyPresent || current == "" || current != legacy {
+		t.Errorf(
+			"ReferenceBackendEnvironmentFromConfig(%q) = %v, want %q and %q bound to one identical payload",
+			backend, got, ReferenceBackendEnvironment, LegacyReferenceBackendEnvironment,
+		)
+	}
 }

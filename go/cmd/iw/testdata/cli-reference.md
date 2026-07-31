@@ -18,6 +18,7 @@ Available Commands:
   apply                  Apply exact saved Terraform plans
   assert-adoptable       Require saved plans to satisfy adoption policy
   assert-clean           Require saved plans to be clean
+  check-config           Require every committed resource type to be fetchable
   check-pack             Validate pack and registry metadata
   check-pack-set         Validate an installed pack set
   clean-plans            Delete saved plan artifacts
@@ -33,6 +34,7 @@ Available Commands:
   plan-roots             Enumerate plan roots and artifacts
   provider-probe         Run the provider-readiness probe
   reconcile              Compare API JSON with a Terraform schema
+  refresh                Reconcile recorded state with reality without changing anything remote
   resources              List generated resources
   roots                  Emit root topology
   scope-paths            Map changed paths to affected roots
@@ -132,6 +134,22 @@ Flags:
       --root string             pack root directory
       --tenant string           deployment tenant label
       --terraform string        Terraform executable path
+```
+
+## `iw check-config`
+
+```text
+Require every committed resource type to be fetchable
+
+Usage:
+  iw check-config [flags]
+
+Flags:
+      --deployment string   deployment overlay path
+  -h, --help                help for check-config
+      --profile string      pack profile path
+      --root string         pack root directory
+      --tenant string       deployment tenant label
 ```
 
 ## `iw check-pack`
@@ -364,15 +382,16 @@ Usage:
   iw gen-env [flags]
 
 Flags:
-      --backend string      Terraform backend name
-      --deployment string   deployment overlay path
-  -h, --help                help for gen-env
-      --profile string      pack profile path
-      --resource string     resource selector (repeatable)
-      --root string         pack root directory
-      --state-aware         inspect Terraform state before binding references or staging imports
-      --tenant string       deployment tenant label
-      --terraform string    Terraform executable path
+      --backend string          Terraform backend name
+      --backend-config string   Terraform backend configuration path
+      --deployment string       deployment overlay path
+  -h, --help                    help for gen-env
+      --profile string          pack profile path
+      --resource string         resource selector (repeatable)
+      --root string             pack root directory
+      --state-aware             inspect Terraform state before binding references or staging imports
+      --tenant string           deployment tenant label
+      --terraform string        Terraform executable path
 ```
 
 ## `iw modules`
@@ -409,7 +428,6 @@ Flags:
       --profile string      pack profile path
       --resource string     resource selector (repeatable)
       --root string         pack root directory
-      --terraform string    Terraform executable path
 ```
 
 ## `iw modules validate`
@@ -427,7 +445,6 @@ Flags:
       --profile string      pack profile path
       --resource string     resource selector (repeatable)
       --root string         pack root directory
-      --terraform string    Terraform executable path
 ```
 
 ## `iw openapi-map`
@@ -525,6 +542,25 @@ Flags:
       --schema string            Terraform provider schema path
 ```
 
+## `iw refresh`
+
+```text
+Reconcile recorded state with reality without changing anything remote
+
+Usage:
+  iw refresh [flags]
+
+Flags:
+      --backend-config string   Terraform backend configuration path
+      --deployment string       deployment overlay path
+  -h, --help                    help for refresh
+      --profile string          pack profile path
+      --resource string         resource selector (repeatable)
+      --root string             pack root directory
+      --tenant string           deployment tenant label
+      --terraform string        Terraform executable path
+```
+
 ## `iw resources`
 
 ```text
@@ -585,20 +621,16 @@ Usage:
 
 Flags:
       --allow-unverified-source   analyze explicitly bounded source without qualified provenance
-      --ast-tool-dir string       legacy AST tool directory
       --fail-on-regression        return non-zero when comparison regresses
   -h, --help                      help for source-evidence-eval
       --openapi string            OpenAPI document path
       --out-dir string            output directory
       --provider-file string      manifest-relative provider source file
       --provider-module string    provider Go module identity
-      --provider-source string    Terraform provider source address
-      --resource-prefix string    Terraform resource-type prefix
       --resources string          comma-separated resource filter
       --schema string             Terraform provider schema path
       --sdk-file string           module-qualified SDK source file
       --sdk-root string           SDK module and local source root
-      --source-facts string       precomputed source-facts path
       --source-manifest string    qualified source manifest path
       --source-root string        provider source root directory
 ```
@@ -612,24 +644,18 @@ Usage:
   iw source-operation-map [flags]
 
 Flags:
-      --allow-unverified-source       analyze explicitly bounded source without qualified provenance
-      --artifact-dir string           complete source-evidence artifact directory
-      --diagnostics string            diagnostics output path
-  -h, --help                          help for source-operation-map
-      --openapi string                OpenAPI document path
-      --out string                    output path
-      --provider-file string          manifest-relative provider source file
-      --provider-module string        provider Go module identity
-      --provider-source string        Terraform provider source address
-      --resource-prefix string        Terraform resource-type prefix
-      --resources string              comma-separated resource filter
-      --schema string                 Terraform provider schema path
-      --sdk-file string               module-qualified SDK source file
-      --sdk-root string               SDK module and local source root
-      --source-facts string           precomputed source-facts path
-      --source-facts-compare string   source-facts comparison path
-      --source-manifest string        qualified source manifest path
-      --source-root string            provider source root directory
+      --allow-unverified-source   analyze explicitly bounded source without qualified provenance
+      --artifact-dir string       complete source-evidence artifact directory
+  -h, --help                      help for source-operation-map
+      --openapi string            OpenAPI document path
+      --provider-file string      manifest-relative provider source file
+      --provider-module string    provider Go module identity
+      --resources string          comma-separated resource filter
+      --schema string             Terraform provider schema path
+      --sdk-file string           module-qualified SDK source file
+      --sdk-root string           SDK module and local source root
+      --source-manifest string    qualified source manifest path
+      --source-root string        provider source root directory
 ```
 
 ## `iw stage-imports`
