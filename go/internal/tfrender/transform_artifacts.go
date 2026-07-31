@@ -224,8 +224,21 @@ type TransformArtifactCompileOptions struct {
 	References             map[string]TransformReferenceSpec
 	ResourceType           string
 	Result                 PullTransformResult
-	Tenant                 string
-	VariableName           string
+	// RunResourceTypes is every resource type the current transform/adopt run
+	// will rewrite the committed config of, this type included. Empty means
+	// "this type alone".
+	//
+	// It exists for the book-key-shrinkage guard, which must distinguish a
+	// dependent this run is about to repair from one it would strand.
+	// Referents are processed before their referrers (transform.referenceOrder),
+	// so at the moment a referent's shrinking book compiles, every referrer's
+	// committed config still names the departing key -- and refusing there
+	// would deadlock: transforming the referrer first re-mints the same key
+	// from the still-committed book. A dependent inside the run is transient;
+	// one outside it is the stranding this guard exists to prevent.
+	RunResourceTypes []string
+	Tenant           string
+	VariableName     string
 }
 
 // CompiledTransformArtifacts is the Go analogue of the opaque
@@ -1732,6 +1745,152 @@ func tokenDependents(configDirectory, resourceType string) ([]string, error) {
 	return canonjson.SortedStrings(dependents), nil
 }
 
+// configOwnerType maps a committed tfvars filename back to the resource type
+// that owns it, or "" when the name is not a config artifact.
+func configOwnerType(name string) string {
+	for _, suffix := range []string{".auto.tfvars.json", ".auto.tfvars"} {
+		if strings.HasSuffix(name, suffix) {
+			return strings.TrimSuffix(name, suffix)
+		}
+	}
+	return ""
+}
+
+// jsonStringValues collects every string VALUE in the decoded JSON. Keys and
+// field names are never collected: a token is always a whole value, so exact
+// value equality is both the precise test and the one that cannot be tripped
+// by a dotted map key.
+func jsonStringValues(value any, into map[string]bool) {
+	switch typed := value.(type) {
+	case string:
+		into[typed] = true
+	case []any:
+		for _, child := range typed {
+			jsonStringValues(child, into)
+		}
+	case map[string]any:
+		for _, child := range typed {
+			jsonStringValues(child, into)
+		}
+	}
+}
+
+// droppedBookKeys reports every key the committed book decodes that the
+// freshly compiled one no longer does. The committed book is read through
+// resolveLookup, so a tenant still holding its book at the pre-migration
+// path is compared against, not silently treated as having no book at all.
+func droppedBookKeys(configDirectory, resourceType string, fresh *TransformLookupData) ([]string, error) {
+	committed, err := resolveLookup(configDirectory, resourceType, nil)
+	if err != nil || committed == nil {
+		return nil, err
+	}
+	var dropped []string
+	for key := range committed.IDByKey {
+		if _, kept := fresh.IDByKey[key]; !kept {
+			dropped = append(dropped, key)
+		}
+	}
+	return canonjson.SortedStrings(dropped), nil
+}
+
+// tokenKeyDependents reports, per dropped key, the committed config artifacts
+// in configDirectory that still name "<resourceType>.<key>". Configs owned by
+// a type in rewritten are skipped: this run is about to replace them, so the
+// token they currently hold is transient.
+//
+// JSON configs are parsed and matched on whole string VALUES; HCL configs
+// cannot be parsed here, so they are matched on the quoted token text.
+func tokenKeyDependents(
+	configDirectory, resourceType string,
+	dropped []string,
+	rewritten map[string]bool,
+) (map[string][]string, error) {
+	entries, err := os.ReadDir(configDirectory)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	dependents := map[string][]string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		owner := configOwnerType(name)
+		if entry.IsDir() || owner == "" || rewritten[owner] {
+			continue
+		}
+		raw, err := os.ReadFile(path.Join(configDirectory, name))
+		if err != nil {
+			return nil, err
+		}
+		values := map[string]bool{}
+		parsed := false
+		if strings.HasSuffix(name, ".auto.tfvars.json") {
+			if decoded, parseErr := canonjson.ParseDataJSONLosslessly(string(raw)); parseErr == nil {
+				jsonStringValues(decoded, values)
+				parsed = true
+			}
+		}
+		for _, key := range dropped {
+			token := resourceType + "." + key
+			held := values[token]
+			if !parsed {
+				held = strings.Contains(string(raw), `"`+token+`"`)
+			}
+			if held {
+				dependents[key] = append(dependents[key], name)
+			}
+		}
+	}
+	for key, files := range dependents {
+		dependents[key] = canonjson.SortedStrings(files)
+	}
+	return dependents, nil
+}
+
+// assertNoBookKeyStranding refuses a book update that would drop a key some
+// committed config still names by token.
+//
+// This is the symmetric half of the whole-book retirement guard above, and it
+// is what makes book membership a SOUND signal for every consumer that keys on
+// it -- gen-env's dropped-edge orphan scan most of all. Without it an ordinary
+// referent re-transform (item renamed or deleted) shrinks the key set, the
+// orphaned token stops decoding, and every render-time gate goes blind to it
+// (adversarial-review finding, round 5).
+//
+// Residual, deliberately named rather than claimed away: this guards the
+// pipeline's own writes. A book deleted or edited by hand outside the pipeline
+// is not covered, and neither is a dependent whose own transform is skipped
+// within the same run for want of a pull file.
+func assertNoBookKeyStranding(
+	configDirectory, resourceType string,
+	fresh *TransformLookupData,
+	runResourceTypes []string,
+) error {
+	dropped, err := droppedBookKeys(configDirectory, resourceType, fresh)
+	if err != nil || len(dropped) == 0 {
+		return err
+	}
+	rewritten := map[string]bool{resourceType: true}
+	for _, member := range runResourceTypes {
+		rewritten[member] = true
+	}
+	dependents, err := tokenKeyDependents(configDirectory, resourceType, dropped, rewritten)
+	if err != nil || len(dependents) == 0 {
+		return err
+	}
+	var stranded []string
+	for _, key := range dropped {
+		if files, ok := dependents[key]; ok {
+			stranded = append(stranded, fmt.Sprintf("%s.%s (%s)", resourceType, key, strings.Join(files, ", ")))
+		}
+	}
+	return fmt.Errorf(
+		"cannot publish %s's lookup sidecar: it would drop key(s) committed config still references by token — %s; re-run transform for those dependents in the same run as %s, or restore the referent item whose key is leaving the book",
+		resourceType, strings.Join(stranded, "; "), resourceType,
+	)
+}
+
 // jsonValueHasPrefix reports whether any string VALUE in the decoded JSON
 // carries the prefix -- keys and field names are never inspected.
 func jsonValueHasPrefix(value any, prefix string) bool {
@@ -2092,9 +2251,19 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
-	_, lookupText, err := compileLookup(options)
+	freshLookup, lookupText, err := compileLookup(options)
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
+	}
+	// A book that keeps existing but stops decoding a key strands its tokens
+	// exactly as thoroughly as a removed book does, so the same refusal
+	// applies key by key.
+	if lookupText != nil && freshLookup != nil {
+		if err := assertNoBookKeyStranding(
+			path.Dir(paths.Config), options.ResourceType, freshLookup, options.RunResourceTypes,
+		); err != nil {
+			return CompiledTransformArtifacts{}, err
+		}
 	}
 	// Once committed configs reference this type by token, its book is the
 	// only decoder those tokens have: inferred-lifecycle removal must refuse
@@ -2251,6 +2420,13 @@ func CompileTransformArtifactBatch(items []TransformArtifactCompileOptions) ([]C
 		lookups[item.ResourceType] = data
 	}
 
+	// Every member of a batch is published together, so each member's config
+	// is rewritten by this same run: the book-key-shrinkage guard must treat
+	// them all as repairable dependents, not stranded ones.
+	batchTypes := make([]string, 0, len(items))
+	for _, item := range items {
+		batchTypes = append(batchTypes, item.ResourceType)
+	}
 	compiled := make([]CompiledTransformArtifacts, len(items))
 	for i, item := range items {
 		configDirectory := path.Dir(allPaths[i].Config)
@@ -2262,6 +2438,7 @@ func CompileTransformArtifactBatch(items []TransformArtifactCompileOptions) ([]C
 			merged[k] = v
 		}
 		item.LookupOverrides = merged
+		item.RunResourceTypes = append(append([]string{}, item.RunResourceTypes...), batchTypes...)
 		result, err := CompileTransformArtifacts(item)
 		if err != nil {
 			return nil, err

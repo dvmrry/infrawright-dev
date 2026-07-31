@@ -850,3 +850,134 @@ func TestDeriveGeneratedBindingsTokensOnlyDefaultsOff(t *testing.T) {
 		t.Errorf("resources = %#v, want the raw ID bound at transform", result.Resources)
 	}
 }
+
+// The tests below pin the round-5 re-review's still-broken blocker. gen-env's
+// dropped-edge orphan scan recognises a committed token by book membership,
+// which is only sound if a key cannot leave a book while committed tokens
+// still name it. tokenDependents guarded whole-book REMOVAL; nothing guarded
+// key-set SHRINKAGE, which an ordinary referent re-transform (item renamed or
+// deleted) performs. These make the invariant enforced rather than assumed.
+
+// committedBookAtCurrentPath writes a book for resourceType at the current
+// lookups/ location with the given key -> id rows.
+func committedBookAtCurrentPath(t *testing.T, options TransformArtifactCompileOptions, rows map[string]string) {
+	t.Helper()
+	paths := mustComputePaths(t, options)
+	byID := map[string]any{}
+	idByKey := map[string]any{}
+	keyByID := map[string]any{}
+	for key, id := range rows {
+		byID[id] = key
+		idByKey[key] = id
+		keyByID[id] = key
+	}
+	encoded, err := json.Marshal(map[string]any{"by_id": byID, "id_by_key": idByKey, "key_by_id": keyByID})
+	if err != nil {
+		t.Fatalf("marshal book: %v", err)
+	}
+	writeFileMkdir(t, paths.Lookup, string(encoded))
+}
+
+// shrinkingBookOptions is a sample_group compile whose fresh book decodes
+// only "example": the committed book on disk additionally carries "retired",
+// so compiling drops that key.
+func shrinkingBookOptions(t *testing.T, workspace string) TransformArtifactCompileOptions {
+	t.Helper()
+	options := newArtifactOptions(workspace, "sample_group")
+	committedBookAtCurrentPath(t, options, map[string]string{"example": "id-1", "retired": "id-2"})
+	return options
+}
+
+// TestBookKeyShrinkageWithTokenDependentRefused is the blocker's regression: a
+// key still named by a committed token must not be allowed to leave the book,
+// or the token becomes undecodable and every render-time gate that keys on
+// book membership goes blind to it.
+func TestBookKeyShrinkageWithTokenDependentRefused(t *testing.T) {
+	workspace := t.TempDir()
+	options := shrinkingBookOptions(t, workspace)
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars.json"),
+		`{"items":{"one":{"group_id":"sample_group.retired"}}}`)
+
+	_, err := CompileTransformArtifacts(options)
+	if err == nil {
+		t.Fatalf("CompileTransformArtifacts error = nil, want a refusal for a key leaving the book while a token names it")
+	}
+	for _, want := range []string{"sample_group.retired", "sample_referrer.auto.tfvars.json", "re-run transform"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("CompileTransformArtifacts error = %q, want it to name %q", err, want)
+		}
+	}
+}
+
+// TestBookKeyShrinkageWithoutDependentsProceeds keeps the guard honest: a key
+// no committed token names may leave the book freely. Without this, a guard
+// that refused every shrinkage would satisfy the test above.
+func TestBookKeyShrinkageWithoutDependentsProceeds(t *testing.T) {
+	workspace := t.TempDir()
+	options := shrinkingBookOptions(t, workspace)
+	paths := mustComputePaths(t, options)
+	// References a key that SURVIVES, so the dropped key has no dependent.
+	writeFileMkdir(t, filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars.json"),
+		`{"items":{"one":{"group_id":"sample_group.example"}}}`)
+
+	if _, err := CompileTransformArtifacts(options); err != nil {
+		t.Fatalf("CompileTransformArtifacts error = %v, want nil when the dropped key has no dependent", err)
+	}
+}
+
+// TestBookKeyShrinkageAllowedForDependentsThisRunRewrites is the deadlock
+// guard, and the reason the run scope has to be threaded at all. Renaming a
+// referent item drops its old key while every referrer's COMMITTED config
+// still names it -- referrers are transformed after their referents, against
+// the fresh book, so their configs are about to be rewritten. Refusing there
+// would be unbreakable: transforming the referrer first re-mints the same old
+// key from the still-committed book.
+func TestBookKeyShrinkageAllowedForDependentsThisRunRewrites(t *testing.T) {
+	workspace := t.TempDir()
+	options := shrinkingBookOptions(t, workspace)
+	options.RunResourceTypes = []string{"sample_group", "sample_referrer"}
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars.json"),
+		`{"items":{"one":{"group_id":"sample_group.retired"}}}`)
+
+	if _, err := CompileTransformArtifacts(options); err != nil {
+		t.Fatalf("CompileTransformArtifacts error = %v, want nil when this run also rewrites the dependent", err)
+	}
+}
+
+// TestBookKeyShrinkageDetectsLegacyPathDependents pins the migration bridge on
+// the guard's INPUT side: a tenant that has not re-transformed since the book
+// moved has its committed book only at config/<tenant>/<type>.lookup.json.
+// Reading only the current path would see no committed book at all, compute no
+// dropped keys, and let the shrinkage through.
+func TestBookKeyShrinkageDetectsLegacyPathDependents(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "sample_group")
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, paths.LegacyLookup,
+		`{"by_id":{"id-1":"example","id-2":"retired"},"id_by_key":{"example":"id-1","retired":"id-2"},"key_by_id":{"id-1":"example","id-2":"retired"}}`)
+	writeFileMkdir(t, filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars.json"),
+		`{"items":{"one":{"group_id":"sample_group.retired"}}}`)
+
+	_, err := CompileTransformArtifacts(options)
+	if err == nil || !strings.Contains(err.Error(), "sample_group.retired") {
+		t.Fatalf("CompileTransformArtifacts error = %v, want the shrinkage refusal against the legacy-path book", err)
+	}
+}
+
+// TestBookKeyShrinkageScansHclDependents pins that the dependent scan serves
+// both committed tfvars formats. An HCL config cannot be parsed here, so the
+// scan is textual -- but it must still find the token.
+func TestBookKeyShrinkageScansHclDependents(t *testing.T) {
+	workspace := t.TempDir()
+	options := shrinkingBookOptions(t, workspace)
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars"),
+		"items = {\n  one = {\n    group_id = \"sample_group.retired\"\n  }\n}\n")
+
+	_, err := CompileTransformArtifacts(options)
+	if err == nil || !strings.Contains(err.Error(), "sample_referrer.auto.tfvars") {
+		t.Fatalf("CompileTransformArtifacts error = %v, want the HCL dependent named", err)
+	}
+}

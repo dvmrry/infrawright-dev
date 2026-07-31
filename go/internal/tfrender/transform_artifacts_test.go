@@ -54,6 +54,16 @@ func newArtifactOptions(workspace, resourceType string) TransformArtifactCompile
 	}
 }
 
+// staleBookPlaceholder is the content the stale-book fixtures below commit at
+// a location publish must clean. It is a VALID book carrying one key the fresh
+// compile does not: every committed book is now read at compile time by the
+// key-shrinkage guard, so an unparseable placeholder would fail the compile
+// for reasons the test is not about, and a book with no dropped key would skip
+// the guard's dependent scan entirely rather than exercise it.
+func staleBookPlaceholder() string {
+	return `{"by_id":{"stale-id":"Stale"},"id_by_key":{"stale":"stale-id"},"key_by_id":{"stale-id":"stale"}}`
+}
+
 func defaultArtifactOptions(workspace string) TransformArtifactCompileOptions {
 	return newArtifactOptions(workspace, "sample_resource")
 }
@@ -333,7 +343,7 @@ func TestBatchPublicationRollsBackOnLaterMemberFailure(t *testing.T) {
 		writeFileMkdir(t, item.Paths.StaleConfig, "old stale config for "+item.ResourceType+"\n")
 		writeFileMkdir(t, item.Paths.GeneratedBindings, "old bindings for "+item.ResourceType+"\n")
 		writeFileMkdir(t, item.Paths.Imports, item.NewImports)
-		writeFileMkdir(t, item.Paths.Lookup, "old lookup for "+item.ResourceType+"\n")
+		writeFileMkdir(t, item.Paths.Lookup, staleBookPlaceholder())
 	}
 	var before []map[string]*string
 	for _, item := range seed {
@@ -815,7 +825,7 @@ func TestPublishWritesLookupUnderLookupsAndStaleCleansLegacy(t *testing.T) {
 	if !strings.Contains(paths.Lookup, filepath.Join("lookups", "sample_resource.lookup.json")) {
 		t.Fatalf("sanity: paths.Lookup = %s, want it under a lookups/ subdirectory", paths.Lookup)
 	}
-	writeFileMkdir(t, paths.LegacyLookup, "stale legacy lookup for sample_resource\n")
+	writeFileMkdir(t, paths.LegacyLookup, staleBookPlaceholder())
 
 	compiled, err := CompileTransformArtifacts(options)
 	if err != nil {
@@ -855,7 +865,7 @@ func TestBatchPublishWritesLookupUnderLookupsAndStaleCleansLegacy(t *testing.T) 
 	var diagnostics []string
 	options.OnDiagnostic = func(message string) { diagnostics = append(diagnostics, message) }
 	paths := mustComputePaths(t, options)
-	writeFileMkdir(t, paths.LegacyLookup, "stale legacy lookup for sample_resource\n")
+	writeFileMkdir(t, paths.LegacyLookup, staleBookPlaceholder())
 
 	compiled, err := CompileTransformArtifactBatch([]TransformArtifactCompileOptions{options})
 	if err != nil {
