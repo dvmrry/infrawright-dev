@@ -3,6 +3,10 @@
     "501": "HQ Wired",
     "502": "Branch WiFi"
   },
+  "id_by_key": {
+    "branch_wifi": "502",
+    "hq_wired": "501"
+  },
   "key_by_id": {
     "501": "hq_wired",
     "502": "branch_wifi"

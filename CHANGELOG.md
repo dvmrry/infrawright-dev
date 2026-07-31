@@ -29,7 +29,70 @@
   present; two-element lists and keyed-object collection bypasses fail before
   the provider can silently discard them.
 
+### Cross-state references
+
+- Committed config stops carrying tenant IDs for declared reference
+  fields: transform and adopt now write qualified reference tokens
+  (`"<referent_type>.<key>"`, e.g.
+  `"zia_firewall_filtering_network_service.dns"`) wherever the referent's
+  lookup book knows the ID. Unknown IDs, sentinels, and fields without a
+  declared pack edge keep their literal values; old-shape (raw-ID) configs
+  remain valid indefinitely — the next transform/adopt run rewrites them,
+  with no flag day.
+- gen-env renders tokenised roots with lookup-first resolvers:
+  `try(<remote-state lookup>, local.infrawright_reference_book_<referent>["<key>"])`,
+  where the book local is a plan-time, `fileexists()`-guarded read of the
+  committed lookup sidecar. State truth wins whenever the referent is
+  applied. On the azurerm backend (confirmed live: a missing blob reads as
+  empty state) the book literal serves an unapplied referent and retires
+  automatically on its first apply; on the local backend a missing state
+  file still fails the reader before any fallback can run — apply the
+  referent first. The state-probe drop filter is superseded for tokenised
+  roots; operator-authored bindings are never wrapped and keep failing
+  loudly.
+- The lookup sidecar gains `id_by_key` (books written before the field
+  decode both directions via parser inversion), HCL display comments
+  resolve tokens to the same names raw IDs showed, and retiring a book
+  that committed tokens still decode through is refused, naming the
+  dependents.
+- Tokens are a JSON-tfvars contract: HCL-format deployments keep literal
+  IDs entirely (only JSON configs can be leaf-verified by the totality
+  gate), and a token-shaped value appearing in an HCL config is refused at
+  generation rather than passed through. Detection at JSON reference
+  leaves is shape-based, so a token stranded by a pack referent
+  reassignment (old prefix) is caught and refused, not skipped.
+- Totality is enforced leaf-by-leaf at both ends: transform refuses to
+  publish a minted token its own derivation did not cover, and gen-env
+  refuses to render a root while any committed token lacks a covering
+  binding — including on string-typed provider fields, where a module's
+  type check could not have caught a leaked token. Committed tokens under
+  a since-disabled `cross_state_references` are likewise a loud refusal,
+  never a silent passthrough.
+
+- `gen-env --state-aware` now probes the referent's *backend* (scratch
+  `terraform init` + `state pull` keyed `<tenant>/<label>.tfstate`) instead of
+  inspecting the local workspace for `<root>/.terraform`. In clean-workspace
+  pipelines the old probe read every referent as absent, so `STATE_AWARE=1`
+  silently rewrote every cross-state reference to its tfvars literal on every
+  run; lookups now engage whenever the referent's state carries
+  `infrawright_reference_ids`.
+- `iw gen-env` accepts `--backend-config` (the same JSON file `iw plan`
+  consumes) and `make gen-env` forwards `BACKEND_CONFIG=<file>` plus the
+  pinned `--terraform` binary alongside `STATE_AWARE=1`.
+- Local-backend tenants probe the state file beside each generated root and
+  no longer resolve a terraform executable for `--state-aware`.
+
 ### Breaking changes
+
+#### State-aware generation against azurerm requires BACKEND_CONFIG
+
+`make gen-env STATE_AWARE=1` for a tenant on the azurerm backend now fails
+with a usage error unless `BACKEND_CONFIG=<file>` is also passed; previously
+it exited 0 while silently degrading every cross-state reference to a
+literal. Pass the same backend file the pipeline already gives `make plan`.
+Expect generated roots to flip literals to remote-state lookups on the first
+run after each referent root is applied; the flip plans as a no-op because
+the lookup resolves to the same ID.
 
 #### Retired catalog compatibility surface removed
 
