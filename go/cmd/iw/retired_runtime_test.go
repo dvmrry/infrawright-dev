@@ -57,17 +57,21 @@ func findRetiredRuntimeFiles(root string) ([]string, error) {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
-		if entry.IsDir() {
-			if entry.Name() == ".git" || entry.Name() == ".claude" {
-				return filepath.SkipDir
-			}
-			if isRetiredRuntimeRoot(relative, entry.Name()) {
-				violations = append(violations, relative)
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".claude") {
+			return filepath.SkipDir
+		}
+		// Root names are violations whatever the entry type: WalkDir does
+		// not follow symlinks, so a symlink named node-tests is not a
+		// directory here, and a symlink (or plain file) wearing a retired
+		// root's name restores the retired path surface just the same.
+		if isRetiredRuntimeRoot(relative, entry.Name()) {
+			violations = append(violations, relative)
+			if entry.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !isRetiredRuntimeFile(entry.Name()) {
+		if entry.IsDir() || !isRetiredRuntimeFile(entry.Name()) {
 			return nil
 		}
 		violations = append(violations, relative)
@@ -91,8 +95,8 @@ func TestRetiredRuntimeStaysRetired(t *testing.T) {
 func TestRetiredRuntimeWalkerReportsNestedViolations(t *testing.T) {
 	root := t.TempDir()
 	for _, path := range []string{
-		"engine/__main__.py",
-		"engine/requirements.txt",
+		"node-src/__main__.py",
+		"node-src/requirements.txt",
 		"nested/manifests/package-lock.json",
 		"nested/manifests/pnpm-lock.yaml",
 		"nested/manifests/yarn.lock",
@@ -103,16 +107,24 @@ func TestRetiredRuntimeWalkerReportsNestedViolations(t *testing.T) {
 		"nested/runtime/setup.py",
 		"nested/runtime/tsconfig.json",
 		"node-src/package.json",
-		"node-tests/fixtures/provider-facts.json",
-		"node-tests/helpers/python-oracle.ts",
 		"tools/viewer.js",
 		"tools/loader.mjs",
 		"tools/shim.cjs",
+		"vendor/.node-test",
 	} {
 		writeRetiredRuntimeFixtureFile(t, filepath.Join(root, filepath.FromSlash(path)))
 	}
+	// A symlink wearing a retired root's name restores the path surface
+	// without ever being a directory in the walk.
+	if err := os.Symlink(filepath.Join(root, "safe"), filepath.Join(root, "node-tests")); err != nil {
+		t.Fatalf("os.Symlink(node-tests) error = %v, want nil", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "safe"), filepath.Join(root, "engine")); err != nil {
+		t.Fatalf("os.Symlink(engine) error = %v, want nil", err)
+	}
 	for _, path := range []string{
 		".claude/scratch/engine/__main__.py",
+		"internal/engine/config.json",
 		".git/worktrees/node-src/package.json",
 		"safe/package.json.md",
 		"internal/engine/kernel.go",
@@ -126,6 +138,8 @@ func TestRetiredRuntimeWalkerReportsNestedViolations(t *testing.T) {
 	// individually, including extension-rule catches with no manifest name.
 	want := []string{
 		"engine",
+		"node-tests",
+		"vendor/.node-test",
 		"nested/manifests/package-lock.json",
 		"nested/manifests/pnpm-lock.yaml",
 		"nested/manifests/yarn.lock",
@@ -136,7 +150,6 @@ func TestRetiredRuntimeWalkerReportsNestedViolations(t *testing.T) {
 		"nested/runtime/setup.py",
 		"nested/runtime/tsconfig.json",
 		"node-src",
-		"node-tests",
 		"tools/loader.mjs",
 		"tools/shim.cjs",
 		"tools/viewer.js",
