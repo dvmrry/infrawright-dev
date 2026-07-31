@@ -14,7 +14,7 @@
 //     semantics) (transform_artifacts.go). The generated-bindings sidecar
 //     (.generated.expressions.json) is deliberately NOT part of the write
 //     path as of Task A2 (sidecar minimization, Part A): it is derivable
-//     from committed config, books, and schema at render time, so publish
+//     from committed config, lookups, and schema at render time, so publish
 //     only ever stale-cleans a pre-existing copy, never writes one -- see
 //     PublishCompiledTransformArtifacts and batchArtifactMutations.
 //

@@ -3,7 +3,7 @@ package envgen
 // These tests pin Task 3 of the reference-tokens plan: when a root's
 // committed config carries qualified reference tokens, the renderer emits
 // lookup-first resolvers -- try(<canonical remote-state selector>,
-// local.<book>["<key>"]) -- plus one plan-time book local per referent
+// local.<lookup>["<key>"]) -- plus one plan-time lookup local per referent
 // reading the committed lookup sidecar, and the state-probe drop filter is
 // superseded (the fallback now lives in-language). Untokenised roots render
 // byte-identically to today. See
@@ -18,10 +18,10 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-// segmentGroupBookContent is the referent book tokenise/tokeniseAtLegacyPath
+// segmentGroupLookupContent is the referent lookup tokenise/tokeniseAtLegacyPath
 // commit, factored out so both write the same bytes to their different
 // locations.
-func segmentGroupBookContent() map[string]any {
+func segmentGroupLookupContent() map[string]any {
 	return map[string]any{
 		"by_id":     map[string]any{"sg-1": "Segment One"},
 		"id_by_key": map[string]any{"segment_one": "sg-1"},
@@ -31,7 +31,7 @@ func segmentGroupBookContent() map[string]any {
 
 // tokenise rewrites the state-aware fixture's committed artifacts into the
 // post-substitution shape: the tfvars reference leaf carries the qualified
-// token and the referent's book exists (at its current
+// token and the referent's lookup exists (at its current
 // config/<tenant>/lookups/ location) with both directions.
 func (f stateAwareFixture) tokenise(t *testing.T) {
 	t.Helper()
@@ -39,14 +39,14 @@ func (f stateAwareFixture) tokenise(t *testing.T) {
 	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
 		"items": map[string]any{"app_one": map[string]any{"segment_group_id": "zpa_segment_group.segment_one"}},
 	})
-	writeJSONFile(t, filepath.Join(config, "lookups", "zpa_segment_group.lookup.json"), segmentGroupBookContent())
+	writeJSONFile(t, filepath.Join(config, "lookups", "zpa_segment_group.lookup.json"), segmentGroupLookupContent())
 }
 
 // tokeniseAtLegacyPath is tokenise's Part B migration-bridge counterpart:
 // the tfvars reference leaf carries the qualified token exactly as tokenise
-// writes it, but the referent's book is committed only at its pre-migration
+// writes it, but the referent's lookup is committed only at its pre-migration
 // location (config/<tenant>/<type>.lookup.json, no lookups/ subdirectory) --
-// the shape a tenant that has not re-transformed since the book migration
+// the shape a tenant that has not re-transformed since the lookup migration
 // still has on disk.
 func (f stateAwareFixture) tokeniseAtLegacyPath(t *testing.T) {
 	t.Helper()
@@ -54,7 +54,7 @@ func (f stateAwareFixture) tokeniseAtLegacyPath(t *testing.T) {
 	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
 		"items": map[string]any{"app_one": map[string]any{"segment_group_id": "zpa_segment_group.segment_one"}},
 	})
-	writeJSONFile(t, filepath.Join(config, "zpa_segment_group.lookup.json"), segmentGroupBookContent())
+	writeJSONFile(t, filepath.Join(config, "zpa_segment_group.lookup.json"), segmentGroupLookupContent())
 }
 
 func (f stateAwareFixture) readReferrerFile(t *testing.T, name string) string {
@@ -81,8 +81,8 @@ func (f stateAwareFixture) removeCommittedBindings(t *testing.T) {
 }
 
 // TestTokenisedRootEmitsLookupFirstResolvers pins the resolver shape: the
-// canonical selector wrapped lookup-first with the book literal as the
-// fallback arm, and the book local reading the committed sidecar at plan
+// canonical selector wrapped lookup-first with the lookup literal as the
+// fallback arm, and the lookup local reading the committed sidecar at plan
 // time through the relative path -- the renderer inlines no value from it.
 func TestTokenisedRootEmitsLookupFirstResolvers(t *testing.T) {
 	fixture := newStateAwareFixture(t)
@@ -91,14 +91,14 @@ func TestTokenisedRootEmitsLookupFirstResolvers(t *testing.T) {
 	fixture.generate(t, false)
 
 	bindings := fixture.readReferrerFile(t, "expression_bindings.tf")
-	wantResolver := `try(data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"], local.infrawright_reference_book_zpa_segment_group["segment_one"])`
+	wantResolver := `try(data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"], local.infrawright_reference_lookup_zpa_segment_group["segment_one"])`
 	if !strings.Contains(bindings, wantResolver) {
 		t.Errorf("expression_bindings.tf = %q, want resolver %q", bindings, wantResolver)
 	}
-	if !strings.Contains(bindings, "infrawright_reference_book_zpa_segment_group") ||
+	if !strings.Contains(bindings, "infrawright_reference_lookup_zpa_segment_group") ||
 		!strings.Contains(bindings, "fileexists(") ||
 		!strings.Contains(bindings, "zpa_segment_group.lookup.json") {
-		t.Errorf("expression_bindings.tf = %q, want a fileexists-guarded book local over the committed sidecar", bindings)
+		t.Errorf("expression_bindings.tf = %q, want a fileexists-guarded lookup local over the committed sidecar", bindings)
 	}
 	main := fixture.readReferrerFile(t, "main.tf")
 	if !strings.Contains(main, `data "terraform_remote_state" "zpa_segment_group"`) {
@@ -106,35 +106,35 @@ func TestTokenisedRootEmitsLookupFirstResolvers(t *testing.T) {
 	}
 }
 
-// TestTokenisedRootFallsBackToLegacyBookPath pins Part B's migration bridge
-// end to end: a tenant that has not re-transformed since the book moved to
-// config/<tenant>/lookups/ still has its book only at the pre-migration
+// TestTokenisedRootFallsBackToLegacyLookupPath pins Part B's migration bridge
+// end to end: a tenant that has not re-transformed since the lookup moved to
+// config/<tenant>/lookups/ still has its lookup only at the pre-migration
 // config/<tenant>/<type>.lookup.json path. Render-derivation must still
 // resolve the token through it, and -- the plan-breaking hazard Part B's
-// design doc calls out -- the emitted book local's file() expression must
+// design doc calls out -- the emitted lookup local's file() expression must
 // name the path that actually exists on disk (the legacy one), never the
 // absent lookups/ path: pointing fileexists() at a file that will never
 // exist would silently and permanently disable the plan-time fallback arm.
-func TestTokenisedRootFallsBackToLegacyBookPath(t *testing.T) {
+func TestTokenisedRootFallsBackToLegacyLookupPath(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.tokeniseAtLegacyPath(t)
 	fixture.removeCommittedBindings(t)
 
 	diagnostics := fixture.generate(t, false)
 	if !containsString(diagnostics, "NOTE bindings: zpa_application_segment: 1 bound, 0 skipped") {
-		t.Fatalf("diagnostics = %v, want the render-derivation accounting over the legacy-path book", diagnostics)
+		t.Fatalf("diagnostics = %v, want the render-derivation accounting over the legacy-path lookup", diagnostics)
 	}
 
 	bindings := fixture.readReferrerFile(t, expressionBindingsTF)
-	wantResolver := `try(data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"], local.infrawright_reference_book_zpa_segment_group["segment_one"])`
+	wantResolver := `try(data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"], local.infrawright_reference_lookup_zpa_segment_group["segment_one"])`
 	if !strings.Contains(bindings, wantResolver) {
-		t.Errorf("expression_bindings.tf = %q, want resolver %q derived through the legacy-path book", bindings, wantResolver)
+		t.Errorf("expression_bindings.tf = %q, want resolver %q derived through the legacy-path lookup", bindings, wantResolver)
 	}
 	if !strings.Contains(bindings, "config/tenant/zpa_segment_group.lookup.json") {
-		t.Errorf("expression_bindings.tf = %q, want the book local's file() path naming the legacy location", bindings)
+		t.Errorf("expression_bindings.tf = %q, want the lookup local's file() path naming the legacy location", bindings)
 	}
 	if strings.Contains(bindings, "config/tenant/lookups/zpa_segment_group.lookup.json") {
-		t.Errorf("expression_bindings.tf = %q, want the book local NOT to name the (nonexistent) current lookups/ path", bindings)
+		t.Errorf("expression_bindings.tf = %q, want the lookup local NOT to name the (nonexistent) current lookups/ path", bindings)
 	}
 }
 
@@ -177,15 +177,15 @@ func TestTokenisedRootSupersedesProbeFilter(t *testing.T) {
 // misconfiguration: tokens in committed config with no binding evidence at
 // all cannot silently reach the module's type boundary; generation refuses,
 // naming the root and the remedy. Since Part A the absent cache alone is no
-// longer "no evidence" -- render-derivation would serve it from the book --
-// so the book is removed too, leaving the tokens genuinely unresolvable.
+// longer "no evidence" -- render-derivation would serve it from the lookup --
+// so the lookup is removed too, leaving the tokens genuinely unresolvable.
 func TestTokenisedRootWithoutBindingsFailsLoudly(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.tokenise(t)
 	config := filepath.Join(fixture.workspace, "config", "tenant")
 	fixture.removeCommittedBindings(t)
 	if err := os.Remove(filepath.Join(config, "lookups", "zpa_segment_group.lookup.json")); err != nil {
-		t.Fatalf("remove book: %v", err)
+		t.Fatalf("remove lookup: %v", err)
 	}
 
 	diagnostics := make([]string, 0)
@@ -207,7 +207,7 @@ func TestTokenisedRootWithoutBindingsFailsLoudly(t *testing.T) {
 
 // TestUntokenisedRootRendersByteIdentically pins the no-flag-day contract:
 // an old-shape (raw-ID) config renders exactly today's bytes -- no try
-// wrapper, no book local, probe behaviour unchanged.
+// wrapper, no lookup local, probe behaviour unchanged.
 func TestUntokenisedRootRendersByteIdentically(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 
@@ -219,7 +219,7 @@ func TestUntokenisedRootRendersByteIdentically(t *testing.T) {
 	}
 	main := fixture.readReferrerFile(t, "main.tf")
 	if strings.Contains(main, "infrawright_reference_book") {
-		t.Errorf("main.tf = %q, want no book machinery for an old-shape config", main)
+		t.Errorf("main.tf = %q, want no lookup machinery for an old-shape config", main)
 	}
 }
 
@@ -297,12 +297,12 @@ func TestDisabledModeWithCommittedTokensRefused(t *testing.T) {
 // root into token mode -- the probe filter still runs and no resolver
 // machinery is emitted.
 //
-// The referent's book is committed deliberately. It is what puts
+// The referent's lookup is committed deliberately. It is what puts
 // zpa_segment_group in the dropped-edge orphan scan's referent set, so the
 // wide scan does look at this value and classify it -- and "note" is not a
-// key in that book, which is the disambiguator that keeps an innocent dotted
-// string innocent. Without the book on disk the scan would skip the prefix
-// outright and this test would prove nothing about book membership.
+// key in that lookup, which is the disambiguator that keeps an innocent dotted
+// string innocent. Without the lookup on disk the scan would skip the prefix
+// outright and this test would prove nothing about lookup membership.
 func TestInnocentDottedStringKeepsProbeActive(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	config := filepath.Join(fixture.workspace, "config", "tenant")
@@ -312,7 +312,7 @@ func TestInnocentDottedStringKeepsProbeActive(t *testing.T) {
 			"description":      "zpa_segment_group.note",
 		}},
 	})
-	writeJSONFile(t, filepath.Join(config, "lookups", "zpa_segment_group.lookup.json"), segmentGroupBookContent())
+	writeJSONFile(t, filepath.Join(config, "lookups", "zpa_segment_group.lookup.json"), segmentGroupLookupContent())
 
 	var probeCalls []string
 	outputRoot := fixture.outputRoot
@@ -391,19 +391,19 @@ func (f stateAwareFixture) writeHclConfig(t *testing.T, resourceType, body strin
 
 // TestHclConfigWithTokenShapedValueRefused pins the JSON-only contract at
 // the render side: an HCL-format config carrying a value the referent's
-// committed book decodes as a token is refused outright -- no binding mode,
+// committed lookup decodes as a token is refused outright -- no binding mode,
 // no silent lane.
 //
-// The book is committed deliberately: since the round-5 re-review, the HCL
-// refusal keys on book membership exactly as the JSON scan does, so without a
-// book on disk there is nothing to distinguish this value from any other
+// The lookup is committed deliberately: since the round-5 re-review, the HCL
+// refusal keys on lookup membership exactly as the JSON scan does, so without a
+// lookup on disk there is nothing to distinguish this value from any other
 // dotted string.
 func TestHclConfigWithTokenShapedValueRefused(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.useHclTfvars(t)
 	writeJSONFile(t,
 		filepath.Join(fixture.workspace, "config", "tenant", "lookups", "zpa_segment_group.lookup.json"),
-		segmentGroupBookContent())
+		segmentGroupLookupContent())
 	fixture.writeHclConfig(t, "zpa_application_segment",
 		"items = {\n  app_one = {\n    segment_group_id = \"zpa_segment_group.segment_one\"\n  }\n}\n")
 
@@ -420,16 +420,16 @@ func TestHclConfigWithTokenShapedValueRefused(t *testing.T) {
 }
 
 // TestHclDeclaredEdgeTokenWithNoBookRefused pins the round-3 re-review's
-// second repro. Requiring book membership everywhere lost a fail-closed path:
-// with the pack edge STILL declared, no committed book, and no bindings cache,
+// second repro. Requiring lookup membership everywhere lost a fail-closed path:
+// with the pack edge STILL declared, no committed lookup, and no bindings cache,
 // a token at the declared reference field produced no claim, left tokensPresent
 // false, and rode the opaque module variable to the provider untouched.
 //
-// Membership cannot be checked without a book, so this lane matches on shape
+// Membership cannot be checked without a lookup, so this lane matches on shape
 // alone. Its confinement is MEMBER-level, not field-level -- unparsed HCL
 // cannot say which field a quoted value sits at -- so what narrows it is the
 // candidate set: only referents declared by THIS member's reference fields,
-// and only those with no committed book anywhere.
+// and only those with no committed lookup anywhere.
 func TestHclDeclaredEdgeTokenWithNoBookRefused(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.useHclTfvars(t)
@@ -444,9 +444,9 @@ func TestHclDeclaredEdgeTokenWithNoBookRefused(t *testing.T) {
 		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
 	})
 	if err == nil {
-		t.Fatalf("GenerateEnvironmentRoots error = nil, want a refusal for a declared-edge token with no book to decode it")
+		t.Fatalf("GenerateEnvironmentRoots error = nil, want a refusal for a declared-edge token with no lookup to decode it")
 	}
-	for _, want := range []string{"zpa_segment_group.segment_one", "zpa_segment_group", "no committed book"} {
+	for _, want := range []string{"zpa_segment_group.segment_one", "zpa_segment_group", "no committed lookup"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("GenerateEnvironmentRoots error = %q, want it to name %q", err, want)
 		}
@@ -460,23 +460,23 @@ func TestHclDeclaredEdgeTokenWithNoBookRefused(t *testing.T) {
 // set refused that config outright -- a legitimate deployment made
 // ungenerable.
 //
-// Both halves of the disambiguator are pinned: no book at all, and a book that
+// Both halves of the disambiguator are pinned: no lookup at all, and a lookup that
 // simply does not decode the value's remainder.
 func TestHclInnocentDottedStringNotRefused(t *testing.T) {
 	for _, testCase := range []struct {
-		name string
-		book bool
+		name   string
+		lookup bool
 	}{
-		{name: "no book committed", book: false},
-		{name: "book without the key", book: true},
+		{name: "no lookup committed", lookup: false},
+		{name: "lookup without the key", lookup: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newStateAwareFixture(t)
 			fixture.useHclTfvars(t)
-			if testCase.book {
+			if testCase.lookup {
 				writeJSONFile(t,
 					filepath.Join(fixture.workspace, "config", "tenant", "lookups", "zpa_segment_group.lookup.json"),
-					segmentGroupBookContent())
+					segmentGroupLookupContent())
 			}
 			fixture.writeHclConfig(t, "zpa_segment_group",
 				"items = {\n  segment_one = {\n    description = \"zpa_segment_group.note\"\n    name        = \"Segment One\"\n  }\n}\n")
@@ -613,33 +613,33 @@ func TestCommittedBindingsCacheWinsOverDerivation(t *testing.T) {
 	}
 }
 
-// TestOldShapeConfigNeverDerivesFromTheBook pins the bridge's other edge:
+// TestOldShapeConfigNeverDerivesFromTheLookup pins the bridge's other edge:
 // raw-ID derivation stays transform-only. With no committed cache, an
 // old-shape tree must render exactly the same bytes whether or not the
-// referent's book is on disk -- render output never depends on book contents
+// referent's lookup is on disk -- render output never depends on lookup contents
 // for a config that carries no tokens.
-func TestOldShapeConfigNeverDerivesFromTheBook(t *testing.T) {
+func TestOldShapeConfigNeverDerivesFromTheLookup(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.removeCommittedBindings(t)
 
 	fixture.generate(t, false)
-	bookless := fixture.referrerTree(t)
-	if bindings, present := bookless[expressionBindingsTF]; present {
+	cacheless := fixture.referrerTree(t)
+	if bindings, present := cacheless[expressionBindingsTF]; present {
 		t.Fatalf("%s = %q, want no bindings emitted without a committed cache", expressionBindingsTF, bindings)
 	}
 
-	// The book that WOULD resolve "sg-1" if raw-ID derivation ran at render.
-	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "lookups", "zpa_segment_group.lookup.json"), segmentGroupBookContent())
+	// The lookup that WOULD resolve "sg-1" if raw-ID derivation ran at render.
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "lookups", "zpa_segment_group.lookup.json"), segmentGroupLookupContent())
 	diagnostics := fixture.generate(t, false)
 	for _, message := range diagnostics {
 		if strings.HasPrefix(message, "NOTE bindings:") {
 			t.Errorf("diagnostics carry %q, want no derivation over an old-shape config", message)
 		}
 	}
-	booked := fixture.referrerTree(t)
-	if !equalTrees(booked, bookless) {
-		t.Errorf("old-shape tree changed once the book existed:\ngot  %v\nwant %v",
-			mapKeysForTest(booked), mapKeysForTest(bookless))
+	withLookup := fixture.referrerTree(t)
+	if !equalTrees(withLookup, cacheless) {
+		t.Errorf("old-shape tree changed once the lookup existed:\ngot  %v\nwant %v",
+			mapKeysForTest(withLookup), mapKeysForTest(cacheless))
 	}
 }
 
@@ -700,13 +700,13 @@ func TestDroppedPackEdgeOrphansCommittedTokenRefused(t *testing.T) {
 	}
 }
 
-// TestDroppedPackEdgeOrphanDetectedWithLegacyPathBook is the same refusal on a
-// tenant that has not re-transformed since the book moved to
-// config/<tenant>/lookups/. The orphaned token's ONLY decoder is the book at
+// TestDroppedPackEdgeOrphanDetectedWithLegacyPathLookup is the same refusal on a
+// tenant that has not re-transformed since the lookup moved to
+// config/<tenant>/lookups/. The orphaned token's ONLY decoder is the lookup at
 // the pre-migration path, so a scan that inventoried the current location
 // alone would find no referent, classify the token as an ordinary string, and
 // fail open exactly as before.
-func TestDroppedPackEdgeOrphanDetectedWithLegacyPathBook(t *testing.T) {
+func TestDroppedPackEdgeOrphanDetectedWithLegacyPathLookup(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.tokeniseAtLegacyPath(t)
 	fixture.removeCommittedBindings(t)
@@ -721,16 +721,16 @@ func TestDroppedPackEdgeOrphanDetectedWithLegacyPathBook(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "zpa_segment_group.segment_one") ||
 		!strings.Contains(err.Error(), "app_one.segment_group_id") {
-		t.Fatalf("GenerateEnvironmentRoots error = %v, want the orphan refusal through the legacy-path book", err)
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want the orphan refusal through the legacy-path lookup", err)
 	}
 }
 
-// TestDroppedPackEdgeLeavesUnbookedValuesAlone is the orphan gate's negative
+// TestDroppedPackEdgeLeavesUnindexedValuesAlone is the orphan gate's negative
 // half. The same dropped edge, but the committed value's remainder is not a
-// key in the referent's book, so nothing was ever minted there and the value
+// key in the referent's lookup, so nothing was ever minted there and the value
 // is an ordinary string. Generation must succeed. Without this, a gate that
 // refused every dotted string at every leaf would satisfy the test above.
-func TestDroppedPackEdgeLeavesUnbookedValuesAlone(t *testing.T) {
+func TestDroppedPackEdgeLeavesUnindexedValuesAlone(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.tokenise(t)
 	config := filepath.Join(fixture.workspace, "config", "tenant")
@@ -749,11 +749,11 @@ func TestDroppedPackEdgeLeavesUnbookedValuesAlone(t *testing.T) {
 		Root:       syntheticRootWithZpaReferences(t, zpaReferencesWithoutSegmentGroupEdge()),
 		Selectors:  []string{"zpa_application_segment"}, Tenant: "tenant",
 	}); err != nil {
-		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil for a value no book decodes", err)
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil for a value no lookup decodes", err)
 	}
 }
 
-// segmentGroupBookWithSecondEntry is segmentGroupBookContent extended with a
+// segmentGroupBookWithSecondEntry is segmentGroupLookupContent extended with a
 // second referent whose raw tenant ID ("sg-2") a mixed config still carries
 // literally -- the ID render-derivation must never resolve.
 func segmentGroupBookWithSecondEntry() map[string]any {
@@ -767,7 +767,7 @@ func segmentGroupBookWithSecondEntry() map[string]any {
 // tokeniseMixed writes the shape the committed demo tree actually has: one
 // item tokenised by a past transform and a sibling still carrying a raw
 // tenant ID, under one config for one resource type.
-func (f stateAwareFixture) tokeniseMixed(t *testing.T, book map[string]any) {
+func (f stateAwareFixture) tokeniseMixed(t *testing.T, lookup map[string]any) {
 	t.Helper()
 	config := filepath.Join(f.workspace, "config", "tenant")
 	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
@@ -776,15 +776,15 @@ func (f stateAwareFixture) tokeniseMixed(t *testing.T, book map[string]any) {
 			"app_two": map[string]any{"segment_group_id": "sg-2"},
 		},
 	})
-	writeJSONFile(t, filepath.Join(config, "lookups", "zpa_segment_group.lookup.json"), book)
+	writeJSONFile(t, filepath.Join(config, "lookups", "zpa_segment_group.lookup.json"), lookup)
 }
 
 // TestMixedConfigRenderDerivationBindsTokensOnly pins round-4 finding 2. The
 // derivation trigger is per resource type, so one tokenised item drags every
 // other item in the same config through DeriveGeneratedBindings -- and the
-// deriver's raw-ID branch would resolve any ID the book happens to know.
+// deriver's raw-ID branch would resolve any ID the lookup happens to know.
 // Raw-ID derivation is transform-only: binding it here makes the emitted root
-// depend on book contents for a leaf no transform touched.
+// depend on lookup contents for a leaf no transform touched.
 func TestMixedConfigRenderDerivationBindsTokensOnly(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.tokeniseMixed(t, segmentGroupBookWithSecondEntry())
@@ -793,7 +793,7 @@ func TestMixedConfigRenderDerivationBindsTokensOnly(t *testing.T) {
 	diagnostics := fixture.generate(t, false)
 
 	bindings := fixture.readReferrerFile(t, expressionBindingsTF)
-	if !strings.Contains(bindings, `local.infrawright_reference_book_zpa_segment_group["segment_one"]`) {
+	if !strings.Contains(bindings, `local.infrawright_reference_lookup_zpa_segment_group["segment_one"]`) {
 		t.Errorf("%s = %q, want the tokenised leaf bound", expressionBindingsTF, bindings)
 	}
 	if strings.Contains(bindings, "app_two") || strings.Contains(bindings, "segment_two") {
@@ -807,13 +807,13 @@ func TestMixedConfigRenderDerivationBindsTokensOnly(t *testing.T) {
 	}
 }
 
-// TestMixedConfigRenderIsIndependentOfBookGrowth is the same invariant stated
-// as an observable: a referent-only transform that adds an ID to the book must
+// TestMixedConfigRenderIsIndependentOfLookupGrowth is the same invariant stated
+// as an observable: a referent-only transform that adds an ID to the lookup must
 // not change the referrer's emitted root. Only a re-transform of the referrer
 // may rewrite its leaves.
-func TestMixedConfigRenderIsIndependentOfBookGrowth(t *testing.T) {
+func TestMixedConfigRenderIsIndependentOfLookupGrowth(t *testing.T) {
 	fixture := newStateAwareFixture(t)
-	fixture.tokeniseMixed(t, segmentGroupBookContent())
+	fixture.tokeniseMixed(t, segmentGroupLookupContent())
 	fixture.removeCommittedBindings(t)
 
 	fixture.generate(t, false)
@@ -823,14 +823,14 @@ func TestMixedConfigRenderIsIndependentOfBookGrowth(t *testing.T) {
 		t.Fatalf("%s = %q, want the tokenised leaf's resolver to compare against", expressionBindingsTF, bindings)
 	}
 
-	// The referent re-transforms and its book gains the sibling's raw ID.
+	// The referent re-transforms and its lookup gains the sibling's raw ID.
 	writeJSONFile(t,
 		filepath.Join(fixture.workspace, "config", "tenant", "lookups", "zpa_segment_group.lookup.json"),
 		segmentGroupBookWithSecondEntry())
 
 	fixture.generate(t, false)
 	if after := fixture.referrerTree(t); !equalTrees(after, before) {
-		t.Errorf("referrer root changed when the referent's book gained an id:\ngot  %v\nwant %v",
+		t.Errorf("referrer root changed when the referent's lookup gained an id:\ngot  %v\nwant %v",
 			after[expressionBindingsTF], before[expressionBindingsTF])
 	}
 }

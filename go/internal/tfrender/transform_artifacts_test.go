@@ -54,11 +54,11 @@ func newArtifactOptions(workspace, resourceType string) TransformArtifactCompile
 	}
 }
 
-// staleBookPlaceholder is the content the stale-book fixtures below commit at
-// a location publish must clean. It is a VALID book carrying one key the fresh
-// compile does not: every committed book is now read at compile time by the
+// staleBookPlaceholder is the content the stale-lookup fixtures below commit at
+// a location publish must clean. It is a VALID lookup carrying one key the fresh
+// compile does not: every committed lookup is now read at compile time by the
 // key-shrinkage guard, so an unparseable placeholder would fail the compile
-// for reasons the test is not about, and a book with no dropped key would skip
+// for reasons the test is not about, and a lookup with no dropped key would skip
 // the guard's dependent scan entirely rather than exercise it.
 func staleBookPlaceholder() string {
 	return `{"by_id":{"stale-id":"Stale"},"id_by_key":{"stale":"stale-id"},"key_by_id":{"stale-id":"stale"}}`
@@ -811,7 +811,7 @@ func TestBatchPublishTokenisedCompileWritesNoBindingsCache(t *testing.T) {
 }
 
 // TestPublishWritesLookupUnderLookupsAndStaleCleansLegacy pins Task B1's
-// single-artifact publish contract: the book lands at its current location
+// single-artifact publish contract: the lookup lands at its current location
 // (config/<tenant>/lookups/<type>.lookup.json) and a pre-existing copy at
 // the pre-migration legacy location (config/<tenant>/<type>.lookup.json) is
 // stale-cleaned and reported, mirroring StaleConfig's own unconditional
@@ -836,10 +836,10 @@ func TestPublishWritesLookupUnderLookupsAndStaleCleansLegacy(t *testing.T) {
 		t.Fatalf("PublishCompiledTransformArtifacts: %v", err)
 	}
 	if !fileExists(t, paths.Lookup) {
-		t.Error("expected the book to exist at the current lookups/ path after publish")
+		t.Error("expected the lookup to exist at the current lookups/ path after publish")
 	}
 	if fileExists(t, paths.LegacyLookup) {
-		t.Error("expected the legacy-path book to be removed after publish")
+		t.Error("expected the legacy-path lookup to be removed after publish")
 	}
 	if !stringSliceContains(result.Written, paths.Lookup) {
 		t.Errorf("result.Written = %v, want it to contain %s", result.Written, paths.Lookup)
@@ -876,10 +876,10 @@ func TestBatchPublishWritesLookupUnderLookupsAndStaleCleansLegacy(t *testing.T) 
 		t.Fatalf("PublishCompiledTransformArtifactBatch: %v", err)
 	}
 	if !fileExists(t, paths.Lookup) {
-		t.Error("expected the book to exist at the current lookups/ path after batch publish")
+		t.Error("expected the lookup to exist at the current lookups/ path after batch publish")
 	}
 	if fileExists(t, paths.LegacyLookup) {
-		t.Error("expected the legacy-path book to be removed after batch publish")
+		t.Error("expected the legacy-path lookup to be removed after batch publish")
 	}
 	if !stringSliceContains(results[0].Written, paths.Lookup) {
 		t.Errorf("results[0].Written = %v, want it to contain %s", results[0].Written, paths.Lookup)
@@ -1203,7 +1203,7 @@ func TestCompileTransformArtifactsRejectsConflictingMoveEvidence(t *testing.T) {
 }
 
 // TestComputeTransformArtifactPathsFlatLayout ports "artifact paths retain
-// the flat tenant/resource layout", extended for Task B1: the book (Lookup)
+// the flat tenant/resource layout", extended for Task B1: the lookup (Lookup)
 // is the one artifact that no longer sits flat in the tenant directory --
 // it lives under a lookups/ subdirectory -- while LegacyLookup keeps naming
 // its pre-migration flat location for dual-read and stale-cleanup.

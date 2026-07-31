@@ -118,8 +118,8 @@ shipped).
 >
 > *Superseded in part by the maintainer's settled fallback contract
 > (recorded in the Interfaces section below): the resolver's fallback arm
-> reads the committed book at plan time. "Owns no lookup maps" means the
-> renderer inlines no values — state is authoritative truth, the book is
+> reads the committed lookup at plan time. "Owns no lookup maps" means the
+> renderer inlines no values — state is authoritative truth, the lookup is
 > the chosen fallback, the renderer owns neither.*
 
 **Files:**
@@ -136,7 +136,7 @@ shipped).
   exists, the sidecar literal is purely a fallback that retires
   naturally as referents get applied):
 
-  `try(data.terraform_remote_state.<referent_root>.outputs.infrawright_reference_ids.<referent>["<key>"], local.<book>.<referent>["<key>"])`
+  `try(data.terraform_remote_state.<referent_root>.outputs.infrawright_reference_ids.<referent>["<key>"], local.<lookup>.<referent>["<key>"])`
 
 - The fallback arm reads the committed lookup sidecar **at plan time**
   via a `fileexists()`-guarded `jsondecode(file(...))` local — the
@@ -154,7 +154,7 @@ shipped).
   unapplied referents automatically and this design is complete with no
   unknown failure modes. **CONFIRMED downstream (tf-zscaler, 2026-07-30):
   the azurerm reader on a missing blob reads as empty state; remote state
-  resolves correctly when applied, and the book fallback served
+  resolves correctly when applied, and the lookup fallback served
   unapplied referents non-blocking.** The probe-gated reader-emission
   contingency is retired unused. Local-backend bootstrap = apply
   referent first or accept the loud error (documented corner, and the

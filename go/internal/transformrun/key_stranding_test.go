@@ -1,6 +1,6 @@
 package transformrun
 
-// This file pins the runner-level half of the book-key-stranding guard, the
+// This file pins the runner-level half of the lookup-key-stranding guard, the
 // evidence gap the round-3 adversarial re-review named: every other regression
 // for that guard exercises tfrender's compile in isolation, and the defect the
 // re-review found lives in what the RUNNER does around it -- it publishes each
@@ -44,7 +44,7 @@ func readFile(t *testing.T, file string) string {
 
 // samplePackRoot is the smallest pack universe carrying one reference edge:
 // sample_referrer.group_id -> sample_group. The edge is what gives sample_group
-// an inferred lookup book (transformLookupNameField), which is the artifact the
+// an inferred lookup (transformLookupNameField), which is the artifact the
 // stranding guard protects.
 func samplePackRoot(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
@@ -100,16 +100,16 @@ func samplePackRoot(t *testing.T) metadata.LoadedPackRoot {
 // re-review's deterministic repro, run end to end through the real batch
 // runner.
 //
-// The committed tree holds a book decoding "segment_one" and a referrer config
+// The committed tree holds a lookup decoding "segment_one" and a referrer config
 // naming "sample_group.segment_one". The referent's fresh input renames that
-// item, so its rebuilt book would drop the key. Both types are selected, but
+// item, so its rebuilt lookup would drop the key. Both types are selected, but
 // the referrer's pull input is absent, so the runner skips it AFTER the
 // referent has already been published -- exactly the partial run the
 // type-membership exemption could not see.
 //
-// The run must refuse before publishing, leaving the old book and the old
+// The run must refuse before publishing, leaving the old lookup and the old
 // referrer config intact as a matched pair. An exemption based on selection
-// membership publishes the new book and then skips the repair, leaving a token
+// membership publishes the new lookup and then skips the repair, leaving a token
 // nothing decodes.
 func TestRunTransformRefusesRatherThanStrandingWhenALaterMemberSkips(t *testing.T) {
 	workspace := t.TempDir()
@@ -120,9 +120,9 @@ func TestRunTransformRefusesRatherThanStrandingWhenALaterMemberSkips(t *testing.
 	}
 
 	configDirectory := filepath.Join(workspace, "config", "tenant")
-	book := filepath.Join(configDirectory, "lookups", "sample_group.lookup.json")
+	lookup := filepath.Join(configDirectory, "lookups", "sample_group.lookup.json")
 	referrerConfig := filepath.Join(configDirectory, "sample_referrer.auto.tfvars.json")
-	writeJSON(t, book, map[string]any{
+	writeJSON(t, lookup, map[string]any{
 		"by_id":     map[string]any{"sg-1": "Segment One"},
 		"id_by_key": map[string]any{"segment_one": "sg-1"},
 		"key_by_id": map[string]any{"sg-1": "segment_one"},
@@ -130,7 +130,7 @@ func TestRunTransformRefusesRatherThanStrandingWhenALaterMemberSkips(t *testing.
 	writeJSON(t, referrerConfig, map[string]any{
 		"items": map[string]any{"one": map[string]any{"group_id": "sample_group.segment_one"}},
 	})
-	bookBefore := readFile(t, book)
+	lookupBefore := readFile(t, lookup)
 	referrerBefore := readFile(t, referrerConfig)
 
 	// The referent's item is renamed; the referrer has NO pull input, so the
@@ -159,8 +159,8 @@ func TestRunTransformRefusesRatherThanStrandingWhenALaterMemberSkips(t *testing.
 	if !containsValue(result.Skipped, "sample_referrer") {
 		t.Fatalf("result.Skipped = %v, want the dependent skipped -- the fixture does not reproduce a partial run otherwise", result.Skipped)
 	}
-	if got := readFile(t, book); got != bookBefore {
-		t.Errorf("book changed despite the refusal:\ngot  %s\nwant %s", got, bookBefore)
+	if got := readFile(t, lookup); got != lookupBefore {
+		t.Errorf("lookup changed despite the refusal:\ngot  %s\nwant %s", got, lookupBefore)
 	}
 	if got := readFile(t, referrerConfig); got != referrerBefore {
 		t.Errorf("referrer config changed:\ngot  %s\nwant %s", got, referrerBefore)
@@ -183,8 +183,8 @@ func TestRunTransformPublishesWhenNoCommittedTokenNamesTheDroppedKey(t *testing.
 	}
 
 	configDirectory := filepath.Join(workspace, "config", "tenant")
-	book := filepath.Join(configDirectory, "lookups", "sample_group.lookup.json")
-	writeJSON(t, book, map[string]any{
+	lookup := filepath.Join(configDirectory, "lookups", "sample_group.lookup.json")
+	writeJSON(t, lookup, map[string]any{
 		"by_id":     map[string]any{"sg-1": "Segment One"},
 		"id_by_key": map[string]any{"segment_one": "sg-1"},
 		"key_by_id": map[string]any{"sg-1": "segment_one"},
@@ -208,8 +208,8 @@ func TestRunTransformPublishesWhenNoCommittedTokenNamesTheDroppedKey(t *testing.
 	if len(result.Failed) != 0 {
 		t.Fatalf("result.Failed = %v, want the rename published when nothing references the departing key", result.Failed)
 	}
-	if got := readFile(t, book); got == "" || !anyContains([]string{got}, "segment_uno") {
-		t.Errorf("book = %s, want the renamed key published", got)
+	if got := readFile(t, lookup); got == "" || !anyContains([]string{got}, "segment_uno") {
+		t.Errorf("lookup = %s, want the renamed key published", got)
 	}
 }
 

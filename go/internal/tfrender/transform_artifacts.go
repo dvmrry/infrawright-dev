@@ -114,16 +114,16 @@ type BindingContext struct {
 	// never generate an environment.
 	SetBlockFields map[string]int
 	// TokensOnly restricts resolve to committed reference tokens: a raw
-	// tenant ID is skipped WITHOUT consulting the referent's book.
+	// tenant ID is skipped WITHOUT consulting the referent's lookup.
 	//
 	// Raw-ID derivation is transform-only by contract. A raw ID names nothing
-	// on its own -- only the book translates it -- so a derivation that
-	// resolved one would make the artifact it produces a function of book
-	// contents. That is exactly right at transform time (the book is being
+	// on its own -- only the lookup translates it -- so a derivation that
+	// resolved one would make the artifact it produces a function of lookup
+	// contents. That is exactly right at transform time (the lookup is being
 	// written by the same run) and exactly wrong at render time: a later
-	// referent-only transform that added the ID to the book would silently
+	// referent-only transform that added the ID to the lookup would silently
 	// rebind a committed leaf no re-transform ever touched, and if state and
-	// book disagree, the resolver can select a different ID than the literal
+	// lookup disagree, the resolver can select a different ID than the literal
 	// the operator committed.
 	//
 	// gen-env's render-derivation sets this; transform and adopt do not, so
@@ -152,7 +152,7 @@ type TransformArtifactPaths struct {
 	Config            string
 	GeneratedBindings string
 	Imports           string
-	// LegacyLookup is the book's pre-migration location
+	// LegacyLookup is the lookup's pre-migration location
 	// (<configDir>/<type>.lookup.json, the same directory the config and
 	// generated-bindings files sit in). Never written. Unlike StaleConfig,
 	// publish does not stale-clean it unconditionally on every run: it is
@@ -161,14 +161,14 @@ type TransformArtifactPaths struct {
 	// removal (RemoveLookupWhenAbsent, when this run's active pack root
 	// declares no surviving inbound reference into this type). When neither
 	// branch fires -- this run's scope simply has no opinion on this type's
-	// book, e.g. a selective/partial run whose active root omits the
+	// lookup, e.g. a selective/partial run whose active root omits the
 	// referrer that declares the edge -- the legacy copy is left alone
-	// rather than risk deleting a book's only surviving copy on a run that
-	// never decided it should go. Every book reader falls back to it when
+	// rather than risk deleting a lookup's only surviving copy on a run that
+	// never decided it should go. Every lookup reader falls back to it when
 	// Lookup does not exist on disk, so a tenant that has not re-transformed
 	// since this migration keeps rendering unchanged.
 	LegacyLookup string
-	// Lookup is the book's current, authoritative location:
+	// Lookup is the lookup's current, authoritative location:
 	// <configDir>/lookups/<type>.lookup.json. Publish creates the lookups/
 	// subdirectory as needed.
 	Lookup      string
@@ -187,9 +187,9 @@ type TransformArtifactWriteResult struct {
 
 // TransformLookupData is the Go analogue of the TransformLookupData
 // interface in the original implementation, extended with IDByKey: the
-// inverse book the plan-time reference-token fallback expression indexes.
+// inverse lookup the plan-time reference-token fallback expression indexes.
 // The parser derives it from key_by_id when a committed sidecar predates
-// the field, so both directions decode for every book ever written.
+// the field, so both directions decode for every lookup ever written.
 type TransformLookupData struct {
 	ByID    map[string]string
 	IDByKey map[string]string
@@ -1076,7 +1076,7 @@ func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap m
 		return nil, nil
 	default:
 		// The keyMap is deliberately not consulted before this return: under
-		// TokensOnly the outcome for a raw ID must not depend on the book at
+		// TokensOnly the outcome for a raw ID must not depend on the lookup at
 		// all, not merely produce no binding when the lookup misses. See
 		// BindingContext.TokensOnly.
 		if b.context.TokensOnly {
@@ -1678,9 +1678,9 @@ func loadLookup(file string) (*TransformLookupData, error) {
 	if text == nil {
 		return nil, nil
 	}
-	// Books are read from two possible locations (current and legacy), and
+	// Lookups are read from two possible locations (current and legacy), and
 	// since the key-shrinkage guard they are read during compiles that never
-	// mention the book otherwise. A bare parse error names neither which file
+	// mention the lookup otherwise. A bare parse error names neither which file
 	// nor which of the two paths it came from, so the exact path is attached.
 	value, err := canonjson.ParseDataJSONLosslessly(*text)
 	if err != nil {
@@ -1697,7 +1697,7 @@ func loadLookup(file string) (*TransformLookupData, error) {
 // configDirectory that carry a qualified reference token for resourceType.
 // The scan is textual (a quoted string opening with "<resourceType>."), the
 // same signal the renderer keys on, so both format variants of tfvars are
-// served and a refusal errs toward keeping the book.
+// served and a refusal errs toward keeping the lookup.
 func tokenDependents(configDirectory, resourceType string) ([]string, error) {
 	entries, err := os.ReadDir(configDirectory)
 	if err != nil {
@@ -1766,10 +1766,10 @@ func jsonStringValues(value any, into map[string]bool) {
 	}
 }
 
-// droppedBookKeys reports every key the committed book decodes that the
-// freshly compiled one no longer does. The committed book is read through
-// resolveLookup, so a tenant still holding its book at the pre-migration
-// path is compared against, not silently treated as having no book at all.
+// droppedBookKeys reports every key the committed lookup decodes that the
+// freshly compiled one no longer does. The committed lookup is read through
+// resolveLookup, so a tenant still holding its lookup at the pre-migration
+// path is compared against, not silently treated as having no lookup at all.
 func droppedBookKeys(configDirectory, resourceType string, fresh *TransformLookupData) ([]string, error) {
 	committed, err := resolveLookup(configDirectory, resourceType, nil)
 	if err != nil || committed == nil {
@@ -1819,7 +1819,7 @@ func configTextTokenKeys(text string, jsonFormat bool, resourceType string, drop
 // in configDirectory that still name "<resourceType>.<key>". Every config
 // artifact is scanned, this type's own included: no file is exempt, because no
 // publication path here is transactional enough to justify excusing one (see
-// assertNoBookKeyStranding).
+// assertNoLookupKeyStranding).
 func tokenKeyDependents(
 	configDirectory, resourceType string,
 	dropped []string,
@@ -1853,11 +1853,11 @@ func tokenKeyDependents(
 	return dependents, nil
 }
 
-// assertNoBookKeyStranding refuses a book update that would drop a key some
+// assertNoLookupKeyStranding refuses a lookup update that would drop a key some
 // committed config still names by token.
 //
-// This is the symmetric half of the whole-book retirement guard above, and it
-// is what makes book membership a SOUND signal for every consumer that keys on
+// This is the symmetric half of the whole-lookup retirement guard above, and it
+// is what makes lookup membership a SOUND signal for every consumer that keys on
 // it -- gen-env's dropped-edge orphan scan most of all. Without it an ordinary
 // referent re-transform (item renamed or deleted) shrinks the key set, the
 // orphaned token stops decoding, and every render-time gate goes blind to it
@@ -1870,39 +1870,39 @@ func tokenKeyDependents(
 // and independently and continue past a later member that skips or fails
 // (round-3 re-review's deterministic repro), and even the batch helper's
 // rollback is best-effort. A selection-scoped exemption therefore published
-// the new book and then simply did not repair the dependent.
+// the new lookup and then simply did not repair the dependent.
 //
 // The compiling type's OWN config is scanned too, on both sides of the write.
 // It was briefly skipped on the argument that a type never mints a token
 // naming itself (bindableReference refuses a self-reference outright). That
 // argument covers MINTING a declared self-reference and nothing else: gen-env
-// classifies a token by book membership over every string leaf, with no
+// classifies a token by lookup membership over every string leaf, with no
 // own-config exception, so an ordinary description reading
 // "<type>.<key>" is a token claim to every render-time gate. Two checks,
 // guarding two different failures, neither subsuming the other:
 //
 //   - the COMMITTED copy on disk guards the publication window.
-//     PublishCompiledTransformArtifacts writes the book before the config, and
+//     PublishCompiledTransformArtifacts writes the lookup before the config, and
 //     writes them directly rather than transactionally, so a failure between
-//     the two leaves the old config beside the new book. A planned replacement
+//     the two leaves the old config beside the new lookup. A planned replacement
 //     is not a transactional justification.
 //   - the freshly compiled CONFIG TEXT guards the steady state after a
 //     successful publish: a value this compile is about to commit that the new
-//     book will not decode. A disk-only scan sees a clean tree and misses it
+//     lookup will not decode. A disk-only scan sees a clean tree and misses it
 //     entirely.
 //
 // The cost is a real deadlock: renaming a referent item refuses until the
 // referrer's committed reference is updated, and re-transforming the referrer
-// first re-mints the same departing key from the still-committed book, so the
+// first re-mints the same departing key from the still-committed lookup, so the
 // operator must break the tie by hand. That is accepted deliberately -- loud
 // and self-consistent beats quiet and stranded -- and is documented in the
 // design spec's residuals. The message below states the manual remedy and
 // claims no automatic one.
 //
 // Residual, deliberately named rather than claimed away: this guards the
-// pipeline's own writes. A book deleted or edited by hand outside the pipeline
+// pipeline's own writes. A lookup deleted or edited by hand outside the pipeline
 // is not covered.
-func assertNoBookKeyStranding(
+func assertNoLookupKeyStranding(
 	configDirectory, resourceType, configFile, configText string,
 	fresh *TransformLookupData,
 ) error {
@@ -1932,7 +1932,7 @@ func assertNoBookKeyStranding(
 		}
 	}
 	return fmt.Errorf(
-		"cannot publish %s's lookup sidecar: it would drop key(s) committed config still references by token — %s; nothing published. Re-running transform for those dependents first will NOT help (they re-mint the same key from the still-committed book): either restore the referent item whose key is leaving the book, or update each dependent's committed reference to the new key by hand (or delete that config and re-transform it after this one succeeds)",
+		"cannot publish %s's lookup sidecar: it would drop key(s) committed config still references by token — %s; nothing published. Re-running transform for those dependents first will NOT help (they re-mint the same key from the still-committed lookup): either restore the referent item whose key is leaving the lookup, or update each dependent's committed reference to the new key by hand (or delete that config and re-transform it after this one succeeds)",
 		resourceType, strings.Join(stranded, "; "),
 	)
 }
@@ -1964,7 +1964,7 @@ func jsonValueHasPrefix(value any, prefix string) bool {
 // LookupOverrides doc comment for why no separate "overrides provided"
 // flag is threaded here.
 //
-// Dual-read for the Part B book migration (config/<tenant>/<type>.lookup.json
+// Dual-read for the Part B lookup migration (config/<tenant>/<type>.lookup.json
 // -> config/<tenant>/lookups/<type>.lookup.json): the current path is tried
 // first; only when it is absent (loadLookup's nil-without-error result) does
 // this fall back to the legacy path. A malformed file at the current path
@@ -1986,12 +1986,12 @@ func resolveLookup(configDirectory, referent string, overrides map[string]*Trans
 	return loadLookup(path.Join(configDirectory, referent+".lookup.json"))
 }
 
-// lookupSidecarSuffix is the committed book's filename suffix, shared by
+// lookupSidecarSuffix is the committed lookup's filename suffix, shared by
 // both locations ComputeTransformArtifactPaths names (Lookup and
 // LegacyLookup) and by resolveLookup's dual read.
 const lookupSidecarSuffix = ".lookup.json"
 
-// CommittedBookReferents lists every resource type carrying a committed book
+// CommittedLookupReferents lists every resource type carrying a committed lookup
 // under configDirectory, reading BOTH locations the migration spans: the
 // current one (ComputeTransformArtifactPaths.Lookup, <dir>/lookups/) and the
 // legacy one (ComputeTransformArtifactPaths.LegacyLookup, <dir>/ itself). A
@@ -1999,10 +1999,10 @@ const lookupSidecarSuffix = ".lookup.json"
 //
 // Exported for gen-env's dropped-edge orphan scan, which must recognise a
 // committed token whose referent the CURRENT pack no longer declares an edge
-// to: pack metadata cannot name that type, but its book -- the only decoder
+// to: pack metadata cannot name that type, but its lookup -- the only decoder
 // the token has -- is still on disk. An absent directory is not an error;
-// a tenant may have no books at all.
-func CommittedBookReferents(configDirectory string) ([]string, error) {
+// a tenant may have no lookups at all.
+func CommittedLookupReferents(configDirectory string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, directory := range []string{
 		path.Join(configDirectory, "lookups"),
@@ -2030,18 +2030,18 @@ func CommittedBookReferents(configDirectory string) ([]string, error) {
 	return canonjson.SortedStrings(referents), nil
 }
 
-// CommittedBookKeys returns, per referent, the set of item keys its committed
-// book decodes -- id_by_key's keys, including the parser's inversion of
+// CommittedLookupKeys returns, per referent, the set of item keys its committed
+// lookup decodes -- id_by_key's keys, including the parser's inversion of
 // key_by_id for a sidecar written before id_by_key existed. A referent with
-// no committed book gets no entry at all, so a caller cannot mistake "no
-// book" for "book with no keys".
+// no committed lookup gets no entry at all, so a caller cannot mistake "no
+// lookup" for "lookup with no keys".
 //
-// Book membership is what makes a token claim distinguishable from an
-// innocent dotted string: only a key the book decodes could ever have been
-// minted, and the retirement guard (tokenDependents) refuses to remove a book
-// while any committed config still references it by token, so a book's
+// Lookup membership is what makes a token claim distinguishable from an
+// innocent dotted string: only a key the lookup decodes could ever have been
+// minted, and the retirement guard (tokenDependents) refuses to remove a lookup
+// while any committed config still references it by token, so a lookup's
 // presence is a sound signal rather than a race.
-func CommittedBookKeys(configDirectory string, referents []string) (map[string]map[string]bool, error) {
+func CommittedLookupKeys(configDirectory string, referents []string) (map[string]map[string]bool, error) {
 	output := map[string]map[string]bool{}
 	for _, referent := range referents {
 		if _, done := output[referent]; done {
@@ -2087,7 +2087,7 @@ func displayFor(value any, mapping map[string]string) (string, error) {
 }
 
 // displayForReference resolves a committed reference value to its display
-// name: a qualified token maps key -> id through the book before the
+// name: a qualified token maps key -> id through the lookup before the
 // ordinary id -> display lookup, so tokenised HCL trees keep the same
 // human-readable comments raw-ID trees always had. Every other value keeps
 // displayFor's legacy semantics.
@@ -2253,12 +2253,12 @@ func lookupKeyMaps(
 // LookupKeyMaps exposes lookupKeyMaps to render-time binding derivation
 // (gen-env, once the committed generated-bindings cache became optional).
 // Only the on-disk arm is offered: the override map exists for a compile
-// batch whose members' fresh books are authoritative for same-batch
+// batch whose members' fresh lookups are authoritative for same-batch
 // references, and no such batch exists at render time -- the renderer reads
-// exactly the books that are committed. Keeping this a delegation rather
-// than a second book reader is what guarantees the derivation gen-env runs
+// exactly the lookups that are committed. Keeping this a delegation rather
+// than a second lookup reader is what guarantees the derivation gen-env runs
 // sees byte-identical key maps to the one transform ran, including a
-// referent whose book is absent (a nil entry, which the deriver reports as
+// referent whose lookup is absent (a nil entry, which the deriver reports as
 // a missing lookup rather than binding past).
 func LookupKeyMaps(
 	configDirectory string,
@@ -2301,7 +2301,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
-	// Once committed configs reference this type by token, its book is the
+	// Once committed configs reference this type by token, its lookup is the
 	// only decoder those tokens have: inferred-lifecycle removal must refuse
 	// while any dependent survives, not strand them.
 	if lookupText == nil && options.RemoveLookupWhenAbsent {
@@ -2311,7 +2311,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 		}
 		if len(dependents) > 0 {
 			return CompiledTransformArtifacts{}, fmt.Errorf(
-				"cannot remove %s's lookup sidecar: committed config still references it by token (%s); re-run transform for the dependents or restore the referent before retiring its book",
+				"cannot remove %s's lookup sidecar: committed config still references it by token (%s); re-run transform for the dependents or restore the referent before retiring its lookup",
 				options.ResourceType, strings.Join(dependents, ", "),
 			)
 		}
@@ -2361,7 +2361,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	// The key maps are resolved before the config renders so committed
 	// reference fields can be rewritten to qualified tokens first. The
 	// sidecar compiled above this point deliberately still maps real IDs
-	// -- it is the book the tokens decode through -- and imports/moves
+	// -- it is the lookup the tokens decode through -- and imports/moves
 	// render from Originals, which the substitution never touches.
 	configDirectory := path.Dir(paths.Config)
 	keyMaps, err := lookupKeyMaps(configDirectory, options.References, options.LookupOverrides)
@@ -2389,13 +2389,13 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 		return CompiledTransformArtifacts{}, err
 	}
 
-	// A book that keeps existing but stops decoding a key strands its tokens
-	// exactly as thoroughly as a removed book does, so the same refusal applies
+	// A lookup that keeps existing but stops decoding a key strands its tokens
+	// exactly as thoroughly as a removed lookup does, so the same refusal applies
 	// key by key. This runs after the config renders because the check needs
 	// this compile's own pending config text as well as what is on disk; it is
 	// still pure compilation, so nothing has been published when it refuses.
 	if lookupText != nil && freshLookup != nil {
-		if err := assertNoBookKeyStranding(
+		if err := assertNoLookupKeyStranding(
 			path.Dir(paths.Config), options.ResourceType, paths.Config, configText, freshLookup,
 		); err != nil {
 			return CompiledTransformArtifacts{}, err
@@ -2524,7 +2524,7 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		}
 		written = append(written, compiled.Paths.Lookup)
 		note("wrote " + compiled.Paths.Lookup)
-		// The book just landed at its current location; any copy left at
+		// The lookup just landed at its current location; any copy left at
 		// the pre-migration path is stale the instant this write commits,
 		// the same "cache the instant a fresher artifact exists" logic
 		// GeneratedBindings already applies to itself.
@@ -2596,7 +2596,7 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		note("NOTE bindings: " + message)
 	}
 	// compiled.Binding is never written to disk: it is a pure function of
-	// (items, pack reference edges, schema, books) that gen-env now
+	// (items, pack reference edges, schema, lookups) that gen-env now
 	// recomputes at render time via this same DeriveGeneratedBindings (the
 	// predecessor commit's render-derivation bridge), so a committed
 	// .generated.expressions.json is a stale cache the instant it exists.
@@ -2658,7 +2658,7 @@ func batchArtifactMutations(compiled CompiledTransformArtifacts) []batchArtifact
 			contents: compiled.LookupText, kind: mutationWrite,
 			resourceType: compiled.ResourceType, target: compiled.Paths.Lookup,
 		})
-		// See PublishCompiledTransformArtifacts: the book just landed at its
+		// See PublishCompiledTransformArtifacts: the lookup just landed at its
 		// current location, so any copy at the pre-migration path is stale.
 		mutations = append(mutations, batchArtifactMutation{
 			kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.LegacyLookup,

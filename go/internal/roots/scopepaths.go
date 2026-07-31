@@ -206,7 +206,7 @@ func scopeOnePath(options scopeOnePathOptions) *ChangedPathMatch {
 	if relative, ok := posixpath.RelativeUnder(options.path, artifactRoot(options.deployment, "config"), options.workspace); ok {
 		// Two shapes attribute to a type: the flat <tenant>/<file> layout
 		// every config/generated-bindings/operator-overlay artifact still
-		// uses, and the book's <tenant>/lookups/<file> subdirectory (Part B
+		// uses, and the lookup's <tenant>/lookups/<file> subdirectory (Part B
 		// of the sidecar-minimization migration moved lookup sidecars out
 		// of the tenant directory's top level). Both route through the same
 		// suffix-matching helper against the same CONFIG_SUFFIXES list --

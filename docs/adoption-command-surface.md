@@ -308,8 +308,8 @@ corresponding state migration is confirmed.
 
 With cross-state references enabled, the reference binding for a resource is
 a pure function of its tokenised config, the pack's declared reference edges,
-the provider schema, and the referent's committed book
-(`config/<tenant>/lookups/<resource_type>.lookup.json`; a book still sitting
+the provider schema, and the referent's committed lookup
+(`config/<tenant>/lookups/<resource_type>.lookup.json`; a lookup still sitting
 at the pre-migration `config/<tenant>/<resource_type>.lookup.json` path
 resolves identically until its tenant next transforms). Transform/adopt derive it and
 verify it in-process (the totality and foreign-token gates run against it),

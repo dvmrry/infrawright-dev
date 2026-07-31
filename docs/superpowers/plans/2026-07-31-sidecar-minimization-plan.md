@@ -19,7 +19,7 @@ area), new tests in `go/internal/envgen/reference_resolvers_test.go`.
   file present but stale still wins the bridge (today's behaviour pinned);
   (3) old-shape (raw-ID) config without a bindings file renders exactly
   today's output (no derivation from IDs at render — raw-ID derivation
-  stays transform-only, so render output never depends on book contents
+  stays transform-only, so render output never depends on lookup contents
   for old-shape trees).
 - [ ] Implement: in `loadBindingLayers`, when the generated-bindings file
   is absent and the member's config carries tokens, build the
@@ -52,7 +52,7 @@ tests beside the existing publish tests.
 - [ ] Full-suite gate; commit
   (`tfrender: stop committing the derivable bindings cache`).
 
-## Task B1: books to `config/<tenant>/lookups/` with dual-read
+## Task B1: lookups to `config/<tenant>/lookups/` with dual-read
 
 **Files:** `go/internal/tfrender/transform_artifacts.go`
 (`ComputeTransformArtifactPaths`, `resolveLookup`, publish stale-clean),
@@ -61,20 +61,20 @@ resolution), `go/internal/roots/scopepaths.go` (config matcher depth),
 tests in each package.
 
 - [ ] Failing tests: (1) paths: `Lookup` lands under `lookups/`;
-  (2) dual-read: a book at the legacy path still resolves for derivation,
+  (2) dual-read: a lookup at the legacy path still resolves for derivation,
   comments, and the emitted `file()` expression points at the path that
   exists; (3) publish writes the new path and stale-cleans the legacy
   file; (4) scopepaths attributes `config/<tenant>/lookups/<type>.lookup.json`
   to the type (depth-3 config shape).
-- [ ] Implement; regenerate fixtures (books relocate in demo + authority
+- [ ] Implement; regenerate fixtures (lookups relocate in demo + authority
   trees).
 - [ ] Full-suite gate; commit
-  (`tfrender+envgen+roots: books live in config/<tenant>/lookups`).
+  (`tfrender+envgen+roots: lookups live in config/<tenant>/lookups`).
 
 ## Task C: docs, CHANGELOG, review
 
 - [ ] CHANGELOG: the two-file end state, the bridge/no-flag-day migration
-  (committed caches win until re-transform removes them; books dual-read),
+  (committed caches win until re-transform removes them; lookups dual-read),
   and the one-breath story. Update
   `docs/terraform-expression-bindings.md` and the reference-tokens spec's
   out-of-scope pointer.

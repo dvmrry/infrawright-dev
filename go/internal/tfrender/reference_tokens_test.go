@@ -410,7 +410,7 @@ func TestDeriveGeneratedBindingsTokenWithUnsafeKey(t *testing.T) {
 	}
 }
 
-// TestRenderTransformLookupEmitsIDByKey pins the producer-side book
+// TestRenderTransformLookupEmitsIDByKey pins the producer-side lookup
 // extension the plan-time fallback expression indexes: the sidecar carries
 // id_by_key alongside key_by_id, both derived from the same rows.
 func TestRenderTransformLookupEmitsIDByKey(t *testing.T) {
@@ -437,7 +437,7 @@ func TestRenderTransformLookupEmitsIDByKey(t *testing.T) {
 
 // TestParseLookupSidecarInvertsWhenIDByKeyAbsent pins migration coverage
 // for sidecars written before id_by_key existed: the parser derives the
-// inverse from key_by_id so every committed book decodes both directions.
+// inverse from key_by_id so every committed lookup decodes both directions.
 func TestParseLookupSidecarInvertsWhenIDByKeyAbsent(t *testing.T) {
 	data, err := ParseLookupSidecar(map[string]any{
 		"by_id":     map[string]any{"sg-1": "Segment One"},
@@ -454,7 +454,7 @@ func TestParseLookupSidecarInvertsWhenIDByKeyAbsent(t *testing.T) {
 // TestDeriveHclCommentsResolvesTokenDisplay pins the comment path over
 // tokenised values (pulled forward from plan Task 4 to keep HCL trees
 // readable the moment tokens land): a token resolves key -> id -> display
-// through the book instead of rendering "<unknown>".
+// through the lookup instead of rendering "<unknown>".
 func TestDeriveHclCommentsResolvesTokenDisplay(t *testing.T) {
 	items := map[string]map[string]any{
 		"app_one": {"segment_group_id": "zpa_segment_group.segment_one"},
@@ -480,7 +480,7 @@ func TestDeriveHclCommentsResolvesTokenDisplay(t *testing.T) {
 }
 
 // TestResolveLookupPrefersCurrentPathOverLegacy pins Part B's dual-read
-// preference order: when a book exists at both the current location
+// preference order: when a lookup exists at both the current location
 // (config/<tenant>/lookups/<type>.lookup.json) and the pre-migration legacy
 // location (config/<tenant>/<type>.lookup.json), resolveLookup's on-disk
 // callers -- lookupKeyMaps (via LookupKeyMaps) and deriveHclComments -- both
@@ -500,7 +500,7 @@ func TestResolveLookupPrefersCurrentPathOverLegacy(t *testing.T) {
 		t.Fatalf("LookupKeyMaps: %v", err)
 	}
 	if got := keyMaps["zpa_segment_group"]["sg-1"]; got != "segment_one" {
-		t.Errorf("keyMaps[zpa_segment_group][sg-1] = %q, want %q (the current-path book)", got, "segment_one")
+		t.Errorf("keyMaps[zpa_segment_group][sg-1] = %q, want %q (the current-path lookup)", got, "segment_one")
 	}
 
 	items := map[string]map[string]any{
@@ -512,12 +512,12 @@ func TestResolveLookupPrefersCurrentPathOverLegacy(t *testing.T) {
 	}
 	key := HclTfvarsCommentKey("app_one", "segment_group_id", nil)
 	if got := comments[key]; got != "Current Segment" {
-		t.Errorf("comment = %q, want %q (the current-path book)", got, "Current Segment")
+		t.Errorf("comment = %q, want %q (the current-path lookup)", got, "Current Segment")
 	}
 }
 
 // TestResolveLookupFallsBackToLegacyPath pins Part B's migration bridge: a
-// book that has not yet been relocated to config/<tenant>/lookups/ -- it
+// lookup that has not yet been relocated to config/<tenant>/lookups/ -- it
 // exists only at the pre-migration config/<tenant>/<type>.lookup.json path
 // -- still resolves for both bindings derivation (lookupKeyMaps) and HCL
 // tfvars comments (deriveHclComments). A tree mid-migration renders exactly
@@ -535,7 +535,7 @@ func TestResolveLookupFallsBackToLegacyPath(t *testing.T) {
 		t.Fatalf("LookupKeyMaps: %v", err)
 	}
 	if got := keyMaps["zpa_segment_group"]["sg-1"]; got != "segment_one" {
-		t.Errorf("keyMaps[zpa_segment_group][sg-1] = %q, want %q (fallback to the legacy-path book)", got, "segment_one")
+		t.Errorf("keyMaps[zpa_segment_group][sg-1] = %q, want %q (fallback to the legacy-path lookup)", got, "segment_one")
 	}
 
 	items := map[string]map[string]any{
@@ -547,11 +547,11 @@ func TestResolveLookupFallsBackToLegacyPath(t *testing.T) {
 	}
 	key := HclTfvarsCommentKey("app_one", "segment_group_id", nil)
 	if got := comments[key]; got != "Segment One" {
-		t.Errorf("comment = %q, want %q (fallback to the legacy-path book)", got, "Segment One")
+		t.Errorf("comment = %q, want %q (fallback to the legacy-path lookup)", got, "Segment One")
 	}
 }
 
-// TestRemoveLookupRefusedWhileTokensDependOnIt pins the book's
+// TestRemoveLookupRefusedWhileTokensDependOnIt pins the lookup's
 // load-bearing role: once committed configs reference a type by token, its
 // lookup sidecar is the only decoder those tokens have, and inferred-
 // lifecycle removal must refuse -- loudly, naming a dependent -- instead of
@@ -573,7 +573,7 @@ func TestRemoveLookupRefusedWhileTokensDependOnIt(t *testing.T) {
 }
 
 // TestRemoveLookupIgnoresLookupsSubdirectory guards tokenDependents against
-// the Part B book migration: its os.ReadDir scan of configDirectory is
+// the Part B lookup migration: its os.ReadDir scan of configDirectory is
 // non-recursive and already skips every directory entry (entry.IsDir()), so
 // the new lookups/ subdirectory sitting alongside the *.auto.tfvars.json
 // files it scans must neither be descended into nor mistaken for a
@@ -676,7 +676,7 @@ func TestAssertMintedTokensCoveredRefusesGaps(t *testing.T) {
 
 // TestRemoveLookupIgnoresDottedKeyNames pins the retirement guard's
 // precision (adversarial-review finding): a dotted string appearing as a
-// JSON map key -- never a value -- must not block book retirement.
+// JSON map key -- never a value -- must not block lookup retirement.
 func TestRemoveLookupIgnoresDottedKeyNames(t *testing.T) {
 	workspace := t.TempDir()
 	options := newArtifactOptions(workspace, "sample_group")
@@ -799,8 +799,8 @@ func TestDeriveRefusesTwoReferenceFieldsInOneSetBlock(t *testing.T) {
 
 // TestDeriveGeneratedBindingsTokensOnlySkipsRawIDs pins the render-derivation
 // option added for round-4 finding 2. Raw-ID derivation is transform-only: at
-// render time the deriver must skip a raw ID WITHOUT consulting the book, so
-// the emitted expression cannot vary with book contents no transform saw. The
+// render time the deriver must skip a raw ID WITHOUT consulting the lookup, so
+// the emitted expression cannot vary with lookup contents no transform saw. The
 // tokenised sibling in the same items map still binds, which is what makes the
 // per-type derivation trigger safe over a mixed config.
 func TestDeriveGeneratedBindingsTokensOnlySkipsRawIDs(t *testing.T) {
@@ -852,13 +852,13 @@ func TestDeriveGeneratedBindingsTokensOnlyDefaultsOff(t *testing.T) {
 }
 
 // The tests below pin the round-5 re-review's still-broken blocker. gen-env's
-// dropped-edge orphan scan recognises a committed token by book membership,
-// which is only sound if a key cannot leave a book while committed tokens
-// still name it. tokenDependents guarded whole-book REMOVAL; nothing guarded
+// dropped-edge orphan scan recognises a committed token by lookup membership,
+// which is only sound if a key cannot leave a lookup while committed tokens
+// still name it. tokenDependents guarded whole-lookup REMOVAL; nothing guarded
 // key-set SHRINKAGE, which an ordinary referent re-transform (item renamed or
 // deleted) performs. These make the invariant enforced rather than assumed.
 
-// committedBookAtCurrentPath writes a book for resourceType at the current
+// committedBookAtCurrentPath writes a lookup for resourceType at the current
 // lookups/ location with the given key -> id rows.
 func committedBookAtCurrentPath(t *testing.T, options TransformArtifactCompileOptions, rows map[string]string) {
 	t.Helper()
@@ -873,13 +873,13 @@ func committedBookAtCurrentPath(t *testing.T, options TransformArtifactCompileOp
 	}
 	encoded, err := json.Marshal(map[string]any{"by_id": byID, "id_by_key": idByKey, "key_by_id": keyByID})
 	if err != nil {
-		t.Fatalf("marshal book: %v", err)
+		t.Fatalf("marshal lookup: %v", err)
 	}
 	writeFileMkdir(t, paths.Lookup, string(encoded))
 }
 
-// shrinkingBookOptions is a sample_group compile whose fresh book decodes
-// only "example": the committed book on disk additionally carries "retired",
+// shrinkingBookOptions is a sample_group compile whose fresh lookup decodes
+// only "example": the committed lookup on disk additionally carries "retired",
 // so compiling drops that key.
 func shrinkingBookOptions(t *testing.T, workspace string) TransformArtifactCompileOptions {
 	t.Helper()
@@ -888,11 +888,11 @@ func shrinkingBookOptions(t *testing.T, workspace string) TransformArtifactCompi
 	return options
 }
 
-// TestBookKeyShrinkageWithTokenDependentRefused is the blocker's regression: a
-// key still named by a committed token must not be allowed to leave the book,
+// TestLookupKeyShrinkageWithTokenDependentRefused is the blocker's regression: a
+// key still named by a committed token must not be allowed to leave the lookup,
 // or the token becomes undecodable and every render-time gate that keys on
-// book membership goes blind to it.
-func TestBookKeyShrinkageWithTokenDependentRefused(t *testing.T) {
+// lookup membership goes blind to it.
+func TestLookupKeyShrinkageWithTokenDependentRefused(t *testing.T) {
 	workspace := t.TempDir()
 	options := shrinkingBookOptions(t, workspace)
 	paths := mustComputePaths(t, options)
@@ -901,7 +901,7 @@ func TestBookKeyShrinkageWithTokenDependentRefused(t *testing.T) {
 
 	_, err := CompileTransformArtifacts(options)
 	if err == nil {
-		t.Fatalf("CompileTransformArtifacts error = nil, want a refusal for a key leaving the book while a token names it")
+		t.Fatalf("CompileTransformArtifacts error = nil, want a refusal for a key leaving the lookup while a token names it")
 	}
 	for _, want := range []string{
 		"sample_group.retired", "sample_referrer.auto.tfvars.json",
@@ -913,10 +913,10 @@ func TestBookKeyShrinkageWithTokenDependentRefused(t *testing.T) {
 	}
 }
 
-// TestBookKeyShrinkageWithoutDependentsProceeds keeps the guard honest: a key
-// no committed token names may leave the book freely. Without this, a guard
+// TestLookupKeyShrinkageWithoutDependentsProceeds keeps the guard honest: a key
+// no committed token names may leave the lookup freely. Without this, a guard
 // that refused every shrinkage would satisfy the test above.
-func TestBookKeyShrinkageWithoutDependentsProceeds(t *testing.T) {
+func TestLookupKeyShrinkageWithoutDependentsProceeds(t *testing.T) {
 	workspace := t.TempDir()
 	options := shrinkingBookOptions(t, workspace)
 	paths := mustComputePaths(t, options)
@@ -929,12 +929,12 @@ func TestBookKeyShrinkageWithoutDependentsProceeds(t *testing.T) {
 	}
 }
 
-// TestBookKeyShrinkageDetectsLegacyPathDependents pins the migration bridge on
-// the guard's INPUT side: a tenant that has not re-transformed since the book
-// moved has its committed book only at config/<tenant>/<type>.lookup.json.
-// Reading only the current path would see no committed book at all, compute no
+// TestLookupKeyShrinkageDetectsLegacyPathDependents pins the migration bridge on
+// the guard's INPUT side: a tenant that has not re-transformed since the lookup
+// moved has its committed lookup only at config/<tenant>/<type>.lookup.json.
+// Reading only the current path would see no committed lookup at all, compute no
 // dropped keys, and let the shrinkage through.
-func TestBookKeyShrinkageDetectsLegacyPathDependents(t *testing.T) {
+func TestLookupKeyShrinkageDetectsLegacyPathDependents(t *testing.T) {
 	workspace := t.TempDir()
 	options := newArtifactOptions(workspace, "sample_group")
 	paths := mustComputePaths(t, options)
@@ -945,14 +945,14 @@ func TestBookKeyShrinkageDetectsLegacyPathDependents(t *testing.T) {
 
 	_, err := CompileTransformArtifacts(options)
 	if err == nil || !strings.Contains(err.Error(), "sample_group.retired") {
-		t.Fatalf("CompileTransformArtifacts error = %v, want the shrinkage refusal against the legacy-path book", err)
+		t.Fatalf("CompileTransformArtifacts error = %v, want the shrinkage refusal against the legacy-path lookup", err)
 	}
 }
 
-// TestBookKeyShrinkageScansHclDependents pins that the dependent scan serves
+// TestLookupKeyShrinkageScansHclDependents pins that the dependent scan serves
 // both committed tfvars formats. An HCL config cannot be parsed here, so the
 // scan is textual -- but it must still find the token.
-func TestBookKeyShrinkageScansHclDependents(t *testing.T) {
+func TestLookupKeyShrinkageScansHclDependents(t *testing.T) {
 	workspace := t.TempDir()
 	options := shrinkingBookOptions(t, workspace)
 	paths := mustComputePaths(t, options)
@@ -965,7 +965,7 @@ func TestBookKeyShrinkageScansHclDependents(t *testing.T) {
 	}
 }
 
-// TestBookKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent replaces the
+// TestLookupKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent replaces the
 // round-3 exemption pin, which the round-3 re-review ruled unsound. A
 // dependent is only safely exempt inside a successfully preflighted,
 // rollback-capable publication transaction. No invocation path in this
@@ -977,7 +977,7 @@ func TestBookKeyShrinkageScansHclDependents(t *testing.T) {
 // The refusal reintroduces the same-run rename deadlock on purpose. It is loud
 // and leaves the committed tree self-consistent; the exemption was quiet and
 // left it stranded.
-func TestBookKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent(t *testing.T) {
+func TestLookupKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent(t *testing.T) {
 	workspace := t.TempDir()
 	referent := shrinkingBookOptions(t, workspace)
 	paths := mustComputePaths(t, referent)
@@ -994,7 +994,7 @@ func TestBookKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent(t *testing.
 	}
 }
 
-// TestBookKeyShrinkageScansOnlyItsOwnConfigDirectory pins the second sequence
+// TestLookupKeyShrinkageScansOnlyItsOwnConfigDirectory pins the second sequence
 // the round-3 re-review found, which needed no failure at all: batch
 // membership was collected globally, so a batch pairing (tenant A, referent)
 // with (tenant B, referrer) exempted tenant A's committed referrer merely
@@ -1002,7 +1002,7 @@ func TestBookKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent(t *testing.
 //
 // Stranding is a property of one config directory. The dependent scan and any
 // judgement about it must be too.
-func TestBookKeyShrinkageScansOnlyItsOwnConfigDirectory(t *testing.T) {
+func TestLookupKeyShrinkageScansOnlyItsOwnConfigDirectory(t *testing.T) {
 	referentWorkspace := t.TempDir()
 	referrerWorkspace := t.TempDir()
 
@@ -1029,23 +1029,23 @@ func TestBookKeyShrinkageScansOnlyItsOwnConfigDirectory(t *testing.T) {
 // skipped the compiling type's own config on the argument that a type never
 // mints a token naming itself. That argument covers MINTING a declared
 // self-reference; it says nothing about a string value that merely looks like
-// one, and envgen's token contract is book membership over EVERY string leaf
+// one, and envgen's token contract is lookup membership over EVERY string leaf
 // with no own-config exception. A self-prefixed value in the referent's own
-// config is a token claim to gen-env, so a book update that stops decoding it
+// config is a token claim to gen-env, so a lookup update that stops decoding it
 // strands it exactly like any other.
 //
 // The check is two-sided, and each side guards a different failure:
 //
 //   - the committed copy on disk guards the publication window. The single
-//     publisher writes the book BEFORE the config, so a crash between the two
-//     leaves the old config beside the new book.
+//     publisher writes the lookup BEFORE the config, so a crash between the two
+//     leaves the old config beside the new lookup.
 //   - the freshly compiled ConfigText guards the steady state after a
 //     successful publish: a value this compile is about to commit that the new
-//     book will not decode.
+//     lookup will not decode.
 //
 // Neither subsumes the other, so both are checked.
 
-// ownConfigStrandingOptions is a sample_group compile whose fresh book drops
+// ownConfigStrandingOptions is a sample_group compile whose fresh lookup drops
 // "retired" (as shrinkingBookOptions) and whose own committed and/or projected
 // config carries a self-prefixed value naming that key, per the caller.
 func ownConfigStrandingOptions(t *testing.T, workspace string, committed, projected bool) TransformArtifactCompileOptions {
@@ -1071,11 +1071,11 @@ func ownConfigStrandingOptions(t *testing.T, workspace string, committed, projec
 	return options
 }
 
-// TestBookKeyShrinkageRefusesOwnConfigStranding is the re-review's four-step
-// repro verbatim: book carries example and retired, the type's own committed
+// TestLookupKeyShrinkageRefusesOwnConfigStranding is the re-review's four-step
+// repro verbatim: lookup carries example and retired, the type's own committed
 // config carries a string leaf naming sample_group.retired, and the fresh
-// compile both drops the key from the book and preserves that value.
-func TestBookKeyShrinkageRefusesOwnConfigStranding(t *testing.T) {
+// compile both drops the key from the lookup and preserves that value.
+func TestLookupKeyShrinkageRefusesOwnConfigStranding(t *testing.T) {
 	workspace := t.TempDir()
 	options := ownConfigStrandingOptions(t, workspace, true, true)
 
@@ -1089,29 +1089,29 @@ func TestBookKeyShrinkageRefusesOwnConfigStranding(t *testing.T) {
 	}
 }
 
-// TestBookKeyShrinkageRefusesOwnCommittedConfigAlone isolates the disk side.
+// TestLookupKeyShrinkageRefusesOwnCommittedConfigAlone isolates the disk side.
 // The projected config legitimately drops the value, so after a SUCCESSFUL
-// publish the tree would be consistent -- but the book is written before the
+// publish the tree would be consistent -- but the lookup is written before the
 // config, so a failure between the two leaves the committed value beside a
-// book that no longer decodes it.
-func TestBookKeyShrinkageRefusesOwnCommittedConfigAlone(t *testing.T) {
+// lookup that no longer decodes it.
+func TestLookupKeyShrinkageRefusesOwnCommittedConfigAlone(t *testing.T) {
 	workspace := t.TempDir()
 	options := ownConfigStrandingOptions(t, workspace, true, false)
 
 	_, err := CompileTransformArtifacts(options)
 	if err == nil {
-		t.Fatalf("CompileTransformArtifacts error = nil, want a refusal: publication is not atomic across the book and the config")
+		t.Fatalf("CompileTransformArtifacts error = nil, want a refusal: publication is not atomic across the lookup and the config")
 	}
 	if !strings.Contains(err.Error(), "sample_group.retired") {
 		t.Errorf("CompileTransformArtifacts error = %q, want it to name the token", err)
 	}
 }
 
-// TestBookKeyShrinkageRefusesOwnPendingConfigAlone isolates the fresh-text
+// TestLookupKeyShrinkageRefusesOwnPendingConfigAlone isolates the fresh-text
 // side: nothing on disk names the key, so a disk-only scan sees a clean tree,
-// yet this very compile is about to commit a value the new book will not
+// yet this very compile is about to commit a value the new lookup will not
 // decode.
-func TestBookKeyShrinkageRefusesOwnPendingConfigAlone(t *testing.T) {
+func TestLookupKeyShrinkageRefusesOwnPendingConfigAlone(t *testing.T) {
 	workspace := t.TempDir()
 	options := ownConfigStrandingOptions(t, workspace, false, true)
 
@@ -1124,10 +1124,10 @@ func TestBookKeyShrinkageRefusesOwnPendingConfigAlone(t *testing.T) {
 	}
 }
 
-// TestBookKeyShrinkageAllowsCleanOwnConfig keeps the two-sided check honest: a
+// TestLookupKeyShrinkageAllowsCleanOwnConfig keeps the two-sided check honest: a
 // type whose own config names the departing key on neither side publishes the
 // shrinkage exactly as before.
-func TestBookKeyShrinkageAllowsCleanOwnConfig(t *testing.T) {
+func TestLookupKeyShrinkageAllowsCleanOwnConfig(t *testing.T) {
 	workspace := t.TempDir()
 	options := ownConfigStrandingOptions(t, workspace, false, false)
 

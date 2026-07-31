@@ -3,21 +3,21 @@
 > **Reference tokens (JSON tfvars only).** In JSON-format deployments,
 > declared reference fields commit as qualified tokens
 > (`"<referent_type>.<key>"`) rather than tenant IDs whenever the
-> referent's lookup book knows the ID; HCL-format deployments keep
+> referent's lookup knows the ID; HCL-format deployments keep
 > literal IDs, and a token-shaped value in an HCL config is refused at
 > generation. gen-env renders each token as a
-> lookup-first resolver — `try(<remote-state lookup>, <book literal>)` —
+> lookup-first resolver — `try(<remote-state lookup>, <lookup literal>)` —
 > whose fallback reads the committed
-> `config/<tenant>/lookups/<referent>.lookup.json` at plan time (a book
+> `config/<tenant>/lookups/<referent>.lookup.json` at plan time (a lookup
 > committed at the pre-migration `config/<tenant>/<referent>.lookup.json`
 > path still resolves during the migration). IDs live in exactly two
-> places: tfstate, and that book. The resolver itself is derived, not
+> places: tfstate, and that lookup. The resolver itself is derived, not
 > committed: gen-env recomputes it at render time from the token, the
 > pack's declared reference edges, and the provider schema, so no
 > `config/<tenant>/<resource_type>.generated.expressions.json` is part of
 > the committed surface (a copy still committed from before this changed
 > wins unchanged for a tree that has not re-transformed). Per-type,
-> committed state is now just the config, the book, and — rarely — a
+> committed state is now just the config, the lookup, and — rarely — a
 > hand-written operator overlay. See
 > `docs/superpowers/specs/2026-07-30-reference-tokens-design.md` for the
 > token contract and

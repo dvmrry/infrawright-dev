@@ -182,10 +182,10 @@ func TestChangedPathScopeUnnormalizedOverlayJoinsRawThenNormalizes(t *testing.T)
 }
 
 // TestChangedPathScopeAttributesLookupsSubdirectoryToItsType pins Part B of
-// the sidecar-minimization migration: the book relocated from
+// the sidecar-minimization migration: the lookup relocated from
 // config/<tenant>/<type>.lookup.json (the depth-2 shape every other CONFIG
 // artifact still uses) to config/<tenant>/lookups/<type>.lookup.json
-// (depth 3). Changed-path scoping must keep attributing a book edit to its
+// (depth 3). Changed-path scoping must keep attributing a lookup edit to its
 // type through this new shape, exactly like the still-supported legacy
 // depth-2 ".lookup.json" path pinned by
 // TestChangedPathScopeUnnormalizedOverlayJoinsRawThenNormalizes above.

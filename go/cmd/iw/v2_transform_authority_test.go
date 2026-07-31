@@ -179,7 +179,7 @@ func TestV2TransformDefaultCrossStateAuthority(t *testing.T) {
 
 	// The bindings cache is no longer committed (Task A2): the cross-state
 	// expression it used to carry is now derived at render time from the
-	// tokenised config and the committed books, so transform must produce
+	// tokenised config and the committed lookups, so transform must produce
 	// no copy of it at all -- not even for a resource type with real
 	// cross-state derivation, like zpa_server_group. The derivation itself
 	// still ran (compiled.Binding was non-empty in-process); its evidence

@@ -588,7 +588,7 @@ type scannedMember struct {
 // in the members' committed configs, structurally and leaf-granular for
 // JSON tfvars (the same reference-field walk the producer uses) and
 // value-granular for HCL tfvars (quoted strings validated against the
-// referent's committed book, so an innocent dotted string is never counted
+// referent's committed lookup, so an innocent dotted string is never counted
 // as a token). Detection is deliberately independent of the deployment's
 // binding mode -- it reads the pack's declared references directly -- so
 // committed tokens are still seen, and refused loudly upstream, when
@@ -612,7 +612,7 @@ func enumerateCommittedReferenceTokens(
 	if err != nil {
 		return nil, err
 	}
-	bookKeys, err := committedBookKeys(configDirectory)
+	lookupKeySet, err := committedBookKeys(configDirectory)
 	if err != nil {
 		return nil, err
 	}
@@ -635,21 +635,21 @@ func enumerateCommittedReferenceTokens(
 			// leaf-verified, so a committed token in one is refused outright
 			// -- fail closed, never a silent passthrough -- with no dependence
 			// on binding mode.
-			if claimed := hclCommittedTokenValue(string(raw), bookKeys); claimed != "" {
+			if claimed := hclCommittedTokenValue(string(raw), lookupKeySet); claimed != "" {
 				return nil, fmt.Errorf(
 					"%s is HCL-format tfvars and contains the reference-token-shaped value %q; tokenised configs are supported for JSON tfvars only -- convert the deployment's tfvars_format or restore literal IDs",
 					config, claimed,
 				)
 			}
-			// The book-membership rule cannot classify a referent with no
-			// committed book, and silence there is not safe while the pack
+			// The lookup-membership rule cannot classify a referent with no
+			// committed lookup, and silence there is not safe while the pack
 			// edge is still DECLARED: the token would ride var.<items> to a
 			// string-typed provider field with no gate having run.
-			if referent, value := hclUnbookedReferentValue(
-				string(raw), references[resourceType], bookKeys,
+			if referent, value := hclUnindexedReferentValue(
+				string(raw), references[resourceType], lookupKeySet,
 			); value != "" {
 				return nil, fmt.Errorf(
-					"%s is HCL-format tfvars and contains %q while %s has no committed book to decode it; tokenised configs are supported for JSON tfvars only -- convert the deployment's tfvars_format, restore literal IDs, or re-transform %s so its book is committed",
+					"%s is HCL-format tfvars and contains %q while %s has no committed lookup to decode it; tokenised configs are supported for JSON tfvars only -- convert the deployment's tfvars_format, restore literal IDs, or re-transform %s so its lookup is committed",
 					config, value, referent, referent,
 				)
 			}
@@ -667,28 +667,28 @@ func enumerateCommittedReferenceTokens(
 		}
 		scanned = append(scanned, scannedMember{resourceType: resourceType, items: items})
 	}
-	if err := assertNoOrphanedTokenClaims(scanned, leaves, bookKeys); err != nil {
+	if err := assertNoOrphanedTokenClaims(scanned, leaves, lookupKeySet); err != nil {
 		return nil, err
 	}
 	return leaves, nil
 }
 
-// committedBookKeys inventories every book committed under the tenant's config
+// committedBookKeys inventories every lookup committed under the tenant's config
 // directory -- at the current lookups/ location or the legacy top-level one --
 // and reads each one's decodable key set.
 //
 // The inventory is deliberately NOT restricted to types the current pack
 // declares a reference edge to: a retired edge removes the pack's record of a
-// referent without removing the book, and that book is the only surviving
+// referent without removing the lookup, and that lookup is the only surviving
 // evidence that committed values naming it are tokens. Conversely, a pack
-// referent with no committed book contributes nothing -- with no key set there
+// referent with no committed lookup contributes nothing -- with no key set there
 // is nothing to validate a claim against, and shape alone is not evidence.
 func committedBookKeys(configDirectory string) (map[string]map[string]bool, error) {
-	referents, err := tfrender.CommittedBookReferents(configDirectory)
+	referents, err := tfrender.CommittedLookupReferents(configDirectory)
 	if err != nil {
 		return nil, err
 	}
-	return tfrender.CommittedBookKeys(configDirectory, referents)
+	return tfrender.CommittedLookupKeys(configDirectory, referents)
 }
 
 // assertNoOrphanedTokenClaims is the dropped-edge gate. It walks EVERY string
@@ -696,27 +696,27 @@ func committedBookKeys(configDirectory string) (map[string]map[string]bool, erro
 // pack declares a reference edge for -- and refuses any value that decodes as
 // a reference token no current edge governs.
 //
-// The disambiguator is book membership, not shape: a value counts as a token
-// claim only when its prefix names a type with a committed book AND its
-// remainder is a key that book decodes. That is exactly the set of values a
+// The disambiguator is lookup membership, not shape: a value counts as a token
+// claim only when its prefix names a type with a committed lookup AND its
+// remainder is a key that lookup decodes. That is exactly the set of values a
 // past transform could have minted, so an innocent dotted string
-// ("zpa_segment_group.note", where "note" is no book key) stays ignored.
+// ("zpa_segment_group.note", where "note" is no lookup key) stays ignored.
 //
-// Book membership is only a sound signal because the producer keeps it one.
+// Lookup membership is only a sound signal because the producer keeps it one.
 // Two guards in tfrender make "a decodable token stays decodable" an enforced
 // invariant across pipeline operations: tokenDependents refuses to RETIRE a
-// book while committed configs still reference its type, and
-// assertNoBookKeyStranding refuses to publish a book update that would DROP a
+// lookup while committed configs still reference its type, and
+// assertNoLookupKeyStranding refuses to publish a lookup update that would DROP a
 // key committed configs still name. The second was added because the first
 // alone was not enough -- an ordinary referent re-transform shrinks the key
-// set without removing the book, and the orphaned token went blind
+// set without removing the lookup, and the orphaned token went blind
 // (adversarial-review finding, round 5). Neither guard exempts anybody: not a
 // dependent the same run also selects (the runners publish per type and
 // continue past a later skip or failure), and not the compiling type's own
 // config, which is checked both as committed on disk and as this compile's
 // pending output.
 //
-// The residual, named rather than claimed away: a book deleted or edited by
+// The residual, named rather than claimed away: a lookup deleted or edited by
 // hand OUTSIDE the pipeline. Detection then degrades to the pack's own edge
 // metadata, which is exactly what a dropped edge removes.
 //
@@ -728,9 +728,9 @@ func committedBookKeys(configDirectory string) (map[string]map[string]bool, erro
 func assertNoOrphanedTokenClaims(
 	scanned []scannedMember,
 	leaves []committedTokenLeaf,
-	bookKeys map[string]map[string]bool,
+	lookupKeySet map[string]map[string]bool,
 ) error {
-	if len(bookKeys) == 0 {
+	if len(lookupKeySet) == 0 {
 		return nil
 	}
 	enumerated := make(map[string]bool, len(leaves))
@@ -748,12 +748,12 @@ func assertNoOrphanedTokenClaims(
 				if failure != nil {
 					return
 				}
-				referent, claimed := tokenClaimReferent(text, bookKeys)
+				referent, claimed := tokenClaimReferent(text, lookupKeySet)
 				if !claimed || enumerated[leafIdentity(member.resourceType, itemKey, path)] {
 					return
 				}
 				failure = fmt.Errorf(
-					"committed token %q at %s.%s.%s is governed by no current pack reference edge, but %s still has a committed book that decodes it; re-run transform/adopt to restore a literal id, or restore the pack's reference edge for this field (an unresolvable token must never reach the module boundary)",
+					"committed token %q at %s.%s.%s is governed by no current pack reference edge, but %s still has a committed lookup that decodes it; re-run transform/adopt to restore a literal id, or restore the pack's reference edge for this field (an unresolvable token must never reach the module boundary)",
 					text, member.resourceType, itemKey, path, referent,
 				)
 			})
@@ -771,8 +771,8 @@ func leafIdentity(resourceType, itemKey, path string) string {
 
 // tokenClaimReferent reports the referent a committed value claims, using the
 // producer's own split (an identifier segment, a dot, a remainder that may
-// itself contain dots) plus book membership.
-func tokenClaimReferent(value string, bookKeys map[string]map[string]bool) (string, bool) {
+// itself contain dots) plus lookup membership.
+func tokenClaimReferent(value string, lookupKeySet map[string]map[string]bool) (string, bool) {
 	dot := strings.IndexByte(value, '.')
 	if dot <= 0 {
 		return "", false
@@ -781,8 +781,8 @@ func tokenClaimReferent(value string, bookKeys map[string]map[string]bool) (stri
 	if !tokenFieldSegmentPattern.MatchString(referent) {
 		return "", false
 	}
-	keys, booked := bookKeys[referent]
-	if !booked || !keys[value[dot+1:]] {
+	keys, indexed := lookupKeySet[referent]
+	if !indexed || !keys[value[dot+1:]] {
 		return "", false
 	}
 	return referent, true
@@ -816,24 +816,24 @@ func collectStringLeaves(value any, concretePath string, report func(path, text 
 }
 
 // hclCommittedTokenValue reports the first quoted string in an HCL config
-// that a committed book decodes as a reference token -- prefix names a type
-// with a book, remainder is a key that book decodes -- or "" when none
+// that a committed lookup decodes as a reference token -- prefix names a type
+// with a lookup, remainder is a key that lookup decodes -- or "" when none
 // exists. Referents are visited in sorted order so the reported value is
 // deterministic across runs.
 //
-// Book membership is required here for the same reason the JSON scan requires
+// Lookup membership is required here for the same reason the JSON scan requires
 // it, and the omission was a real defect: a legitimate optional field such as
 // a segment group's own `description` may hold a dotted string that opens with
 // a pack referent type's name, and refusing on shape alone made an ordinary
 // HCL deployment ungenerable (adversarial-review finding, round 5).
 //
-// A token whose key no book decodes is therefore NOT refused here. That case
-// is not silent: the producer refuses to publish a book update that would drop
-// a key committed configs still name (tfrender's assertNoBookKeyStranding), so
+// A token whose key no lookup decodes is therefore NOT refused here. That case
+// is not silent: the producer refuses to publish a lookup update that would drop
+// a key committed configs still name (tfrender's assertNoLookupKeyStranding), so
 // a decodable token stays decodable through every pipeline operation.
-func hclCommittedTokenValue(text string, bookKeys map[string]map[string]bool) string {
-	for _, referent := range canonjson.SortedStrings(mapKeysOfBookKeys(bookKeys)) {
-		keys := bookKeys[referent]
+func hclCommittedTokenValue(text string, lookupKeySet map[string]map[string]bool) string {
+	for _, referent := range canonjson.SortedStrings(mapKeysOfBookKeys(lookupKeySet)) {
+		keys := lookupKeySet[referent]
 		prefix := `"` + referent + `.`
 		offset := 0
 		for {
@@ -856,11 +856,11 @@ func hclCommittedTokenValue(text string, bookKeys map[string]map[string]bool) st
 	return ""
 }
 
-// hclUnbookedReferentValue reports the first quoted string in an HCL config
+// hclUnindexedReferentValue reports the first quoted string in an HCL config
 // that opens with a referent THIS MEMBER declares a reference edge to and
-// whose book is not committed anywhere, or ("", "") when none exists.
+// whose lookup is not committed anywhere, or ("", "") when none exists.
 //
-// This lane matches on shape alone, and must: with no book there is no key set
+// This lane matches on shape alone, and must: with no lookup there is no key set
 // to check membership against. It is the fail-closed path for an active edge
 // whose referent has not been transformed yet -- without it, an HCL token at a
 // declared reference field produced no claim, left the root untokenised, and
@@ -871,32 +871,32 @@ func hclCommittedTokenValue(text string, bookKeys map[string]map[string]bool) st
 // document cannot be parsed here, so there is no way to tell which field a
 // quoted value sits at. What narrows the surface is the candidate set -- only
 // referents that fields the CURRENT pack declares on THIS member point at, and
-// only those with no book anywhere. A member declaring no such edge is never
-// scanned by this lane at all, and a booked referent is left to the
+// only those with no lookup anywhere. A member declaring no such edge is never
+// scanned by this lane at all, and a indexed referent is left to the
 // membership-based refusal above.
 //
 // So the accepted false-positive surface is: any quoted value ANYWHERE in an
 // edge-declaring member's own config that happens to open with its declared
 // referent's type name and a dot. That is wider than the reference field
 // alone, and it is the price of shape-only matching over unparsed HCL. The
-// remedy -- transform the referent so its book is committed -- is the
+// remedy -- transform the referent so its lookup is committed -- is the
 // operation such a tree needs anyway.
-func hclUnbookedReferentValue(
+func hclUnindexedReferentValue(
 	text string,
 	fields map[string]any,
-	bookKeys map[string]map[string]bool,
+	lookupKeySet map[string]map[string]bool,
 ) (string, string) {
-	unbooked := map[string]bool{}
+	unindexed := map[string]bool{}
 	for _, raw := range fields {
 		referent, ok := referentOfFieldSpec(raw)
 		if !ok {
 			continue
 		}
-		if _, booked := bookKeys[referent]; !booked {
-			unbooked[referent] = true
+		if _, indexed := lookupKeySet[referent]; !indexed {
+			unindexed[referent] = true
 		}
 	}
-	for _, referent := range canonjson.SortedStrings(mapKeysBoolSetGeneric(unbooked)) {
+	for _, referent := range canonjson.SortedStrings(mapKeysBoolSetGeneric(unindexed)) {
 		prefix := `"` + referent + `.`
 		index := strings.Index(text, prefix)
 		if index < 0 {
@@ -1065,7 +1065,7 @@ func collectTokenLeavesThrough(value any, rest []string, concretePath string, re
 // the current pack has REMOVED entirely. No spec, loose or strict, reaches a
 // leaf its own metadata no longer mentions, so that direction is closed
 // elsewhere -- by assertNoOrphanedTokenClaims, which walks every string leaf
-// and keys on committed-book membership instead of pack metadata.
+// and keys on committed-lookup membership instead of pack metadata.
 func referentOfFieldSpec(raw any) (string, bool) {
 	specification, ok := raw.(map[string]any)
 	if !ok {
@@ -1123,8 +1123,8 @@ func assertTokenLeavesCovered(
 
 // wrapResolverFallbacks rewrites every canonical remote-state selector in
 // the surviving generated bindings into the lookup-first resolver form --
-// try(<selector>, local.infrawright_reference_book_<referent>[<key>]) -- so
-// state truth wins whenever it exists and the committed book serves any
+// try(<selector>, local.infrawright_reference_lookup_<referent>[<key>]) -- so
+// state truth wins whenever it exists and the committed lookup serves any
 // referent not yet applied, retiring automatically once it is. Operator
 // bindings are never wrapped: an operator who wrote a remote-state
 // reference by hand is asserting intent, and that assertion keeps failing
@@ -1141,19 +1141,19 @@ func wrapResolverFallbacks(
 			}
 			bindings[i].Expression = canonicalRemoteStateSelectorPattern.ReplaceAllString(
 				binding.Expression,
-				`try(${0}, local.infrawright_reference_book_${1}[${2}])`,
+				`try(${0}, local.infrawright_reference_lookup_${1}[${2}])`,
 			)
 		}
 	}
 }
 
-// referenceBookLocals renders one plan-time book local per referent the
+// referenceLookupLocals renders one plan-time lookup local per referent the
 // wrapped resolvers name: a fileexists-guarded read of the committed lookup
-// sidecar, preferring its id_by_key map and inverting key_by_id for books
+// sidecar, preferring its id_by_key map and inverting key_by_id for lookups
 // written before that field existed. The renderer emits only this
 // expression -- the values stay in the committed artifact and are read
 // where Terraform runs, never inlined here.
-func referenceBookLocals(
+func referenceLookupLocals(
 	dep deployment.Deployment,
 	tenant, environmentDirectory string,
 	referentTypes []string,
@@ -1170,13 +1170,13 @@ func referenceBookLocals(
 		// The plan-time file() expression must name a file that actually
 		// exists at generation time: the current path (config/<tenant>/
 		// lookups/<type>.lookup.json) wins whenever it is present, but a
-		// tenant that has not re-transformed since the Part B book
+		// tenant that has not re-transformed since the Part B lookup
 		// migration still only has the legacy path
 		// (config/<tenant>/<type>.lookup.json) on disk, and pointing the
 		// expression at the (absent) current path would make the
-		// fileexists() guard always false -- silently dropping the book
+		// fileexists() guard always false -- silently dropping the lookup
 		// fallback at plan time rather than reading it. Neither path
-		// existing (a genuinely missing book) falls through to the current
+		// existing (a genuinely missing lookup) falls through to the current
 		// path: fileexists() already guards that case at plan time, and any
 		// tighter failure belongs to the totality/refusal gates, not here.
 		bookPath := paths.Lookup
@@ -1188,13 +1188,13 @@ func referenceBookLocals(
 		// it must not itself need escaping; deployment layouts that would are
 		// refused rather than mis-quoted.
 		if strings.ContainsAny(relative, "\"\\$%") {
-			return "", fmt.Errorf("lookup sidecar path %s cannot be embedded in a reference book expression", relative)
+			return "", fmt.Errorf("lookup sidecar path %s cannot be embedded in a reference lookup expression", relative)
 		}
 		quoted := `"${path.module}/` + relative + `"`
-		book := "jsondecode(file(" + quoted + "))"
+		lookup := "jsondecode(file(" + quoted + "))"
 		lines = append(lines,
-			fmt.Sprintf("  infrawright_reference_book_%s = fileexists(%s) ? try(%s.id_by_key, { for id, k in %s.key_by_id : k => id }) : {}",
-				referent, quoted, book, book),
+			fmt.Sprintf("  infrawright_reference_lookup_%s = fileexists(%s) ? try(%s.id_by_key, { for id, k in %s.key_by_id : k => id }) : {}",
+				referent, quoted, lookup, lookup),
 		)
 	}
 	lines = append(lines, "}", "")
@@ -1478,7 +1478,7 @@ func validateRemoteStateReferences(
 // loadBindingLayers ports the local loadBindingLayers helper from
 // the original implementation, extended with the render-derivation bridge:
 // the committed generated-bindings file is a CACHE of a pure function of
-// (committed token, pack edges, provider schema, book), so when it is absent
+// (committed token, pack edges, provider schema, lookup), so when it is absent
 // and the member's config carries tokens the generated layer is derived here
 // instead. The three arms are deliberately exclusive and ordered:
 //
@@ -1496,8 +1496,8 @@ func validateRemoteStateReferences(
 //     keeps them literal (see deriveGeneratedBindingLayer).
 //   - file absent, no tokens: nothing. Raw-ID derivation stays
 //     transform-only: an old-shape leaf carries a tenant ID that only the
-//     book can translate, so deriving here would make an unchanged tree's
-//     emitted root depend on book contents -- a silent behaviour change for
+//     lookup can translate, so deriving here would make an unchanged tree's
+//     emitted root depend on lookup contents -- a silent behaviour change for
 //     every tree that has not re-transformed.
 //
 // Byte parity between the first two arms is exact for an all-token config
@@ -1594,7 +1594,7 @@ func loadBindingLayers(
 // from committed artifacts alone: the pack's declared reference edges, the
 // referrer's provider schema (which decides set-block leaves), the
 // deployment topology, the committed config items, and the referents'
-// committed books. It is the same tfrender.DeriveGeneratedBindings transform
+// committed lookups. It is the same tfrender.DeriveGeneratedBindings transform
 // runs, over the same BindingContext transform builds, so a tokenised leaf's
 // expression is identical by construction rather than by agreement.
 //
@@ -1636,7 +1636,7 @@ func deriveGeneratedBindingLayer(
 	// every sibling in the same config through the deriver -- including leaves
 	// still carrying raw tenant IDs. Those bind at transform, never here: see
 	// tfrender.BindingContext.TokensOnly for why resolving one at render would
-	// make an unchanged tree's emitted root a function of book contents.
+	// make an unchanged tree's emitted root a function of lookup contents.
 	context.TokensOnly = true
 	config, err := configFile(dep, tenant, resource.Type)
 	if err != nil {
@@ -1646,8 +1646,8 @@ func deriveGeneratedBindingLayer(
 	if err != nil {
 		return nil, err
 	}
-	// The books are read from the config directory transform writes them to,
-	// through transform's own resolver, so a referent whose book is missing
+	// The lookups are read from the config directory transform writes them to,
+	// through transform's own resolver, so a referent whose lookup is missing
 	// derives nothing and is reported -- never bound past.
 	keyMaps, err := tfrender.LookupKeyMaps(path.Dir(config), references)
 	if err != nil {
@@ -2290,7 +2290,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		// the evidence proven well formed, may bindings be dropped for want of
 		// state -- and the reference list is rebuilt from the survivors so no
 		// data block outlives its binding. A tokenised root is exempt: its
-		// resolvers carry the book fallback in-language, so there is nothing
+		// resolvers carry the lookup fallback in-language, so there is nothing
 		// valid to degrade to and no reason to consult state at render time.
 		if probe != nil && !tokensPresent {
 			if err := filterStatelessBindings(bindingsByType, operatorIdentitiesByType, probe, onDiagnostic); err != nil {
@@ -2369,15 +2369,15 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 				for _, reference := range remoteStateReferences {
 					referentTypeSet[reference.ResourceType] = true
 				}
-				books, err := referenceBookLocals(
+				lookups, err := referenceLookupLocals(
 					options.Deployment, options.Tenant, directory,
 					canonjson.SortedStrings(mapKeysBoolSetGeneric(referentTypeSet)),
 				)
 				if err != nil {
 					return EnvironmentGenerationResult{}, err
 				}
-				if books != "" {
-					rendered = books + "\n" + rendered
+				if lookups != "" {
+					rendered = lookups + "\n" + rendered
 				}
 			}
 			formatted, err := options.FormatHcl(rendered)
