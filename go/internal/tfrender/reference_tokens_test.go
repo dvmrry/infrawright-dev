@@ -796,3 +796,57 @@ func TestDeriveRefusesTwoReferenceFieldsInOneSetBlock(t *testing.T) {
 		t.Fatalf("DeriveGeneratedBindings error = %v, want the two-fields-one-block refusal", err)
 	}
 }
+
+// TestDeriveGeneratedBindingsTokensOnlySkipsRawIDs pins the render-derivation
+// option added for round-4 finding 2. Raw-ID derivation is transform-only: at
+// render time the deriver must skip a raw ID WITHOUT consulting the book, so
+// the emitted expression cannot vary with book contents no transform saw. The
+// tokenised sibling in the same items map still binds, which is what makes the
+// per-type derivation trigger safe over a mixed config.
+func TestDeriveGeneratedBindingsTokensOnlySkipsRawIDs(t *testing.T) {
+	context := tokenTopLevelContext()
+	context.TokensOnly = true
+	items := map[string]map[string]any{
+		"app_one": {"segment_group_id": "zpa_segment_group.segment_one"},
+		"app_two": {"segment_group_id": "sg-1"},
+	}
+	lookupKeys := map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}}
+	result, err := DeriveGeneratedBindings(context, items, lookupKeys, "zpa_application_segment")
+	if err != nil {
+		t.Fatalf("DeriveGeneratedBindings: %v", err)
+	}
+	if _, bound := result.Resources["zpa_application_segment.app_two"]; bound {
+		t.Errorf("resources = %#v, want the raw-ID item unbound at render", result.Resources)
+	}
+	fields, ok := result.Resources["zpa_application_segment.app_one"].(map[string]any)
+	if !ok {
+		t.Fatalf("resources = %#v, want the tokenised item bound", result.Resources)
+	}
+	binding := fields["segment_group_id"].(map[string]any)
+	want := `data.terraform_remote_state.zpa_custom.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`
+	if got := binding["expression"]; got != want {
+		t.Errorf("expression = %q, want %q", got, want)
+	}
+	wantNotes := []string{
+		`zpa_application_segment.app_two.segment_group_id value "sg-1" skipped; raw ids bind at transform, not render`,
+		"zpa_application_segment: 1 bound, 1 skipped (raw_id_render_only=1)",
+	}
+	if !stringSlicesEqual(result.Notes, wantNotes) {
+		t.Fatalf("notes = %v, want %v", result.Notes, wantNotes)
+	}
+}
+
+// TestDeriveGeneratedBindingsTokensOnlyDefaultsOff pins that the transform
+// path is untouched: with the option unset, the identical inputs bind the raw
+// ID exactly as they always have.
+func TestDeriveGeneratedBindingsTokensOnlyDefaultsOff(t *testing.T) {
+	items := map[string]map[string]any{"app_two": {"segment_group_id": "sg-1"}}
+	lookupKeys := map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}}
+	result, err := DeriveGeneratedBindings(tokenTopLevelContext(), items, lookupKeys, "zpa_application_segment")
+	if err != nil {
+		t.Fatalf("DeriveGeneratedBindings: %v", err)
+	}
+	if _, bound := result.Resources["zpa_application_segment.app_two"]; !bound {
+		t.Errorf("resources = %#v, want the raw ID bound at transform", result.Resources)
+	}
+}

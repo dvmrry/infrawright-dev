@@ -113,6 +113,24 @@ type BindingContext struct {
 	// indexed form, so a producer that emits it writes bindings that can
 	// never generate an environment.
 	SetBlockFields map[string]int
+	// TokensOnly restricts resolve to committed reference tokens: a raw
+	// tenant ID is skipped WITHOUT consulting the referent's book.
+	//
+	// Raw-ID derivation is transform-only by contract. A raw ID names nothing
+	// on its own -- only the book translates it -- so a derivation that
+	// resolved one would make the artifact it produces a function of book
+	// contents. That is exactly right at transform time (the book is being
+	// written by the same run) and exactly wrong at render time: a later
+	// referent-only transform that added the ID to the book would silently
+	// rebind a committed leaf no re-transform ever touched, and if state and
+	// book disagree, the resolver can select a different ID than the literal
+	// the operator committed.
+	//
+	// gen-env's render-derivation sets this; transform and adopt do not, so
+	// their behaviour -- including substitution's minted-coverage assert --
+	// is unchanged. The two paths still agree over a tokenised leaf, which is
+	// the only leaf render-derivation is responsible for.
+	TokensOnly bool
 }
 
 // GeneratedBindingsResult is the Go analogue of the GeneratedBindingsResult
@@ -1057,6 +1075,15 @@ func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap m
 		b.note("%s.%s.%s value %s skipped; token does not name %s", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
 		return nil, nil
 	default:
+		// The keyMap is deliberately not consulted before this return: under
+		// TokensOnly the outcome for a raw ID must not depend on the book at
+		// all, not merely produce no binding when the lookup misses. See
+		// BindingContext.TokensOnly.
+		if b.context.TokensOnly {
+			b.count("raw_id_render_only", 1)
+			b.note("%s.%s.%s value %s skipped; raw ids bind at transform, not render", b.resourceType, key, fieldPath, jsonQuote(ident))
+			return nil, nil
+		}
 		found, ok := keyMap[ident]
 		if !ok {
 			b.count("id_absent", 1)
@@ -1752,6 +1779,83 @@ func resolveLookup(configDirectory, referent string, overrides map[string]*Trans
 		return data, nil
 	}
 	return loadLookup(path.Join(configDirectory, referent+".lookup.json"))
+}
+
+// lookupSidecarSuffix is the committed book's filename suffix, shared by
+// both locations ComputeTransformArtifactPaths names (Lookup and
+// LegacyLookup) and by resolveLookup's dual read.
+const lookupSidecarSuffix = ".lookup.json"
+
+// CommittedBookReferents lists every resource type carrying a committed book
+// under configDirectory, reading BOTH locations the migration spans: the
+// current one (ComputeTransformArtifactPaths.Lookup, <dir>/lookups/) and the
+// legacy one (ComputeTransformArtifactPaths.LegacyLookup, <dir>/ itself). A
+// type present in both is listed once.
+//
+// Exported for gen-env's dropped-edge orphan scan, which must recognise a
+// committed token whose referent the CURRENT pack no longer declares an edge
+// to: pack metadata cannot name that type, but its book -- the only decoder
+// the token has -- is still on disk. An absent directory is not an error;
+// a tenant may have no books at all.
+func CommittedBookReferents(configDirectory string) ([]string, error) {
+	seen := map[string]bool{}
+	for _, directory := range []string{
+		path.Join(configDirectory, "lookups"),
+		configDirectory,
+	} {
+		entries, err := os.ReadDir(directory)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, lookupSidecarSuffix) {
+				continue
+			}
+			seen[strings.TrimSuffix(name, lookupSidecarSuffix)] = true
+		}
+	}
+	referents := make([]string, 0, len(seen))
+	for referent := range seen {
+		referents = append(referents, referent)
+	}
+	return canonjson.SortedStrings(referents), nil
+}
+
+// CommittedBookKeys returns, per referent, the set of item keys its committed
+// book decodes -- id_by_key's keys, including the parser's inversion of
+// key_by_id for a sidecar written before id_by_key existed. A referent with
+// no committed book gets no entry at all, so a caller cannot mistake "no
+// book" for "book with no keys".
+//
+// Book membership is what makes a token claim distinguishable from an
+// innocent dotted string: only a key the book decodes could ever have been
+// minted, and the retirement guard (tokenDependents) refuses to remove a book
+// while any committed config still references it by token, so a book's
+// presence is a sound signal rather than a race.
+func CommittedBookKeys(configDirectory string, referents []string) (map[string]map[string]bool, error) {
+	output := map[string]map[string]bool{}
+	for _, referent := range referents {
+		if _, done := output[referent]; done {
+			continue
+		}
+		lookup, err := resolveLookup(configDirectory, referent, nil)
+		if err != nil {
+			return nil, err
+		}
+		if lookup == nil {
+			continue
+		}
+		keys := make(map[string]bool, len(lookup.IDByKey))
+		for key := range lookup.IDByKey {
+			keys[key] = true
+		}
+		output[referent] = keys
+	}
+	return output, nil
 }
 
 var systemConstantPattern = regexp.MustCompile(`^[A-Z0-9_]+$`)
