@@ -710,13 +710,15 @@ func committedBookKeys(configDirectory string) (map[string]map[string]bool, erro
 // key committed configs still name. The second was added because the first
 // alone was not enough -- an ordinary referent re-transform shrinks the key
 // set without removing the book, and the orphaned token went blind
-// (adversarial-review finding, round 5).
+// (adversarial-review finding, round 5). Neither guard exempts anybody: not a
+// dependent the same run also selects (the runners publish per type and
+// continue past a later skip or failure), and not the compiling type's own
+// config, which is checked both as committed on disk and as this compile's
+// pending output.
 //
 // The residual, named rather than claimed away: a book deleted or edited by
-// hand outside the pipeline, and a dependent whose own transform is skipped
-// mid-run for want of a pull file, are both outside those guards. Detection
-// there degrades to the pack's own edge metadata, which is exactly what a
-// dropped edge removes.
+// hand OUTSIDE the pipeline. Detection then degrades to the pack's own edge
+// metadata, which is exactly what a dropped edge removes.
 //
 // Refusal, never resolution: with no current edge there is no declared
 // referrer->referent relationship to bind, and inventing one would be exactly
@@ -865,13 +867,20 @@ func hclCommittedTokenValue(text string, bookKeys map[string]map[string]bool) st
 // reached the module's opaque variable ungated (adversarial-review finding,
 // round 6).
 //
-// The conservative false-positive surface is deliberately confined: only the
-// referents of fields the CURRENT pack declares on THIS member are scanned, so
-// a legitimate dotted value elsewhere -- another member's description, or a
-// field with no reference edge -- is untouched. A false positive is possible
-// only for a value that opens with a declared referent's own type name inside
-// the config of the very type that references it, and the remedy (commit the
-// referent's book by transforming it) is the operation that tree needs anyway.
+// Confinement is MEMBER-level, not field-level, and deliberately so: an HCL
+// document cannot be parsed here, so there is no way to tell which field a
+// quoted value sits at. What narrows the surface is the candidate set -- only
+// referents that fields the CURRENT pack declares on THIS member point at, and
+// only those with no book anywhere. A member declaring no such edge is never
+// scanned by this lane at all, and a booked referent is left to the
+// membership-based refusal above.
+//
+// So the accepted false-positive surface is: any quoted value ANYWHERE in an
+// edge-declaring member's own config that happens to open with its declared
+// referent's type name and a dot. That is wider than the reference field
+// alone, and it is the price of shape-only matching over unparsed HCL. The
+// remedy -- transform the referent so its book is committed -- is the
+// operation such a tree needs anyway.
 func hclUnbookedReferentValue(
 	text string,
 	fields map[string]any,

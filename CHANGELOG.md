@@ -121,9 +121,12 @@
   ordinary referent re-transform (item renamed or deleted) otherwise does
   silently. Nothing is published when it refuses, and the message names the
   key, the dependent configs, and the manual remedy. No dependent is
-  exempt, including one the same run also selects: the runners publish each
-  type immediately and independently and continue past a member that skips
-  or fails, so an exemption there would strand the token it excused. The
+  exempt, including one the same run also selects and including the
+  referent's own config: the runners publish each type immediately and
+  independently and continue past a member that skips or fails, and the book
+  is written before the config, so an exemption anywhere would strand the
+  token it excused. The referent's own config is checked both as committed
+  on disk and as the pending output of the compile itself. The
   cost is that renaming a referent item now refuses until each dependent's
   committed reference is updated by hand — loud and self-consistent rather
   than quiet and stranded.

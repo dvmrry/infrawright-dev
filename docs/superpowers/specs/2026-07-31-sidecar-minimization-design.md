@@ -56,12 +56,17 @@ something the renderer can compute. Changes:
      name. The second exists because the first was not enough — an ordinary
      referent re-transform (item renamed or deleted) shrinks the key set
      without removing the book. That guard exempts nobody and is scoped to
-     one config directory. It briefly exempted types the same run also
-     selected; that was unsound, because the runners publish each type
+     one config directory. Two exemptions were tried and both were unsound:
+     types the same run also selected (the runners publish each type
      immediately and independently and continue past a later member that
-     skips or fails, so the exemption published the new book and then never
-     repaired the dependent. Removing it reintroduces the referent-rename
-     deadlock, which is accepted below.
+     skips or fails, so the exemption published the new book and never
+     repaired the dependent), and the compiling type's own config (justified
+     by "a type never mints a self-reference", which is about MINTING, while
+     gen-env classifies tokens by book membership over every string leaf with
+     no own-config exception). The own config is now checked on both sides of
+     the write — committed on disk and pending output — because the book is
+     written first and non-transactionally. Removing the exemptions
+     reintroduces the referent-rename deadlock, which is accepted below.
 4. **Raw-ID derivation stays transform-only.** The derivation trigger is per
    resource type, so one tokenised item pulls its raw-ID siblings through the
    deriver too. Render-derivation therefore runs with
@@ -110,9 +115,13 @@ something the renderer can compute. Changes:
 - A key that some committed config still names by token cannot leave that
   type's book through any pipeline operation — neither by the book being
   retired nor by the key being dropped from a book that survives. No
-  dependent is exempt, including one the same run also selects: an exemption
-  is only sound inside a successfully preflighted, rollback-capable
-  publication transaction, and no invocation path here provides one.
+  dependent is exempt: not one the same run also selects, and not the
+  compiling type's own config, which is checked both as committed on disk
+  (the book is written before the config, non-transactionally, so a failure
+  between the two strands it) and as this compile's pending output (the
+  steady state after a successful publish). An exemption is only sound
+  inside a successfully preflighted, rollback-capable publication
+  transaction, and no invocation path here provides one.
 
 ## The HCL lane
 
@@ -125,10 +134,12 @@ leaf-verified. Two rules, because only one of them can be checked:
 2. **A `<referent>.`-prefixed value at a member that DECLARES a reference
    edge to a bookless referent is refused on shape alone.** Membership is not
    checkable without a book, and staying silent would let the token ride
-   `var.<items>` to a string-typed provider field with no gate having run. The
-   conservative surface is confined to the referents of fields the current
-   pack declares on that member; every other dotted value in every other
-   config is untouched.
+   `var.<items>` to a string-typed provider field with no gate having run.
+   Confinement is MEMBER-level, not field-level: unparsed HCL cannot say which
+   field a quoted value sits at, so what narrows the surface is the candidate
+   set — only referents that fields the current pack declares on that member
+   point at, and only those with no book anywhere. A member declaring no such
+   edge is never scanned by this rule, and every other config is untouched.
 
 Together these keep the invariant "an active edge always triggers the token
 gates" true for HCL as well as for structurally scanned JSON.

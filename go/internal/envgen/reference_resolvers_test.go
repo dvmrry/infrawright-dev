@@ -426,8 +426,10 @@ func TestHclConfigWithTokenShapedValueRefused(t *testing.T) {
 // false, and rode the opaque module variable to the provider untouched.
 //
 // Membership cannot be checked without a book, so this lane matches on shape
-// alone -- confined to the reference fields of a member that declares them,
-// which is the one place a token-shaped value is never innocent.
+// alone. Its confinement is MEMBER-level, not field-level -- unparsed HCL
+// cannot say which field a quoted value sits at -- so what narrows it is the
+// candidate set: only referents declared by THIS member's reference fields,
+// and only those with no committed book anywhere.
 func TestHclDeclaredEdgeTokenWithNoBookRefused(t *testing.T) {
 	fixture := newStateAwareFixture(t)
 	fixture.useHclTfvars(t)
