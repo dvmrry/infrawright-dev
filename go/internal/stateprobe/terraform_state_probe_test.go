@@ -57,7 +57,7 @@ func probeFor(t *testing.T, initCode int, pullStdout string, pullCode int) (bool
 }
 
 const appliedState = `{"version":4,"terraform_version":"1.15.4","serial":1,"lineage":"probe-fixture",` +
-	`"outputs":{"infrawright_reference_ids":{"value":{"example_type":{"item_one":"id-1"}},` +
+	`"outputs":{"iw_reference_ids":{"value":{"example_type":{"item_one":"id-1"}},` +
 	`"type":["object",{"example_type":["object",{"item_one":"string"}]}]}},"resources":[]}`
 
 // TestProbeAnswersWithoutAnyWorkspace pins the defect this rewrite exists

@@ -91,11 +91,11 @@ func TestTokenisedRootEmitsLookupFirstResolvers(t *testing.T) {
 	fixture.generate(t, false)
 
 	bindings := fixture.readReferrerFile(t, "expression_bindings.tf")
-	wantResolver := `try(data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"], local.infrawright_reference_lookup_zpa_segment_group["segment_one"])`
+	wantResolver := `try(data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"], local.iw_reference_lookup_zpa_segment_group["segment_one"])`
 	if !strings.Contains(bindings, wantResolver) {
 		t.Errorf("expression_bindings.tf = %q, want resolver %q", bindings, wantResolver)
 	}
-	if !strings.Contains(bindings, "infrawright_reference_lookup_zpa_segment_group") ||
+	if !strings.Contains(bindings, "iw_reference_lookup_zpa_segment_group") ||
 		!strings.Contains(bindings, "fileexists(") ||
 		!strings.Contains(bindings, "zpa_segment_group.lookup.json") {
 		t.Errorf("expression_bindings.tf = %q, want a fileexists-guarded lookup local over the committed sidecar", bindings)
@@ -126,7 +126,7 @@ func TestTokenisedRootFallsBackToLegacyLookupPath(t *testing.T) {
 	}
 
 	bindings := fixture.readReferrerFile(t, expressionBindingsTF)
-	wantResolver := `try(data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"], local.infrawright_reference_lookup_zpa_segment_group["segment_one"])`
+	wantResolver := `try(data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"], local.iw_reference_lookup_zpa_segment_group["segment_one"])`
 	if !strings.Contains(bindings, wantResolver) {
 		t.Errorf("expression_bindings.tf = %q, want resolver %q derived through the legacy-path lookup", bindings, wantResolver)
 	}
@@ -214,11 +214,11 @@ func TestUntokenisedRootRendersByteIdentically(t *testing.T) {
 	fixture.generate(t, false)
 
 	bindings := fixture.readReferrerFile(t, "expression_bindings.tf")
-	if strings.Contains(bindings, "try(") || strings.Contains(bindings, "infrawright_reference_book") {
+	if strings.Contains(bindings, "try(") || strings.Contains(bindings, "_reference_lookup_") {
 		t.Errorf("expression_bindings.tf = %q, want no resolver machinery for an old-shape config", bindings)
 	}
 	main := fixture.readReferrerFile(t, "main.tf")
-	if strings.Contains(main, "infrawright_reference_book") {
+	if strings.Contains(main, "_reference_lookup_") {
 		t.Errorf("main.tf = %q, want no lookup machinery for an old-shape config", main)
 	}
 }
@@ -333,7 +333,7 @@ func TestInnocentDottedStringKeepsProbeActive(t *testing.T) {
 		t.Errorf("probe calls = none, want the probe consulted for an old-shape root")
 	}
 	bindings := fixture.readReferrerFile(t, "expression_bindings.tf")
-	if strings.Contains(bindings, "try(") || strings.Contains(bindings, "infrawright_reference_book") {
+	if strings.Contains(bindings, "try(") || strings.Contains(bindings, "_reference_lookup_") {
 		t.Errorf("expression_bindings.tf = %q, want no resolver machinery for an old-shape root", bindings)
 	}
 }
@@ -509,7 +509,7 @@ func TestStaleBindingAtTokenPathRefused(t *testing.T) {
 		"resources": map[string]any{
 			"zpa_application_segment.app_one": map[string]any{
 				"segment_group_id": map[string]any{
-					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["some_other_key"]`,
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["some_other_key"]`,
 				},
 			},
 		},
@@ -793,7 +793,7 @@ func TestMixedConfigRenderDerivationBindsTokensOnly(t *testing.T) {
 	diagnostics := fixture.generate(t, false)
 
 	bindings := fixture.readReferrerFile(t, expressionBindingsTF)
-	if !strings.Contains(bindings, `local.infrawright_reference_lookup_zpa_segment_group["segment_one"]`) {
+	if !strings.Contains(bindings, `local.iw_reference_lookup_zpa_segment_group["segment_one"]`) {
 		t.Errorf("%s = %q, want the tokenised leaf bound", expressionBindingsTF, bindings)
 	}
 	if strings.Contains(bindings, "app_two") || strings.Contains(bindings, "segment_two") {
@@ -832,5 +832,35 @@ func TestMixedConfigRenderIsIndependentOfLookupGrowth(t *testing.T) {
 	if after := fixture.referrerTree(t); !equalTrees(after, before) {
 		t.Errorf("referrer root changed when the referent's lookup gained an id:\ngot  %v\nwant %v",
 			after[expressionBindingsTF], before[expressionBindingsTF])
+	}
+}
+
+// TestWrapResolverFallbacksWrapsBothSelectorSpellings pins the
+// iw_reference_ids rename bridge on the resolver-wrapping side. A committed
+// .generated.expressions.json written before the rename embeds the legacy
+// selector spelling and wins outright until its next transform, so the wrap
+// must recognise both spellings -- and the fallback arm always names the
+// current lookup local, because that local is emitted by the same
+// generation run doing the wrapping.
+func TestWrapResolverFallbacksWrapsBothSelectorSpellings(t *testing.T) {
+	legacySelector := `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`
+	currentSelector := `data.terraform_remote_state.zpa_segment_group.outputs.iw_reference_ids.zpa_segment_group["segment_one"]`
+	bindings := map[string][]ExpressionBinding{
+		"zpa_application_segment": {
+			{Key: "app_one", Path: "segment_group_id", Expression: legacySelector},
+			{Key: "app_two", Path: "segment_group_id", Expression: currentSelector},
+		},
+	}
+
+	wrapResolverFallbacks(bindings, map[string]map[string]bool{})
+
+	wantLegacy := "try(" + legacySelector + `, local.iw_reference_lookup_zpa_segment_group["segment_one"])`
+	wantCurrent := "try(" + currentSelector + `, local.iw_reference_lookup_zpa_segment_group["segment_one"])`
+	got := bindings["zpa_application_segment"]
+	if got[0].Expression != wantLegacy {
+		t.Errorf("wrapped legacy selector = %q, want %q", got[0].Expression, wantLegacy)
+	}
+	if got[1].Expression != wantCurrent {
+		t.Errorf("wrapped current selector = %q, want %q", got[1].Expression, wantCurrent)
 	}
 }

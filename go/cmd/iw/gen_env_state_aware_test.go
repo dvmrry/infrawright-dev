@@ -96,7 +96,7 @@ func prepareStateAwareCLIFixture(t *testing.T) stateAwareCLIFixture {
 		"resources": map[string]any{
 			"sample_referrer.referrer_one": map[string]any{
 				"referent_id": map[string]any{
-					"expression": `data.terraform_remote_state.sample_referent.outputs.infrawright_reference_ids.sample_referent["referent_one"]`,
+					"expression": `data.terraform_remote_state.sample_referent.outputs.iw_reference_ids.sample_referent["referent_one"]`,
 				},
 			},
 		},

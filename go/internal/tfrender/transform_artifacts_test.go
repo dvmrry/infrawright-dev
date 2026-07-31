@@ -622,7 +622,7 @@ func TestBatchCompilationUsesNewLookupResultsForBindingsAndComments(t *testing.T
 	if err != nil {
 		t.Fatalf("RenderGeneratedBindings: %v", err)
 	}
-	if !strings.Contains(rendered, "data.terraform_remote_state.sample_root.outputs.infrawright_reference_ids.sample_group[\\\"new_key\\\"]") {
+	if !strings.Contains(rendered, "data.terraform_remote_state.sample_root.outputs.iw_reference_ids.sample_group[\\\"new_key\\\"]") {
 		t.Fatalf("derived bindings %q does not contain the fresh-lookup-keyed expression", rendered)
 	}
 }
@@ -931,11 +931,11 @@ func TestDeriveGeneratedBindingsNestedIndexedPaths(t *testing.T) {
 		"  \"resources\": {\n" +
 		"    \"zpa_app_connector_group.connector_one\": {\n" +
 		"      \"server_groups[0].id\": {\n" +
-		"        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group[\\\"server_two\\\"], data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group[\\\"server_one\\\"]]\",\n" +
+		"        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group[\\\"server_two\\\"], data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group[\\\"server_one\\\"]]\",\n" +
 		"        \"reason\": \"cross-state reference binding via zpa_server_group root output\"\n" +
 		"      },\n" +
 		"      \"server_groups[1].id\": {\n" +
-		"        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group[\\\"server_three\\\"]]\",\n" +
+		"        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group[\\\"server_three\\\"]]\",\n" +
 		"        \"reason\": \"cross-state reference binding via zpa_server_group root output\"\n" +
 		"      }\n" +
 		"    }\n" +
@@ -988,7 +988,7 @@ func TestDeriveGeneratedBindingsRetainsUnresolvedDiagnostics(t *testing.T) {
 		"  \"resources\": {\n" +
 		"    \"zpa_app_connector_group.connector_one\": {\n" +
 		"      \"server_groups[0].id\": {\n" +
-		"        \"expression\": \"[data.terraform_remote_state.zpa_app.outputs.infrawright_reference_ids.zpa_server_group[\\\"known\\\"], \\\"sg-missing\\\"]\",\n" +
+		"        \"expression\": \"[data.terraform_remote_state.zpa_app.outputs.iw_reference_ids.zpa_server_group[\\\"known\\\"], \\\"sg-missing\\\"]\",\n" +
 		"        \"reason\": \"cross-state reference binding via zpa_server_group root output\"\n" +
 		"      }\n" +
 		"    }\n" +
@@ -1035,7 +1035,7 @@ func TestDeriveGeneratedBindingsTopLevel(t *testing.T) {
 		"  \"resources\": {\n" +
 		"    \"zpa_application_segment.app_one\": {\n" +
 		"      \"segment_group_id\": {\n" +
-		"        \"expression\": \"data.terraform_remote_state.zpa_custom.outputs.infrawright_reference_ids.zpa_segment_group[\\\"segment_one\\\"]\",\n" +
+		"        \"expression\": \"data.terraform_remote_state.zpa_custom.outputs.iw_reference_ids.zpa_segment_group[\\\"segment_one\\\"]\",\n" +
 		"        \"reason\": \"cross-state reference binding via zpa_segment_group root output\"\n" +
 		"      }\n" +
 		"    }\n" +

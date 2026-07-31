@@ -1460,7 +1460,7 @@ func sortInts(values []int) {
 // renderExpressionBindingsHcl accepts in
 // the original implementation. An empty field means "use the TS
 // source's default" (ItemsVariable defaults to "items", LocalName defaults
-// to "infrawright_expression_bound_items"), matching the TS source's own
+// to "iw_expression_bound_items"), matching the TS source's own
 // `options?.itemsVariable ?? "items"` fallback -- a caller can never
 // distinguish an explicit empty-string override from an omitted option
 // there either, so this port makes the same simplification.
@@ -1482,7 +1482,7 @@ func renderExpressionBindingsHcl(bindings []ExpressionBinding, options RenderExp
 	}
 	localName := options.LocalName
 	if localName == "" {
-		localName = "infrawright_expression_bound_items"
+		localName = "iw_expression_bound_items"
 	}
 	if !pathSegmentPattern.MatchString(itemsVariable) {
 		bindingsFail("items_var must be a Terraform identifier")
@@ -1636,8 +1636,12 @@ type RemoteStateReference struct {
 	Root         string
 }
 
+// remoteStateSelectorPattern admits both output-name spellings: committed
+// generated-bindings caches written before the iw_ rename embed the legacy
+// one and must keep validating until their next transform stale-cleans
+// them.
 var remoteStateSelectorPattern = regexp.MustCompile(
-	`^data\.terraform_remote_state\.([A-Za-z_][A-Za-z0-9_]*)\.outputs\.infrawright_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[`,
+	`^data\.terraform_remote_state\.([A-Za-z_][A-Za-z0-9_]*)\.outputs\.(?:iw|infrawright)_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[`,
 )
 
 // expressionRemoteStateReferences ports the exported
@@ -1676,7 +1680,7 @@ func expressionRemoteStateReferences(expression string) []RemoteStateReference {
 		}
 		match := remoteStateSelectorPattern.FindStringSubmatchIndex(expression[index:])
 		if match == nil {
-			bindingsFail("Infrawright terraform_remote_state expressions must use the canonical infrawright_reference_ids resource/key selector")
+			bindingsFail("Infrawright terraform_remote_state expressions must use the canonical iw_reference_ids resource/key selector")
 		}
 		root := expression[index+match[2] : index+match[3]]
 		resourceType := expression[index+match[4] : index+match[5]]

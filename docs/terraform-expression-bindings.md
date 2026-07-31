@@ -65,7 +65,7 @@ Then regenerate the env root:
 make gen-env TENANT=<tenant> RESOURCE=<resource_type>
 ```
 
-The generated root passes `local.infrawright_expression_bound_items` into the
+The generated root passes `local.iw_expression_bound_items` into the
 module instead of raw `var.items`.
 
 ## Expression Rules

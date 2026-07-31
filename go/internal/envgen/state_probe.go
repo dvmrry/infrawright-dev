@@ -107,7 +107,15 @@ func ReferenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbe
 			rootLabel,
 		)
 	}
+	// A referent applied before the iw_ rename still publishes the legacy
+	// output name until its next apply; the current name is authoritative
+	// whenever it is present.
+	outputName := InfrawrightReferenceOutput
 	rawOutput, present := (*state.Outputs)[InfrawrightReferenceOutput]
+	if !present {
+		outputName = LegacyInfrawrightReferenceOutput
+		rawOutput, present = (*state.Outputs)[LegacyInfrawrightReferenceOutput]
+	}
 	if !present {
 		return StateProbeResult{Usable: false}, nil
 	}
@@ -121,13 +129,13 @@ func ReferenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbe
 	if isAbsentJSON(output.Type) {
 		return StateProbeResult{}, fmt.Errorf(
 			"probe state for root %s: output %s carries no type metadata, so Terraform would not accept it as state",
-			rootLabel, InfrawrightReferenceOutput,
+			rootLabel, outputName,
 		)
 	}
 	if isAbsentJSON(output.Value) {
 		return StateProbeResult{}, fmt.Errorf(
 			"probe state for root %s: output %s carries no value",
-			rootLabel, InfrawrightReferenceOutput,
+			rootLabel, outputName,
 		)
 	}
 	// The type is parsed and the value checked against it with the same
@@ -141,20 +149,20 @@ func ReferenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbe
 	if err != nil {
 		return StateProbeResult{}, fmt.Errorf(
 			"probe state for root %s: output %s has an invalid type in state: %w",
-			rootLabel, InfrawrightReferenceOutput, err,
+			rootLabel, outputName, err,
 		)
 	}
 	if _, err := ctyjson.Unmarshal(output.Value, outputType); err != nil {
 		return StateProbeResult{}, fmt.Errorf(
 			"probe state for root %s: output %s does not match its declared type in state: %w",
-			rootLabel, InfrawrightReferenceOutput, err,
+			rootLabel, outputName, err,
 		)
 	}
 	var value map[string]any
 	if err := json.Unmarshal(output.Value, &value); err != nil {
 		return StateProbeResult{}, fmt.Errorf(
 			"probe state for root %s: %s is not an object of per-resource-type reference identifiers: %w",
-			rootLabel, InfrawrightReferenceOutput, err,
+			rootLabel, outputName, err,
 		)
 	}
 	referent, present := value[referentType]
@@ -170,7 +178,7 @@ func ReferenceIDsPresent(raw []byte, rootLabel, referentType string) (StateProbe
 	if _, isObject := referent.(map[string]any); !isObject {
 		return StateProbeResult{}, fmt.Errorf(
 			"probe state for root %s: %s.%s is %T, want an object of reference identifiers",
-			rootLabel, InfrawrightReferenceOutput, referentType, referent,
+			rootLabel, outputName, referentType, referent,
 		)
 	}
 	return StateProbeResult{Usable: true}, nil

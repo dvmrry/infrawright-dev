@@ -94,7 +94,7 @@ shipped).
 
 - [ ] **Step 1: failing tests.**
   - token with matching `<spec.Referent>.` prefix and known key →
-    expression `data.terraform_remote_state.<root>.outputs.infrawright_reference_ids.<referent>["<key>"]`
+    expression `data.terraform_remote_state.<root>.outputs.iw_reference_ids.<referent>["<key>"]`
     (the ID→key hop gone)
   - token with wrong type prefix → skipped, counted under a new
     `token_referent_mismatch` reason, note names the token
@@ -136,7 +136,7 @@ shipped).
   exists, the sidecar literal is purely a fallback that retires
   naturally as referents get applied):
 
-  `try(data.terraform_remote_state.<referent_root>.outputs.infrawright_reference_ids.<referent>["<key>"], local.<lookup>.<referent>["<key>"])`
+  `try(data.terraform_remote_state.<referent_root>.outputs.iw_reference_ids.<referent>["<key>"], local.<lookup>.<referent>["<key>"])`
 
 - The fallback arm reads the committed lookup sidecar **at plan time**
   via a `fileexists()`-guarded `jsondecode(file(...))` local — the

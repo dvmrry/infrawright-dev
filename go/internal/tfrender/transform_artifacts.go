@@ -1105,7 +1105,7 @@ func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap m
 	if err != nil {
 		return nil, err
 	}
-	expr := "data.terraform_remote_state." + referentRoot + ".outputs.infrawright_reference_ids." + spec.Referent + "[" + quoted + "]"
+	expr := "data.terraform_remote_state." + referentRoot + ".outputs.iw_reference_ids." + spec.Referent + "[" + quoted + "]"
 	return &expr, nil
 }
 

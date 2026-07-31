@@ -134,7 +134,7 @@ not widen automatically and must remain referent-first.
 Confirm the topology reports two singleton roots. Confirm the referrer has a
 generated expression sidecar and its root contains a
 `terraform_remote_state` block. Confirm the referent root contains the minimal
-`infrawright_reference_ids` output. Confirm the enabled referent run wrote its
+`iw_reference_ids` output. Confirm the enabled referent run wrote its
 reference-derived lookup sidecar, then disable the mode and rerun that referent
 in the disposable workspace to prove the sidecar and generated bindings are
 removed. Do not print output values.
@@ -152,7 +152,7 @@ regenerate every affected referrer plan before assessment or Apply.
 The saved-plan evidence currently binds the local backend-config bytes and
 derived state key, but it does not bind the referrer plan to the referent
 state's lineage, serial, remote object version or ETag, or a digest of the exact
-`infrawright_reference_ids` output consumed during planning. The current
+`iw_reference_ids` output consumed during planning. The current
 fingerprint therefore must not be described as detecting referent-state
 changes.
 
@@ -183,7 +183,7 @@ Acceptance before Apply:
 - zero create/update/replace/destroy actions;
 - only expected imports or no-op;
 - no unexpected object or sensitivity changes; the referent's fully known,
-  sensitive `infrawright_reference_ids` create/update/no-op is expected only when it
+  sensitive `iw_reference_ids` create/update/no-op is expected only when it
   exactly matches provider IDs reconstructed from planned module instances;
 - saved-plan fingerprint present and current.
 

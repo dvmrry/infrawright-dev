@@ -216,7 +216,7 @@ func exactApplyReferenceOutputPlan() map[string]any {
 		"errored":           false,
 		"planned_values": map[string]any{
 			"outputs": map[string]any{
-				"infrawright_reference_ids": map[string]any{
+				"iw_reference_ids": map[string]any{
 					"sensitive": true,
 					"value":     value,
 				},
@@ -243,7 +243,7 @@ func exactApplyReferenceOutputPlan() map[string]any {
 		},
 		"resource_changes": []any{},
 		"output_changes": map[string]any{
-			"infrawright_reference_ids": map[string]any{
+			"iw_reference_ids": map[string]any{
 				"actions":          []any{"create"},
 				"before":           nil,
 				"after":            value,

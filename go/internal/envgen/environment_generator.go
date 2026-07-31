@@ -85,8 +85,11 @@ const (
 
 // ReferenceBackendVariable ports REFERENCE_BACKEND_VARIABLE from
 // the original implementation (see this file's package doc
-// comment for why it is reproduced locally rather than imported).
-const ReferenceBackendVariable = "infrawright_remote_state_backend_config"
+// comment for why it is reproduced locally rather than imported),
+// renamed to the iw_ prefix. Generation emits only this name; the
+// plan-side projection also sets the legacy TF_VAR alias so roots
+// generated before the rename keep planning.
+const ReferenceBackendVariable = "iw_remote_state_backend_config"
 
 // HclFormatter matches the HclFormatter type from
 // the original implementation (see this file's package doc comment for
@@ -317,9 +320,9 @@ func moduleSource(dep deployment.Deployment, resourceType, environmentDirectory 
 // the original implementation.
 func expressionLocal(label, resourceType string) string {
 	if label == resourceType {
-		return "infrawright_expression_bound_items"
+		return "iw_expression_bound_items"
 	}
-	return "infrawright_" + resourceType + "_expression_bound_items"
+	return "iw_" + resourceType + "_expression_bound_items"
 }
 
 // renderRemoteStateBlocks ports renderRemoteStateBlocks from
@@ -559,9 +562,12 @@ func renderRootExpressionBindings(label string, bindingsByType map[string][]Expr
 // selector shape the binding grammar admits (see
 // ExpressionRemoteStateReferences), capturing the referent type and the
 // quoted key. Renderer-side resolver wrapping relies on this strictness:
-// the grammar guarantees no other text can match.
+// the grammar guarantees no other text can match. Both output-name
+// spellings are admitted because a committed generated-bindings cache
+// written before the iw_ rename embeds the legacy one and wins outright
+// until its next transform stale-cleans it.
 var canonicalRemoteStateSelectorPattern = regexp.MustCompile(
-	`data\.terraform_remote_state\.[A-Za-z_][A-Za-z0-9_]*\.outputs\.infrawright_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[("(?:[^"\\]|\\.)*")\]`,
+	`data\.terraform_remote_state\.[A-Za-z_][A-Za-z0-9_]*\.outputs\.(?:iw|infrawright)_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[("(?:[^"\\]|\\.)*")\]`,
 )
 
 // committedTokenLeaf is one qualified reference token found in a member's
@@ -1100,13 +1106,19 @@ func assertTokenLeavesCovered(
 	for _, leaf := range leaves {
 		bindings := bindingsByType[leaf.ResourceType]
 		operators := operatorIdentitiesByType[leaf.ResourceType]
-		needle := "infrawright_reference_ids." + leaf.Referent + `["` + leaf.Key + `"]`
+		// Committed caches written before the iw_ rename spell the legacy
+		// output name inside their selectors; either spelling proves the
+		// binding resolves this leaf's token.
+		needle := InfrawrightReferenceOutput + "." + leaf.Referent + `["` + leaf.Key + `"]`
+		legacyNeedle := LegacyInfrawrightReferenceOutput + "." + leaf.Referent + `["` + leaf.Key + `"]`
 		covered := false
 		for _, binding := range bindings {
 			if binding.Key != leaf.ItemKey || !tfrender.BindingPathCovers(binding.Path, leaf.Path) {
 				continue
 			}
-			if operators[bindingIdentity(binding)] || strings.Contains(binding.Expression, needle) {
+			if operators[bindingIdentity(binding)] ||
+				strings.Contains(binding.Expression, needle) ||
+				strings.Contains(binding.Expression, legacyNeedle) {
 				covered = true
 				break
 			}
@@ -1123,9 +1135,13 @@ func assertTokenLeavesCovered(
 
 // wrapResolverFallbacks rewrites every canonical remote-state selector in
 // the surviving generated bindings into the lookup-first resolver form --
-// try(<selector>, local.infrawright_reference_lookup_<referent>[<key>]) -- so
+// try(<selector>, local.iw_reference_lookup_<referent>[<key>]) -- so
 // state truth wins whenever it exists and the committed lookup serves any
-// referent not yet applied, retiring automatically once it is. Operator
+// referent not yet applied, retiring automatically once it is. The
+// selector arm keeps whichever output-name spelling the binding carried
+// (a pre-rename cache's legacy selector still reads a pre-rename applied
+// state), while the fallback arm always names the current lookup local,
+// because that local is emitted by this same generation run. Operator
 // bindings are never wrapped: an operator who wrote a remote-state
 // reference by hand is asserting intent, and that assertion keeps failing
 // loudly.
@@ -1141,7 +1157,7 @@ func wrapResolverFallbacks(
 			}
 			bindings[i].Expression = canonicalRemoteStateSelectorPattern.ReplaceAllString(
 				binding.Expression,
-				`try(${0}, local.infrawright_reference_lookup_${1}[${2}])`,
+				`try(${0}, local.iw_reference_lookup_${1}[${2}])`,
 			)
 		}
 	}
@@ -1193,7 +1209,7 @@ func referenceLookupLocals(
 		quoted := `"${path.module}/` + relative + `"`
 		lookup := "jsondecode(file(" + quoted + "))"
 		lines = append(lines,
-			fmt.Sprintf("  infrawright_reference_lookup_%s = fileexists(%s) ? try(%s.id_by_key, { for id, k in %s.key_by_id : k => id }) : {}",
+			fmt.Sprintf("  iw_reference_lookup_%s = fileexists(%s) ? try(%s.id_by_key, { for id, k in %s.key_by_id : k => id }) : {}",
 				referent, quoted, lookup, lookup),
 		)
 	}

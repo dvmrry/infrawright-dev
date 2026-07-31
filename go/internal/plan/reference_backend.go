@@ -14,11 +14,20 @@ import (
 
 const (
 	// ReferenceBackendVariable ports REFERENCE_BACKEND_VARIABLE from
-	// the original implementation.
-	ReferenceBackendVariable = "infrawright_remote_state_backend_config"
+	// the original implementation, renamed to the iw_ prefix. Generated
+	// roots declare this variable; the projection below also sets the
+	// legacy TF_VAR alias so a root generated before the rename keeps
+	// planning (Terraform ignores whichever name a root does not declare).
+	ReferenceBackendVariable = "iw_remote_state_backend_config"
+	// LegacyReferenceBackendVariable is the variable's pre-rename name,
+	// still declared by roots that have not been regenerated.
+	LegacyReferenceBackendVariable = "infrawright_remote_state_backend_config"
 	// ReferenceBackendEnvironment ports REFERENCE_BACKEND_ENVIRONMENT from
 	// the original implementation.
 	ReferenceBackendEnvironment = "TF_VAR_" + ReferenceBackendVariable
+	// LegacyReferenceBackendEnvironment carries the identical payload under
+	// the legacy variable name during the rename transition.
+	LegacyReferenceBackendEnvironment = "TF_VAR_" + LegacyReferenceBackendVariable
 
 	maxReferenceBackendConfigBytes = int64(64 * 1024)
 )
@@ -163,8 +172,10 @@ func ReferenceBackendEnvironmentFromConfig(backendConfig string) (map[string]str
 		}
 		config[key] = value
 	}
+	rendered := renderReferenceBackendConfig(keys, config)
 	return map[string]string{
-		ReferenceBackendEnvironment: renderReferenceBackendConfig(keys, config),
+		ReferenceBackendEnvironment:       rendered,
+		LegacyReferenceBackendEnvironment: rendered,
 	}, nil
 }
 

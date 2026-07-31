@@ -154,7 +154,7 @@ v1.15.4):**
    module-direct shape, which is the guard working as designed.
 2. **gen-env's expression local becomes total over tokenised leaves —
    this is the engine work.** Today the
-   `infrawright_expression_bound_items` local exists only where bindings
+   `iw_expression_bound_items` local exists only where bindings
    exist (`environment_generator.go:458`: roots without bindings pass
    `var.<name>` straight to the module); with tokens, every tokenised
    leaf must be rewritten before the module boundary.
@@ -169,7 +169,7 @@ v1.15.4):**
    the lookup is the fallback, the renderer owns neither).
    The resolver for a token is computed from the token itself
    (`<referent>.<key>` → the canonical
-   `infrawright_reference_ids.<referent>["<key>"]` selector). The settled
+   `iw_reference_ids.<referent>["<key>"]` selector). The settled
    fallback contract (chosen by the requester after this section was first
    written, and governing over it): the resolver is lookup-first `try()`
    whose fallback arm is a plan-time read of the committed lookup — "no
@@ -191,7 +191,7 @@ Downstream also independently corroborated the premise (an outside reviewer
 of an open PR flagged the hard-coded ID list as unreviewable) and declined a
 bespoke-output-per-consumer alternative for the right reason: referents
 cannot know their consumers, and the canonical nested
-`infrawright_reference_ids` output stays the one lookup surface.
+`iw_reference_ids` output stays the one lookup surface.
 
 ### New couplings this creates (named, not hidden)
 

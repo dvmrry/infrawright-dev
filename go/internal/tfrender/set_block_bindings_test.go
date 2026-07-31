@@ -58,7 +58,7 @@ func TestDeriveGeneratedBindingsSetBlockBindsTheCompleteLeaf(t *testing.T) {
 		t.Fatalf("bindings = %#v, want one binding at the complete block leaf \"services\"", fields)
 	}
 	wantExpression := "[{ id = [" +
-		"data.terraform_remote_state.zia_firewall_filtering_network_service.outputs.infrawright_reference_ids.zia_firewall_filtering_network_service[\"service_one\"]" +
+		"data.terraform_remote_state.zia_firewall_filtering_network_service.outputs.iw_reference_ids.zia_firewall_filtering_network_service[\"service_one\"]" +
 		", 456] }]"
 	if got := binding["expression"]; got != wantExpression {
 		t.Errorf("expression = %q, want %q", got, wantExpression)

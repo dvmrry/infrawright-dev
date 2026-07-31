@@ -31,6 +31,27 @@
 
 ### Cross-state references
 
+- Every engine-emitted Terraform identifier drops the `infrawright_` prefix
+  for `iw_`, matching the CLI: the cross-state output is `iw_reference_ids`,
+  the plan-time lookup locals are `iw_reference_lookup_<referent>`, the
+  expression-binding locals are `iw_expression_bound_items` (per-type:
+  `iw_<type>_expression_bound_items`), and the backend handoff variable is
+  `iw_remote_state_backend_config` (`TF_VAR_iw_remote_state_backend_config`).
+  Generation emits only the new names; every read path accepts both, because
+  the legacy spelling persists in artifacts the engine does not regenerate:
+  the state probe reads whichever output name an applied referent still
+  publishes (the current name is authoritative when both are present), the
+  binding grammar and resolver try()-wrapping accept the legacy selector
+  spelling inside committed `.generated.expressions.json` caches until their
+  next transform stale-cleans them, `iw plan` sets both `TF_VAR` names to
+  the identical payload so roots generated before the rename keep planning,
+  and saved-plan assessment permits exactly one legacy-output retirement —
+  the old name's lone `delete` ending at null — in a plan whose current
+  output is already proven against provider-observed IDs. Until a referent
+  root is re-applied, referrers regenerated after the rename resolve it
+  through the committed lookup fallback (a no-op plan, same IDs); its first
+  apply renames the output and state truth resumes.
+
 - Sidecar minimization: per resource type, the committed surface is now
   just the config (`<type>.auto.tfvars.json`, carrying tokens), the lookup
   (`lookups/<type>.lookup.json`), and — rarely — a hand-written operator
@@ -151,6 +172,21 @@
   no longer resolve a terraform executable for `--state-aware`.
 
 ### Breaking changes
+
+#### Emitted identifier prefix renamed from infrawright_ to iw_
+
+Anything outside the engine that names the old identifiers directly — a
+pipeline grepping generated roots for `infrawright_reference_ids`, an
+operator-authored expression file, automation exporting
+`TF_VAR_infrawright_remote_state_backend_config` by hand — must move to the
+`iw_` spellings; the engine's own bridges (dual-name reads, the double
+`TF_VAR` projection, the assessed legacy-output retirement) cover only the
+artifacts the engine itself produces and consumes. Expect a one-time plan
+diff per root after regeneration: the old output is deleted and the new one
+created with the identical value, and saved-plan assessment accepts exactly
+that shape. Hand-written expression files may keep the legacy selector
+spelling — it remains valid indefinitely — but new writing should use
+`iw_reference_ids`.
 
 #### State-aware generation against azurerm requires BACKEND_CONFIG
 

@@ -37,14 +37,17 @@ applied; the literal fallback stays for referents that are not.
 Verified end-to-end in this repository:
 
 - Emitted lookup shape:
-  `data.terraform_remote_state.<root>.outputs.infrawright_reference_ids.<type>["<key>"]`,
+  `data.terraform_remote_state.<root>.outputs.iw_reference_ids.<type>["<key>"]`,
   azurerm state key `<tenant>/<label>.tfstate`
   (`environment_generator.go:348`) — identical to the key `iw plan` inits
   each root with (`lifecycle.go:628`, `import_staging.go:142`).
 - Plan-time variable wiring: roots declaring
-  `variable "infrawright_remote_state_backend_config"` get
-  `TF_VAR_infrawright_remote_state_backend_config` projected from the
-  `BACKEND_CONFIG` JSON file (`lifecycle.go:379`, `reference_backend.go:89`).
+  `variable "iw_remote_state_backend_config"` get
+  `TF_VAR_iw_remote_state_backend_config` projected from the
+  `BACKEND_CONFIG` JSON file (`lifecycle.go:379`, `reference_backend.go:89`);
+  the plan projection also still sets the legacy
+  `TF_VAR_infrawright_remote_state_backend_config` alias during the
+  migration window.
 - Referent roots publish the name→ID map from live state
   (`environment_generator.go:388`).
 - `ReferenceIDsPresent` (`envgen/state_probe.go:82`) fail-closed state
