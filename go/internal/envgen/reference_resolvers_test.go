@@ -910,3 +910,34 @@ func TestUntokenisedCurrentCacheDoesNotWarn(t *testing.T) {
 		t.Errorf("diagnostics = %v, want no legacy-selector warning for a current-spelling cache", diagnostics)
 	}
 }
+
+// TestUntokenisedOperatorLegacySelectorDoesNotWarn pins the warning's
+// operator exemption directly (the wrap-side exemption has its own test,
+// but the warning path checks identity separately). An operator who wrote
+// a legacy-spelled remote-state reference by hand is asserting intent; the
+// retirement warning is for generated caches, and firing it here would
+// nag about a selector no transform will ever rewrite.
+func TestUntokenisedOperatorLegacySelectorDoesNotWarn(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	if err := os.Remove(filepath.Join(config, "zpa_application_segment.generated.expressions.json")); err != nil {
+		t.Fatalf("os.Remove(generated cache) error: %v", err)
+	}
+	legacySelector := `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{"expression": legacySelector},
+			},
+		},
+	})
+
+	diagnostics := fixture.generate(t, false)
+	if containsDiagnostic(diagnostics, "unwrapped") {
+		t.Errorf("diagnostics = %v, want no legacy-selector warning for an operator-authored binding", diagnostics)
+	}
+	rendered := readFileString(t, fixture.referrerFile("expression_bindings.tf"))
+	if !strings.Contains(rendered, legacySelector) || strings.Contains(rendered, "try(") {
+		t.Errorf("expression_bindings.tf = %q, want the operator's legacy selector served verbatim and unwrapped", rendered)
+	}
+}
