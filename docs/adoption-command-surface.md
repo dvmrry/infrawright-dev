@@ -306,13 +306,24 @@ engine never removes an existing moves file merely because the imports
 baseline has advanced; explicit removal is an operator decision after the
 corresponding state migration is confirmed.
 
-With cross-state references enabled, transform/adopt may write
-`config/<tenant>/<resource_type>.generated.expressions.json` beside the
-resource tfvars. Env generation loads generated bindings first and then
-operator-authored `config/<tenant>/<resource_type>.expressions.json`, so a
+With cross-state references enabled, the reference binding for a resource is
+a pure function of its tokenised config, the pack's declared reference edges,
+the provider schema, and the referent's committed book
+(`config/<tenant>/<resource_type>.lookup.json`). Transform/adopt derive it and
+verify it in-process (the totality and foreign-token gates run against it),
+but do not commit it: no
+`config/<tenant>/<resource_type>.generated.expressions.json` is written, and a
+copy left over from before this behavior changed is removed on the next
+transform/adopt run for that resource type. Env generation instead derives
+the same binding at render time from the same inputs -- byte-identical by
+construction, since it is the same derivation function -- falling back to a
+still-committed `.generated.expressions.json` only for a tree that has not
+re-transformed yet. Operator-authored
+`config/<tenant>/<resource_type>.expressions.json` still layers on top, so a
 hand-written binding wins for the same resource path.
 
-Bindings are explicit generated artifacts; tfvars keep the raw IDs and readback still round-trips.
+Bindings are derived, not committed; tfvars keep the raw IDs (or, once
+tokenised, qualified reference tokens) and readback still round-trips.
 
 ### Cross-state References
 

@@ -2210,25 +2210,21 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 	for _, message := range compiled.Binding.Notes {
 		note("NOTE bindings: " + message)
 	}
-	if len(compiled.Binding.Resources) > 0 {
-		rendered, err := RenderGeneratedBindings(compiled.Binding.Resources)
-		if err != nil {
-			return TransformArtifactWriteResult{}, err
-		}
-		if err := os.WriteFile(compiled.Paths.GeneratedBindings, []byte(rendered), 0o666); err != nil {
-			return TransformArtifactWriteResult{}, err
-		}
-		written = append(written, compiled.Paths.GeneratedBindings)
-		note("wrote " + compiled.Paths.GeneratedBindings)
-	} else {
-		removedNow, err := removeIfPresent(compiled.Paths.GeneratedBindings)
-		if err != nil {
-			return TransformArtifactWriteResult{}, err
-		}
-		if removedNow {
-			removed = append(removed, compiled.Paths.GeneratedBindings)
-			note("removed stale " + compiled.Paths.GeneratedBindings)
-		}
+	// compiled.Binding is never written to disk: it is a pure function of
+	// (items, pack reference edges, schema, books) that gen-env now
+	// recomputes at render time via this same DeriveGeneratedBindings (the
+	// predecessor commit's render-derivation bridge), so a committed
+	// .generated.expressions.json is a stale cache the instant it exists.
+	// Any copy left over from before this change -- or from a tree that has
+	// not re-transformed yet -- is stale-cleaned like any other retired
+	// artifact so it disappears on the tree's next transform/adopt run.
+	removedBindings, err := removeIfPresent(compiled.Paths.GeneratedBindings)
+	if err != nil {
+		return TransformArtifactWriteResult{}, err
+	}
+	if removedBindings {
+		removed = append(removed, compiled.Paths.GeneratedBindings)
+		note("removed stale " + compiled.Paths.GeneratedBindings)
 	}
 
 	if err := os.WriteFile(compiled.Paths.Imports, []byte(compiled.NewImports), 0o666); err != nil {
@@ -2264,13 +2260,13 @@ func assertRegularBatchArtifactTarget(target string) error {
 }
 
 // batchArtifactMutations ports batchArtifactMutations from
-// the original implementation. Unlike the TS source (which never
-// fails: renderGeneratedBindings there cannot throw for a
-// deriveGeneratedBindings-produced value), this returns an error rather
-// than assuming that invariant silently -- RenderGeneratedBindings's
-// contract already returns one, and propagating it here is strictly safer
-// than a Go idiom for "this cannot happen" (a bare panic) would be.
-func batchArtifactMutations(compiled CompiledTransformArtifacts) ([]batchArtifactMutation, error) {
+// the original implementation, adapted for the retired bindings cache
+// (Task A2): the TS source's fallible renderGeneratedBindings/write branch
+// is gone -- compiled.Binding is never rendered to a file, only
+// stale-cleaned, mirroring PublishCompiledTransformArtifacts's single-path
+// behavior exactly -- so this function has no remaining failure mode and
+// returns a plain slice rather than an error nothing can produce.
+func batchArtifactMutations(compiled CompiledTransformArtifacts) []batchArtifactMutation {
 	var mutations []batchArtifactMutation
 	if compiled.LookupText != nil {
 		mutations = append(mutations, batchArtifactMutation{
@@ -2296,26 +2292,17 @@ func batchArtifactMutations(compiled CompiledTransformArtifacts) ([]batchArtifac
 		contents: &configText, kind: mutationWrite,
 		resourceType: compiled.ResourceType, target: compiled.Paths.Config,
 	})
-	if len(compiled.Binding.Resources) > 0 {
-		rendered, err := RenderGeneratedBindings(compiled.Binding.Resources)
-		if err != nil {
-			return nil, err
-		}
-		mutations = append(mutations, batchArtifactMutation{
-			contents: &rendered, kind: mutationWrite,
-			resourceType: compiled.ResourceType, target: compiled.Paths.GeneratedBindings,
-		})
-	} else {
-		mutations = append(mutations, batchArtifactMutation{
-			kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.GeneratedBindings,
-		})
-	}
+	// See PublishCompiledTransformArtifacts: the bindings cache is derivable
+	// at render time, so it is always stale-cleaned here, never written.
+	mutations = append(mutations, batchArtifactMutation{
+		kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.GeneratedBindings,
+	})
 	newImports := compiled.NewImports
 	mutations = append(mutations, batchArtifactMutation{
 		contents: &newImports, kind: mutationWrite,
 		resourceType: compiled.ResourceType, target: compiled.Paths.Imports,
 	})
-	return mutations, nil
+	return mutations
 }
 
 // removeTransactionDirectories ports removeTransactionDirectories from
@@ -2574,9 +2561,9 @@ func completedBatchArtifactResult(compiled CompiledTransformArtifacts, applied [
 	for _, message := range compiled.Binding.Notes {
 		note("NOTE bindings: " + message)
 	}
-	if len(compiled.Binding.Resources) > 0 {
-		note("wrote " + compiled.Paths.GeneratedBindings)
-	} else if removedSet[compiled.Paths.GeneratedBindings] {
+	// The bindings cache is never written (see batchArtifactMutations); only
+	// its stale-removal, if any, is ever worth reporting.
+	if removedSet[compiled.Paths.GeneratedBindings] {
 		note("removed stale " + compiled.Paths.GeneratedBindings)
 	}
 	note("wrote " + compiled.Paths.Config)
@@ -2599,11 +2586,7 @@ func completedBatchArtifactResult(compiled CompiledTransformArtifacts, applied [
 func PublishCompiledTransformArtifactBatch(compiled []CompiledTransformArtifacts) ([]TransformArtifactWriteResult, error) {
 	var mutations []batchArtifactMutation
 	for _, item := range compiled {
-		itemMutations, err := batchArtifactMutations(item)
-		if err != nil {
-			return nil, err
-		}
-		mutations = append(mutations, itemMutations...)
+		mutations = append(mutations, batchArtifactMutations(item)...)
 	}
 	targetOwners := map[string]string{}
 	for _, mutation := range mutations {

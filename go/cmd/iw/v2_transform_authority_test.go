@@ -177,13 +177,17 @@ func TestV2TransformDefaultCrossStateAuthority(t *testing.T) {
 	}
 	requireExactTree(t, "V2 transform output tree", first.tree, readV2TransformTreeGolden(t, root))
 
+	// The bindings cache is no longer committed (Task A2): the cross-state
+	// expression it used to carry is now derived at render time from the
+	// tokenised config and the committed books, so transform must produce
+	// no copy of it at all -- not even for a resource type with real
+	// cross-state derivation, like zpa_server_group. The derivation itself
+	// still ran (compiled.Binding was non-empty in-process); its evidence
+	// is the "NOTE bindings: zpa_server_group: 1 bound, 1 skipped" line
+	// pinned in the transform.stderr golden above, not a tree artifact.
 	bindingsPath := "config/demo/zpa_server_group.generated.expressions.json"
-	bindings, found := first.tree[bindingsPath]
-	if !found {
-		t.Fatalf("V2 transform output lacks cross-state artifact %q", bindingsPath)
-	}
-	if !bytes.Contains(bindings, []byte("data.terraform_remote_state.zpa_app_connector_group.outputs.infrawright_reference_ids.zpa_app_connector_group")) {
-		t.Errorf("cross-state artifact %q lacks the expected remote-state expression: %s", bindingsPath, bindings)
+	if _, found := first.tree[bindingsPath]; found {
+		t.Errorf("V2 transform output must not write the derivable bindings cache %q", bindingsPath)
 	}
 	for _, path := range []string{
 		"config/demo/zpa_app_connector_group.lookup.json",

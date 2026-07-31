@@ -151,6 +151,15 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
+func stringSliceContains(haystack []string, want string) bool {
+	for _, got := range haystack {
+		if got == want {
+			return true
+		}
+	}
+	return false
+}
+
 func writeFileMkdir(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
@@ -593,9 +602,18 @@ func TestBatchCompilationUsesNewLookupResultsForBindingsAndComments(t *testing.T
 	if !regexp.MustCompile(`group_id\s+= "new-id"\s+# Fresh Group`).MatchString(configText) {
 		t.Fatalf("config text %q does not match /group_id\\s+= \"new-id\"\\s+# Fresh Group/", configText)
 	}
-	bindingsText := readFileText(t, referrerPaths.GeneratedBindings)
-	if !strings.Contains(bindingsText, "data.terraform_remote_state.sample_root.outputs.infrawright_reference_ids.sample_group[\\\"new_key\\\"]") {
-		t.Fatalf("generated bindings %q does not contain the fresh-lookup-keyed expression", bindingsText)
+	// The bindings cache is derivable, so publish never writes it (Task A2) --
+	// the fresh-lookup-keyed expression is asserted against the in-memory
+	// Binding result compilation produced, not a committed sidecar.
+	if fileExists(t, referrerPaths.GeneratedBindings) {
+		t.Fatalf("publish must not write %s; the binding is derivable at render time", referrerPaths.GeneratedBindings)
+	}
+	rendered, err := RenderGeneratedBindings(compiled[0].Binding.Resources)
+	if err != nil {
+		t.Fatalf("RenderGeneratedBindings: %v", err)
+	}
+	if !strings.Contains(rendered, "data.terraform_remote_state.sample_root.outputs.infrawright_reference_ids.sample_group[\\\"new_key\\\"]") {
+		t.Fatalf("derived bindings %q does not contain the fresh-lookup-keyed expression", rendered)
 	}
 }
 
@@ -642,6 +660,143 @@ func TestDisabledBindingsRetainLiteralIDsAndRemoveStaleArtifact(t *testing.T) {
 	config := readFileText(t, paths.Config)
 	if !strings.Contains(config, `"group-id"`) {
 		t.Errorf("disabled config = %q, want literal group ID", config)
+	}
+}
+
+// TestPublishTokenisedCompileWritesNoBindingsCache pins Task A2: a
+// cross-state compile still derives Binding.Resources in memory (so
+// assertMintedTokensCovered and every other in-process consumer keep
+// working), but PublishCompiledTransformArtifacts never writes
+// .generated.expressions.json for it -- the file is a cache of something
+// gen-env now derives at render time (predecessor commit), so committing it
+// is redundant. A pre-existing committed copy is stale-cleaned and reported
+// exactly like any other stale artifact.
+func TestPublishTokenisedCompileWritesNoBindingsCache(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "sample_item")
+	options.References = map[string]TransformReferenceSpec{
+		"group_id": {NameField: "name", Referent: "sample_group"},
+	}
+	options.Result = PullTransformResult{
+		Drops:     []string{},
+		Items:     map[string]map[string]any{"item": {"group_id": "group-id", "name": "Item"}},
+		Originals: map[string]map[string]any{"item": {"id": "item-id", "name": "Item"}},
+	}
+	options.BindingContext = BindingContext{
+		Mode:       deployment.ReferenceBindingCrossState,
+		Derived:    map[string]bool{},
+		Generated:  map[string]bool{"sample_group": true, "sample_item": true},
+		References: options.References,
+		ResourceRoots: map[string]string{
+			"sample_group": "sample_group",
+			"sample_item":  "sample_item",
+		},
+	}
+	options.LookupOverrides = map[string]*TransformLookupData{
+		"sample_group": {KeyByID: map[string]string{"group-id": "group_one"}},
+	}
+	var diagnostics []string
+	options.OnDiagnostic = func(message string) { diagnostics = append(diagnostics, message) }
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, paths.GeneratedBindings, "stale generated bindings\n")
+
+	compiled, err := CompileTransformArtifacts(options)
+	if err != nil {
+		t.Fatalf("CompileTransformArtifacts: %v", err)
+	}
+	if len(compiled.Binding.Resources) == 0 {
+		t.Fatal("expected a non-empty derived binding (a tokenised, cross-state compile) for this test to be meaningful")
+	}
+
+	result, err := PublishCompiledTransformArtifacts(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifacts: %v", err)
+	}
+	if fileExists(t, paths.GeneratedBindings) {
+		t.Errorf("publish must not write %s; the binding is derivable at render time", paths.GeneratedBindings)
+	}
+	if !stringSliceContains(result.Removed, paths.GeneratedBindings) {
+		t.Errorf("result.Removed = %v, want it to contain %s", result.Removed, paths.GeneratedBindings)
+	}
+	wantNote := "removed stale " + paths.GeneratedBindings
+	if !stringSliceContains(diagnostics, wantNote) {
+		t.Errorf("diagnostics = %v, want it to contain %q", diagnostics, wantNote)
+	}
+	config := readFileText(t, paths.Config)
+	if !strings.Contains(config, `"sample_group.group_one"`) {
+		t.Errorf("tokenised config = %q, want the substituted reference token", config)
+	}
+}
+
+// TestBatchPublishTokenisedCompileWritesNoBindingsCache is the batch-publish
+// counterpart of TestPublishTokenisedCompileWritesNoBindingsCache: the
+// mutation list PublishCompiledTransformArtifactBatch commits is assembled
+// independently of the single-artifact path (batchArtifactMutations, not
+// PublishCompiledTransformArtifacts), so the "never write, always
+// stale-clean" contract needs its own pin here.
+func TestBatchPublishTokenisedCompileWritesNoBindingsCache(t *testing.T) {
+	workspace := t.TempDir()
+	references := map[string]TransformReferenceSpec{
+		"group_id": {NameField: "name", Referent: "sample_group"},
+	}
+	generated := map[string]bool{"sample_group": true, "sample_item": true}
+	resourceRoots := map[string]string{"sample_group": "sample_root", "sample_item": "sample_root"}
+
+	referrer := newArtifactOptions(workspace, "sample_item")
+	referrer.References = references
+	referrer.Result = PullTransformResult{
+		Drops:     []string{},
+		Items:     map[string]map[string]any{"item": {"group_id": "group-id", "name": "Item"}},
+		Originals: map[string]map[string]any{"item": {"id": "item-id", "name": "Item"}},
+	}
+	referrer.BindingContext = BindingContext{
+		Mode:          deployment.ReferenceBindingCrossState,
+		Derived:       map[string]bool{},
+		Generated:     generated,
+		References:    references,
+		ResourceRoots: resourceRoots,
+	}
+	var diagnostics []string
+	referrer.OnDiagnostic = func(message string) { diagnostics = append(diagnostics, message) }
+
+	referent := newArtifactOptions(workspace, "sample_group")
+	referent.Result = PullTransformResult{
+		Drops:     []string{},
+		Items:     map[string]map[string]any{"group_one": {"name": "Group"}},
+		Originals: map[string]map[string]any{"group_one": {"id": "group-id", "name": "Group"}},
+	}
+	referent.BindingContext = BindingContext{
+		Mode:          deployment.ReferenceBindingCrossState,
+		Derived:       map[string]bool{},
+		Generated:     generated,
+		References:    map[string]TransformReferenceSpec{},
+		ResourceRoots: resourceRoots,
+	}
+
+	referrerPaths := mustComputePaths(t, referrer)
+	writeFileMkdir(t, referrerPaths.GeneratedBindings, "stale generated bindings\n")
+
+	compiled, err := CompileTransformArtifactBatch([]TransformArtifactCompileOptions{referrer, referent})
+	if err != nil {
+		t.Fatalf("CompileTransformArtifactBatch: %v", err)
+	}
+	if len(compiled[0].Binding.Resources) == 0 {
+		t.Fatal("expected a non-empty derived binding for the referrer (a tokenised, cross-state compile) for this test to be meaningful")
+	}
+
+	results, err := PublishCompiledTransformArtifactBatch(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifactBatch: %v", err)
+	}
+	if fileExists(t, referrerPaths.GeneratedBindings) {
+		t.Errorf("batch publish must not write %s; the binding is derivable at render time", referrerPaths.GeneratedBindings)
+	}
+	if !stringSliceContains(results[0].Removed, referrerPaths.GeneratedBindings) {
+		t.Errorf("results[0].Removed = %v, want it to contain %s", results[0].Removed, referrerPaths.GeneratedBindings)
+	}
+	wantNote := "removed stale " + referrerPaths.GeneratedBindings
+	if !stringSliceContains(diagnostics, wantNote) {
+		t.Errorf("diagnostics = %v, want it to contain %q", diagnostics, wantNote)
 	}
 }
 

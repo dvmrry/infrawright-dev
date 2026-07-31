@@ -105,7 +105,6 @@ wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_ssl_inspection_rules_imports
 skip zia_traffic_capture_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_capture_rules.json)
 NOTE bindings: zia_url_filtering_rules.tests_vcr0001.url_categories[0] value "ANY" skipped; id is absent from zia_url_categories lookup
 NOTE bindings: zia_url_filtering_rules: 3 bound, 1 skipped (id_absent=1)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_filtering_rules.generated.expressions.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_filtering_rules.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_url_filtering_rules_imports.tf
 skip zpa_app_connector_assistant_schedule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_app_connector_assistant_schedule.json)
@@ -159,7 +158,6 @@ wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_segment_group_imports.tf
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_server_group.lookup.json
 NOTE bindings: zpa_server_group.tests_srvg_vcr0001_updated.app_connector_groups[0].id[0] value "216196257331404707" skipped; id is absent from zpa_app_connector_group lookup
 NOTE bindings: zpa_server_group: 1 bound, 1 skipped (id_absent=1)
-wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_server_group.generated.expressions.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_server_group.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_server_group_imports.tf
 NOTE bindings: zpa_application_segment.tests_appsegment_vcr0006_bd_redhat_com.segment_group_id value "216196257331404637" skipped; id is absent from zpa_segment_group lookup
