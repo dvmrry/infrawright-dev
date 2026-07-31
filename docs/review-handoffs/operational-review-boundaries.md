@@ -202,3 +202,9 @@
   `collectorInt` lacked direct tests. The scope now names all three renames, and
   direct tables plus unsafe-mutation proof pin the behavior of both pagination
   coercion helpers.
+- A second current-main refresh merged `origin/main` at 6e38d88 ("Rename
+  emitted Terraform identifiers from infrawright_ to iw_", #299) with no
+  conflicts and no content changes to this branch's edits; the full gate
+  suite (`go build`, `go vet`, `gofmt`, `go test ./... -count=1`,
+  `make check`) was re-run green on the merged tip. A fresh reviewer must
+  still independently approve that exact tip.
