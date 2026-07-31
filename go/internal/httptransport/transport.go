@@ -20,9 +20,10 @@ import (
 const (
 	// DefaultTimeoutMs is the per-attempt request timeout applied when
 	// neither Options.RequestTimeoutMs nor a request's own TimeoutMs is
-	// set. It ports REST_HTTP_TIMEOUT_MS from the retired resthttp
-	// package.
-	DefaultTimeoutMs = 30_000
+	// set. The retired resthttp package's REST_HTTP_TIMEOUT_MS was
+	// 30_000; operational experience against slow tenant APIs required
+	// 60s, a deliberate departure from the ported default.
+	DefaultTimeoutMs = 60_000
 	// DefaultResponseLimitBytes bounds a single response body as a DoS guard
 	// against an unbounded or compromised peer.
 	DefaultResponseLimitBytes = 64 * 1024 * 1024

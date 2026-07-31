@@ -28,6 +28,12 @@
 - Head: the handoff-only commit immediately after the implementation head; the
   exact hash is supplied to the reviewer and contains no implementation change.
 - Diff command: `git diff 9b0b40a84871fd325c25e0c0a92c1348e51664cf..<exact-review-head>`.
+- Current refresh base (2026-07-31, supersedes the coordinates above for any
+  new review): `origin/main` after PR #300 (HTTP default timeout 30s -> 60s);
+  the branch merges that tip, resolving the one genuine conflict in
+  `go/internal/httptransport/transport.go` in main's favor
+  (`DefaultTimeoutMs = 60_000`, now pinned by a regression test). Diff
+  command: `git diff origin/main...<exact-review-head>` against current main.
 
 ## Files Changed
 
