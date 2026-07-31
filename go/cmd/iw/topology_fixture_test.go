@@ -62,6 +62,22 @@ func prepareBlockC4Fixture(t *testing.T, workspace string) blockC4Fixture {
 	writeBlockC4JSON(t, filepath.Join(fixture.packs, "sample", "registry.json"), map[string]any{
 		"sample_resource": map[string]any{"generate": true, "product": "sample"},
 	})
+	// assessment.NewPlanSchemaTypes refuses to run plan/apply commands for a
+	// registered resource type whose pack carries no provider schema, so the
+	// fixture needs a minimal one (no set-typed attributes: every array stays
+	// positional, the pre-schema behaviour).
+	writeBlockC4JSON(t, filepath.Join(fixture.packs, "sample", "schemas", "provider", "sample.json"), map[string]any{
+		"provider": map[string]any{"block": map[string]any{}, "version": 0},
+		"resource_schemas": map[string]any{
+			"sample_resource": map[string]any{
+				"block": map[string]any{
+					"attributes": map[string]any{
+						"id": map[string]any{"computed": true, "type": "string"},
+					},
+				},
+			},
+		},
+	})
 	writeBlockC4JSON(t, fixture.profile, map[string]any{
 		"kind": "infrawright.pack-set", "version": 1,
 		"packs": []any{"sample"}, "shared": []any{},
