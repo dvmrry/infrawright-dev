@@ -13,11 +13,36 @@ import (
 func isRetiredRuntimeFile(name string) bool {
 	switch name {
 	case "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
-		"pyproject.toml", "requirements.txt", "setup.py", "setup.cfg", "tox.ini",
-		"tsconfig.json", ".node-version", "__main__.py":
+		"pyproject.toml", "requirements.txt", "setup.cfg", "tox.ini",
+		"tsconfig.json", ".node-version":
 		return true
+	}
+	// The repository tracks zero TypeScript, JavaScript, or Python source
+	// files: the retired runtimes were removed wholesale, so ANY file with
+	// these extensions is retired surface returning -- including the 21
+	// historical node-tests/ files (JSON fixtures aside, caught by the
+	// directory rule below) that a basename-only rule missed.
+	for _, suffix := range []string{".ts", ".js", ".mjs", ".cjs", ".py"} {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRetiredRuntimeRoot reports directory names whose entire trees are
+// retired surface: the historical runtime roots. node-tests, node-src, and
+// .node-test have no legitimate future use at any depth; "engine" is only
+// the retired Python engine when it sits at the repository root, since a
+// future Go package could legitimately use the name deeper in the tree.
+func isRetiredRuntimeRoot(relative, name string) bool {
+	switch name {
+	case "node-tests", "node-src", ".node-test":
+		return true
+	case "engine":
+		return relative == "engine"
 	default:
-		return strings.HasSuffix(name, ".test.ts")
+		return false
 	}
 }
 
@@ -27,17 +52,25 @@ func findRetiredRuntimeFiles(root string) ([]string, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".claude") {
-			return filepath.SkipDir
-		}
-		if entry.IsDir() || !isRetiredRuntimeFile(entry.Name()) {
-			return nil
-		}
 		relative, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		violations = append(violations, filepath.ToSlash(relative))
+		relative = filepath.ToSlash(relative)
+		if entry.IsDir() {
+			if entry.Name() == ".git" || entry.Name() == ".claude" {
+				return filepath.SkipDir
+			}
+			if isRetiredRuntimeRoot(relative, entry.Name()) {
+				violations = append(violations, relative)
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isRetiredRuntimeFile(entry.Name()) {
+			return nil
+		}
+		violations = append(violations, relative)
 		return nil
 	})
 	sort.Strings(violations)
@@ -57,10 +90,9 @@ func TestRetiredRuntimeStaysRetired(t *testing.T) {
 
 func TestRetiredRuntimeWalkerReportsNestedViolations(t *testing.T) {
 	root := t.TempDir()
-	violations := []string{
+	for _, path := range []string{
 		"engine/__main__.py",
 		"engine/requirements.txt",
-		"engine/tox.ini",
 		"nested/manifests/package-lock.json",
 		"nested/manifests/pnpm-lock.yaml",
 		"nested/manifests/yarn.lock",
@@ -71,21 +103,44 @@ func TestRetiredRuntimeWalkerReportsNestedViolations(t *testing.T) {
 		"nested/runtime/setup.py",
 		"nested/runtime/tsconfig.json",
 		"node-src/package.json",
-	}
-	for _, path := range violations {
+		"node-tests/fixtures/provider-facts.json",
+		"node-tests/helpers/python-oracle.ts",
+		"tools/viewer.js",
+		"tools/loader.mjs",
+		"tools/shim.cjs",
+	} {
 		writeRetiredRuntimeFixtureFile(t, filepath.Join(root, filepath.FromSlash(path)))
 	}
 	for _, path := range []string{
 		".claude/scratch/engine/__main__.py",
 		".git/worktrees/node-src/package.json",
 		"safe/package.json.md",
-		"engine/main.py",
+		"internal/engine/kernel.go",
 		"tests/command.test.ts.golden",
 	} {
 		writeRetiredRuntimeFixtureFile(t, filepath.Join(root, filepath.FromSlash(path)))
 	}
 
-	want := append([]string(nil), violations...)
+	// The historical roots report as single tree-level violations (their
+	// contents are skipped once the root is flagged); loose files report
+	// individually, including extension-rule catches with no manifest name.
+	want := []string{
+		"engine",
+		"nested/manifests/package-lock.json",
+		"nested/manifests/pnpm-lock.yaml",
+		"nested/manifests/yarn.lock",
+		"nested/runtime/.node-version",
+		"nested/runtime/command.test.ts",
+		"nested/runtime/pyproject.toml",
+		"nested/runtime/setup.cfg",
+		"nested/runtime/setup.py",
+		"nested/runtime/tsconfig.json",
+		"node-src",
+		"node-tests",
+		"tools/loader.mjs",
+		"tools/shim.cjs",
+		"tools/viewer.js",
+	}
 	sort.Strings(want)
 	got, err := findRetiredRuntimeFiles(root)
 	if err != nil {
