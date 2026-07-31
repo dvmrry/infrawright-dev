@@ -7,8 +7,11 @@
 > literal IDs, and a token-shaped value in an HCL config is refused at
 > generation. gen-env renders each token as a
 > lookup-first resolver — `try(<remote-state lookup>, <book literal>)` —
-> whose fallback reads the committed `<referent>.lookup.json` at plan
-> time. IDs live in exactly two places: tfstate, and that book. See
+> whose fallback reads the committed
+> `config/<tenant>/lookups/<referent>.lookup.json` at plan time (a book
+> committed at the pre-migration `config/<tenant>/<referent>.lookup.json`
+> path still resolves during the migration). IDs live in exactly two
+> places: tfstate, and that book. See
 > `docs/superpowers/specs/2026-07-30-reference-tokens-design.md` for the
 > full contract; the binding grammar below is unchanged and applies to
 > operator-authored sidecars, which are never token-wrapped.

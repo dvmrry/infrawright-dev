@@ -800,6 +800,89 @@ func TestBatchPublishTokenisedCompileWritesNoBindingsCache(t *testing.T) {
 	}
 }
 
+// TestPublishWritesLookupUnderLookupsAndStaleCleansLegacy pins Task B1's
+// single-artifact publish contract: the book lands at its current location
+// (config/<tenant>/lookups/<type>.lookup.json) and a pre-existing copy at
+// the pre-migration legacy location (config/<tenant>/<type>.lookup.json) is
+// stale-cleaned and reported, mirroring StaleConfig's own unconditional
+// cleanup.
+func TestPublishWritesLookupUnderLookupsAndStaleCleansLegacy(t *testing.T) {
+	workspace := t.TempDir()
+	options := defaultArtifactOptions(workspace)
+	var diagnostics []string
+	options.OnDiagnostic = func(message string) { diagnostics = append(diagnostics, message) }
+	paths := mustComputePaths(t, options)
+	if !strings.Contains(paths.Lookup, filepath.Join("lookups", "sample_resource.lookup.json")) {
+		t.Fatalf("sanity: paths.Lookup = %s, want it under a lookups/ subdirectory", paths.Lookup)
+	}
+	writeFileMkdir(t, paths.LegacyLookup, "stale legacy lookup for sample_resource\n")
+
+	compiled, err := CompileTransformArtifacts(options)
+	if err != nil {
+		t.Fatalf("CompileTransformArtifacts: %v", err)
+	}
+	result, err := PublishCompiledTransformArtifacts(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifacts: %v", err)
+	}
+	if !fileExists(t, paths.Lookup) {
+		t.Error("expected the book to exist at the current lookups/ path after publish")
+	}
+	if fileExists(t, paths.LegacyLookup) {
+		t.Error("expected the legacy-path book to be removed after publish")
+	}
+	if !stringSliceContains(result.Written, paths.Lookup) {
+		t.Errorf("result.Written = %v, want it to contain %s", result.Written, paths.Lookup)
+	}
+	if !stringSliceContains(result.Removed, paths.LegacyLookup) {
+		t.Errorf("result.Removed = %v, want it to contain %s", result.Removed, paths.LegacyLookup)
+	}
+	wantNote := "removed stale legacy lookup " + paths.LegacyLookup
+	if !stringSliceContains(diagnostics, wantNote) {
+		t.Errorf("diagnostics = %v, want it to contain %q", diagnostics, wantNote)
+	}
+}
+
+// TestBatchPublishWritesLookupUnderLookupsAndStaleCleansLegacy is the
+// batch-publish counterpart of
+// TestPublishWritesLookupUnderLookupsAndStaleCleansLegacy: the mutation list
+// PublishCompiledTransformArtifactBatch commits is assembled independently
+// (batchArtifactMutations, not PublishCompiledTransformArtifacts), so the
+// "write current, stale-clean legacy" contract needs its own pin here.
+func TestBatchPublishWritesLookupUnderLookupsAndStaleCleansLegacy(t *testing.T) {
+	workspace := t.TempDir()
+	options := defaultArtifactOptions(workspace)
+	var diagnostics []string
+	options.OnDiagnostic = func(message string) { diagnostics = append(diagnostics, message) }
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, paths.LegacyLookup, "stale legacy lookup for sample_resource\n")
+
+	compiled, err := CompileTransformArtifactBatch([]TransformArtifactCompileOptions{options})
+	if err != nil {
+		t.Fatalf("CompileTransformArtifactBatch: %v", err)
+	}
+	results, err := PublishCompiledTransformArtifactBatch(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifactBatch: %v", err)
+	}
+	if !fileExists(t, paths.Lookup) {
+		t.Error("expected the book to exist at the current lookups/ path after batch publish")
+	}
+	if fileExists(t, paths.LegacyLookup) {
+		t.Error("expected the legacy-path book to be removed after batch publish")
+	}
+	if !stringSliceContains(results[0].Written, paths.Lookup) {
+		t.Errorf("results[0].Written = %v, want it to contain %s", results[0].Written, paths.Lookup)
+	}
+	if !stringSliceContains(results[0].Removed, paths.LegacyLookup) {
+		t.Errorf("results[0].Removed = %v, want it to contain %s", results[0].Removed, paths.LegacyLookup)
+	}
+	wantNote := "removed stale legacy lookup " + paths.LegacyLookup
+	if !stringSliceContains(diagnostics, wantNote) {
+		t.Errorf("diagnostics = %v, want it to contain %q", diagnostics, wantNote)
+	}
+}
+
 // TestDeriveGeneratedBindingsNestedIndexedPaths ports "nested pack
 // references emit deterministic concrete indexed binding paths".
 func TestDeriveGeneratedBindingsNestedIndexedPaths(t *testing.T) {
@@ -1110,7 +1193,10 @@ func TestCompileTransformArtifactsRejectsConflictingMoveEvidence(t *testing.T) {
 }
 
 // TestComputeTransformArtifactPathsFlatLayout ports "artifact paths retain
-// the flat tenant/resource layout".
+// the flat tenant/resource layout", extended for Task B1: the book (Lookup)
+// is the one artifact that no longer sits flat in the tenant directory --
+// it lives under a lookups/ subdirectory -- while LegacyLookup keeps naming
+// its pre-migration flat location for dual-read and stale-cleanup.
 func TestComputeTransformArtifactPathsFlatLayout(t *testing.T) {
 	got, err := ComputeTransformArtifactPaths(testDeployment("overlay", false), "zia_rule_labels", "tenant")
 	if err != nil {
@@ -1120,7 +1206,8 @@ func TestComputeTransformArtifactPathsFlatLayout(t *testing.T) {
 		Config:            path.Join("overlay", "config", "tenant", "zia_rule_labels.auto.tfvars.json"),
 		GeneratedBindings: path.Join("overlay", "config", "tenant", "zia_rule_labels.generated.expressions.json"),
 		Imports:           path.Join("overlay", "imports", "tenant", "zia_rule_labels_imports.tf"),
-		Lookup:            path.Join("overlay", "config", "tenant", "zia_rule_labels.lookup.json"),
+		Lookup:            path.Join("overlay", "config", "tenant", "lookups", "zia_rule_labels.lookup.json"),
+		LegacyLookup:      path.Join("overlay", "config", "tenant", "zia_rule_labels.lookup.json"),
 		Moves:             path.Join("overlay", "imports", "tenant", "zia_rule_labels_moves.tf"),
 		StaleConfig:       path.Join("overlay", "config", "tenant", "zia_rule_labels.auto.tfvars"),
 	}

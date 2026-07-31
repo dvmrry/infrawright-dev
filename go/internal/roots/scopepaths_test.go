@@ -181,6 +181,69 @@ func TestChangedPathScopeUnnormalizedOverlayJoinsRawThenNormalizes(t *testing.T)
 	}
 }
 
+// TestChangedPathScopeAttributesLookupsSubdirectoryToItsType pins Part B of
+// the sidecar-minimization migration: the book relocated from
+// config/<tenant>/<type>.lookup.json (the depth-2 shape every other CONFIG
+// artifact still uses) to config/<tenant>/lookups/<type>.lookup.json
+// (depth 3). Changed-path scoping must keep attributing a book edit to its
+// type through this new shape, exactly like the still-supported legacy
+// depth-2 ".lookup.json" path pinned by
+// TestChangedPathScopeUnnormalizedOverlayJoinsRawThenNormalizes above.
+func TestChangedPathScopeAttributesLookupsSubdirectoryToItsType(t *testing.T) {
+	scope, err := ChangedPathScopeFromResourceSet(ChangedPathScopeOptions{
+		Paths:          []string{"config/acme/lookups/zpa_alpha_one.lookup.json"},
+		Workspace:      scopeWorkspace,
+		DeploymentPath: scopeDeploymentPath,
+		Deployment:     singletonDeployment(),
+		ResourceSet:    scopePlanFixtureResourceSet(),
+	})
+	if err != nil {
+		t.Fatalf("ChangedPathScopeFromResourceSet: %v", err)
+	}
+	if len(scope.UnmatchedPaths) != 0 {
+		t.Errorf("UnmatchedPaths = %v, want empty", scope.UnmatchedPaths)
+	}
+	if len(scope.PathMatches) != 1 {
+		t.Fatalf("PathMatches length = %d, want 1", len(scope.PathMatches))
+	}
+	match := scope.PathMatches[0]
+	if !reflect.DeepEqual(match.Kinds, []ChangedPathKind{ChangedPathKindConfig}) {
+		t.Errorf("Kinds = %v, want [config]", match.Kinds)
+	}
+	if !reflect.DeepEqual(match.Resources, []string{"zpa_alpha_one"}) {
+		t.Errorf("Resources = %v, want [zpa_alpha_one]", match.Resources)
+	}
+	if !reflect.DeepEqual(match.Tenants, []string{"acme"}) {
+		t.Errorf("Tenants = %v, want [acme]", match.Tenants)
+	}
+	if want := []string{"zpa_alpha_one"}; !reflect.DeepEqual(scope.AffectedResources, want) {
+		t.Errorf("AffectedResources = %v, want %v", scope.AffectedResources, want)
+	}
+}
+
+// TestChangedPathScopeIgnoresNestedLookupsDirectoryEntry guards the depth-3
+// branch's exactness: a path one level deeper than <tenant>/lookups/<file>
+// (e.g. an accidental extra directory level) is neither the depth-2 nor the
+// depth-3 shape and must go unmatched, not partially attributed.
+func TestChangedPathScopeIgnoresNestedLookupsDirectoryEntry(t *testing.T) {
+	scope, err := ChangedPathScopeFromResourceSet(ChangedPathScopeOptions{
+		Paths:          []string{"config/acme/lookups/nested/zpa_alpha_one.lookup.json"},
+		Workspace:      scopeWorkspace,
+		DeploymentPath: scopeDeploymentPath,
+		Deployment:     singletonDeployment(),
+		ResourceSet:    scopePlanFixtureResourceSet(),
+	})
+	if err != nil {
+		t.Fatalf("ChangedPathScopeFromResourceSet: %v", err)
+	}
+	if len(scope.PathMatches) != 0 {
+		t.Errorf("PathMatches = %+v, want none for a path one level past the lookups/ shape", scope.PathMatches)
+	}
+	if len(scope.UnmatchedPaths) != 1 {
+		t.Errorf("UnmatchedPaths = %v, want the single overly-nested path", scope.UnmatchedPaths)
+	}
+}
+
 // TestChangedPathScopeExplicitModuleDirIgnoresOverlay ports the
 // "explicit-module-dir" oracle scenario: an explicit deployment.module_dir
 // is used verbatim, with no overlay join at all, even when overlay is

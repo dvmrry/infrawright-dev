@@ -881,7 +881,23 @@ func referenceBookLocals(
 		if err != nil {
 			return "", err
 		}
-		relative := nodePathRelative(environmentDirectory, paths.Lookup)
+		// The plan-time file() expression must name a file that actually
+		// exists at generation time: the current path (config/<tenant>/
+		// lookups/<type>.lookup.json) wins whenever it is present, but a
+		// tenant that has not re-transformed since the Part B book
+		// migration still only has the legacy path
+		// (config/<tenant>/<type>.lookup.json) on disk, and pointing the
+		// expression at the (absent) current path would make the
+		// fileexists() guard always false -- silently dropping the book
+		// fallback at plan time rather than reading it. Neither path
+		// existing (a genuinely missing book) falls through to the current
+		// path: fileexists() already guards that case at plan time, and any
+		// tighter failure belongs to the totality/refusal gates, not here.
+		bookPath := paths.Lookup
+		if !fileExists(paths.Lookup) && fileExists(paths.LegacyLookup) {
+			bookPath = paths.LegacyLookup
+		}
+		relative := nodePathRelative(environmentDirectory, bookPath)
 		// The path rides inside a live "${path.module}/..." interpolation, so
 		// it must not itself need escaping; deployment layouts that would are
 		// refused rather than mis-quoted.

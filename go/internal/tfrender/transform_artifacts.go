@@ -134,9 +134,19 @@ type TransformArtifactPaths struct {
 	Config            string
 	GeneratedBindings string
 	Imports           string
-	Lookup            string
-	Moves             string
-	StaleConfig       string
+	// LegacyLookup is the book's pre-migration location
+	// (<configDir>/<type>.lookup.json, the same directory the config and
+	// generated-bindings files sit in). Never written; publish stale-cleans
+	// it exactly like StaleConfig, and every book reader falls back to it
+	// when Lookup does not exist on disk, so a tenant that has not
+	// re-transformed since this migration keeps rendering unchanged.
+	LegacyLookup string
+	// Lookup is the book's current, authoritative location:
+	// <configDir>/lookups/<type>.lookup.json. Publish creates the lookups/
+	// subdirectory as needed.
+	Lookup      string
+	Moves       string
+	StaleConfig string
 }
 
 // TransformArtifactWriteResult is the Go analogue of the
@@ -1573,7 +1583,8 @@ func ComputeTransformArtifactPaths(dep deployment.Deployment, resourceType, tena
 		StaleConfig:       staleConfig,
 		GeneratedBindings: path.Join(configDirectory, resourceType+".generated.expressions.json"),
 		Imports:           path.Join(importsDirectory, resourceType+"_imports.tf"),
-		Lookup:            path.Join(configDirectory, resourceType+".lookup.json"),
+		Lookup:            path.Join(configDirectory, "lookups", resourceType+".lookup.json"),
+		LegacyLookup:      path.Join(configDirectory, resourceType+".lookup.json"),
 		Moves:             path.Join(importsDirectory, resourceType+"_moves.tf"),
 	}, nil
 }
@@ -1711,8 +1722,24 @@ func jsonValueHasPrefix(value any, prefix string) bool {
 // the original implementation. See TransformArtifactCompileOptions's
 // LookupOverrides doc comment for why no separate "overrides provided"
 // flag is threaded here.
+//
+// Dual-read for the Part B book migration (config/<tenant>/<type>.lookup.json
+// -> config/<tenant>/lookups/<type>.lookup.json): the current path is tried
+// first; only when it is absent (loadLookup's nil-without-error result) does
+// this fall back to the legacy path. A malformed file at the current path
+// still fails loudly rather than silently falling through to a stale legacy
+// copy. Every resolveLookup caller -- deriveHclComments (HCL comments) and
+// lookupKeyMaps (bindings derivation, including gen-env's LookupKeyMaps) --
+// inherits this fallback for free.
 func resolveLookup(configDirectory, referent string, overrides map[string]*TransformLookupData) (*TransformLookupData, error) {
 	if data, ok := overrides[referent]; ok {
+		return data, nil
+	}
+	data, err := loadLookup(path.Join(configDirectory, "lookups", referent+".lookup.json"))
+	if err != nil {
+		return nil, err
+	}
+	if data != nil {
 		return data, nil
 	}
 	return loadLookup(path.Join(configDirectory, referent+".lookup.json"))
@@ -2084,8 +2111,11 @@ func CompileTransformArtifactBatch(items []TransformArtifactCompileOptions) ([]C
 		// Iterated in the same order as transformArtifactPaths's TS object
 		// literal (config, staleConfig, generatedBindings, imports, lookup,
 		// moves) so a multi-way collision is reported against the same
-		// "first" path the Node source would report.
-		ordered := []string{paths.Config, paths.StaleConfig, paths.GeneratedBindings, paths.Imports, paths.Lookup, paths.Moves}
+		// "first" path the Node source would report. LegacyLookup is a Part
+		// B addition with no TS counterpart, appended after Lookup: like
+		// StaleConfig, it is a write target for no member (only ever
+		// stale-cleaned), so it belongs beside StaleConfig in spirit.
+		ordered := []string{paths.Config, paths.StaleConfig, paths.GeneratedBindings, paths.Imports, paths.Lookup, paths.LegacyLookup, paths.Moves}
 		for _, outputPath := range ordered {
 			if owner, ok := pathOwners[outputPath]; ok {
 				return nil, fmt.Errorf(
@@ -2152,6 +2182,10 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 	if err := os.MkdirAll(importsDirectory, 0o777); err != nil {
 		return TransformArtifactWriteResult{}, err
 	}
+	lookupDirectory := path.Dir(compiled.Paths.Lookup)
+	if err := os.MkdirAll(lookupDirectory, 0o777); err != nil {
+		return TransformArtifactWriteResult{}, err
+	}
 
 	if compiled.LookupText != nil {
 		if err := os.WriteFile(compiled.Paths.Lookup, []byte(*compiled.LookupText), 0o666); err != nil {
@@ -2159,6 +2193,18 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		}
 		written = append(written, compiled.Paths.Lookup)
 		note("wrote " + compiled.Paths.Lookup)
+		// The book just landed at its current location; any copy left at
+		// the pre-migration path is stale the instant this write commits,
+		// the same "cache the instant a fresher artifact exists" logic
+		// GeneratedBindings already applies to itself.
+		removedLegacy, err := removeIfPresent(compiled.Paths.LegacyLookup)
+		if err != nil {
+			return TransformArtifactWriteResult{}, err
+		}
+		if removedLegacy {
+			removed = append(removed, compiled.Paths.LegacyLookup)
+			note("removed stale legacy lookup " + compiled.Paths.LegacyLookup)
+		}
 	} else if compiled.RemoveLookupWhenAbsent {
 		removedNow, err := removeIfPresent(compiled.Paths.Lookup)
 		if err != nil {
@@ -2167,6 +2213,14 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		if removedNow {
 			removed = append(removed, compiled.Paths.Lookup)
 			note("removed stale inferred lookup " + compiled.Paths.Lookup)
+		}
+		removedLegacy, err := removeIfPresent(compiled.Paths.LegacyLookup)
+		if err != nil {
+			return TransformArtifactWriteResult{}, err
+		}
+		if removedLegacy {
+			removed = append(removed, compiled.Paths.LegacyLookup)
+			note("removed stale legacy lookup " + compiled.Paths.LegacyLookup)
 		}
 	}
 
@@ -2273,9 +2327,17 @@ func batchArtifactMutations(compiled CompiledTransformArtifacts) []batchArtifact
 			contents: compiled.LookupText, kind: mutationWrite,
 			resourceType: compiled.ResourceType, target: compiled.Paths.Lookup,
 		})
+		// See PublishCompiledTransformArtifacts: the book just landed at its
+		// current location, so any copy at the pre-migration path is stale.
+		mutations = append(mutations, batchArtifactMutation{
+			kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.LegacyLookup,
+		})
 	} else if compiled.RemoveLookupWhenAbsent {
 		mutations = append(mutations, batchArtifactMutation{
 			kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.Lookup,
+		})
+		mutations = append(mutations, batchArtifactMutation{
+			kind: mutationRemove, resourceType: compiled.ResourceType, target: compiled.Paths.LegacyLookup,
 		})
 	}
 	if compiled.ExistingMoves == nil && compiled.RenderedMoves != nil {
@@ -2535,6 +2597,9 @@ func completedBatchArtifactResult(compiled CompiledTransformArtifacts, applied [
 		note("wrote " + compiled.Paths.Lookup)
 	} else if removedSet[compiled.Paths.Lookup] {
 		note("removed stale inferred lookup " + compiled.Paths.Lookup)
+	}
+	if removedSet[compiled.Paths.LegacyLookup] {
+		note("removed stale legacy lookup " + compiled.Paths.LegacyLookup)
 	}
 	if compiled.ExistingMoves == nil && compiled.RenderedMoves != nil {
 		note(fmt.Sprintf(

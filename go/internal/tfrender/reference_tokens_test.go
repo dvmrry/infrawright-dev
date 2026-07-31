@@ -479,6 +479,78 @@ func TestDeriveHclCommentsResolvesTokenDisplay(t *testing.T) {
 	}
 }
 
+// TestResolveLookupPrefersCurrentPathOverLegacy pins Part B's dual-read
+// preference order: when a book exists at both the current location
+// (config/<tenant>/lookups/<type>.lookup.json) and the pre-migration legacy
+// location (config/<tenant>/<type>.lookup.json), resolveLookup's on-disk
+// callers -- lookupKeyMaps (via LookupKeyMaps) and deriveHclComments -- both
+// serve the current copy.
+func TestResolveLookupPrefersCurrentPathOverLegacy(t *testing.T) {
+	configDirectory := t.TempDir()
+	references := map[string]TransformReferenceSpec{
+		"segment_group_id": {NameField: "name", Referent: "zpa_segment_group"},
+	}
+	writeFileMkdir(t, filepath.Join(configDirectory, "lookups", "zpa_segment_group.lookup.json"),
+		`{"by_id":{"sg-1":"Current Segment"},"id_by_key":{"segment_one":"sg-1"},"key_by_id":{"sg-1":"segment_one"}}`)
+	writeFileMkdir(t, filepath.Join(configDirectory, "zpa_segment_group.lookup.json"),
+		`{"by_id":{"sg-1":"Legacy Segment"},"id_by_key":{"segment_one":"sg-1"},"key_by_id":{"sg-1":"legacy_key"}}`)
+
+	keyMaps, err := LookupKeyMaps(configDirectory, references)
+	if err != nil {
+		t.Fatalf("LookupKeyMaps: %v", err)
+	}
+	if got := keyMaps["zpa_segment_group"]["sg-1"]; got != "segment_one" {
+		t.Errorf("keyMaps[zpa_segment_group][sg-1] = %q, want %q (the current-path book)", got, "segment_one")
+	}
+
+	items := map[string]map[string]any{
+		"app_one": {"segment_group_id": "zpa_segment_group.segment_one"},
+	}
+	comments, err := deriveHclComments(configDirectory, items, references, nil)
+	if err != nil {
+		t.Fatalf("deriveHclComments: %v", err)
+	}
+	key := HclTfvarsCommentKey("app_one", "segment_group_id", nil)
+	if got := comments[key]; got != "Current Segment" {
+		t.Errorf("comment = %q, want %q (the current-path book)", got, "Current Segment")
+	}
+}
+
+// TestResolveLookupFallsBackToLegacyPath pins Part B's migration bridge: a
+// book that has not yet been relocated to config/<tenant>/lookups/ -- it
+// exists only at the pre-migration config/<tenant>/<type>.lookup.json path
+// -- still resolves for both bindings derivation (lookupKeyMaps) and HCL
+// tfvars comments (deriveHclComments). A tree mid-migration renders exactly
+// as today.
+func TestResolveLookupFallsBackToLegacyPath(t *testing.T) {
+	configDirectory := t.TempDir()
+	references := map[string]TransformReferenceSpec{
+		"segment_group_id": {NameField: "name", Referent: "zpa_segment_group"},
+	}
+	writeFileMkdir(t, filepath.Join(configDirectory, "zpa_segment_group.lookup.json"),
+		`{"by_id":{"sg-1":"Segment One"},"id_by_key":{"segment_one":"sg-1"},"key_by_id":{"sg-1":"segment_one"}}`)
+
+	keyMaps, err := LookupKeyMaps(configDirectory, references)
+	if err != nil {
+		t.Fatalf("LookupKeyMaps: %v", err)
+	}
+	if got := keyMaps["zpa_segment_group"]["sg-1"]; got != "segment_one" {
+		t.Errorf("keyMaps[zpa_segment_group][sg-1] = %q, want %q (fallback to the legacy-path book)", got, "segment_one")
+	}
+
+	items := map[string]map[string]any{
+		"app_one": {"segment_group_id": "zpa_segment_group.segment_one"},
+	}
+	comments, err := deriveHclComments(configDirectory, items, references, nil)
+	if err != nil {
+		t.Fatalf("deriveHclComments: %v", err)
+	}
+	key := HclTfvarsCommentKey("app_one", "segment_group_id", nil)
+	if got := comments[key]; got != "Segment One" {
+		t.Errorf("comment = %q, want %q (fallback to the legacy-path book)", got, "Segment One")
+	}
+}
+
 // TestRemoveLookupRefusedWhileTokensDependOnIt pins the book's
 // load-bearing role: once committed configs reference a type by token, its
 // lookup sidecar is the only decoder those tokens have, and inferred-
@@ -497,6 +569,30 @@ func TestRemoveLookupRefusedWhileTokensDependOnIt(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "sample_referrer.auto.tfvars.json") ||
 		!strings.Contains(err.Error(), "token") {
 		t.Fatalf("CompileTransformArtifacts error = %v, want a refusal naming the token-bearing dependent", err)
+	}
+}
+
+// TestRemoveLookupIgnoresLookupsSubdirectory guards tokenDependents against
+// the Part B book migration: its os.ReadDir scan of configDirectory is
+// non-recursive and already skips every directory entry (entry.IsDir()), so
+// the new lookups/ subdirectory sitting alongside the *.auto.tfvars.json
+// files it scans must neither be descended into nor mistaken for a
+// dependent config file.
+func TestRemoveLookupIgnoresLookupsSubdirectory(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "sample_group")
+	options.LookupNameField = nil
+	options.RemoveLookupWhenAbsent = true
+	paths := mustComputePaths(t, options)
+	configDirectory := filepath.Dir(paths.Config)
+	// A lookups/ subdirectory entry, and -- to prove it is never descended
+	// into -- a file inside it shaped so it WOULD read as a dependent if
+	// tokenDependents recursed.
+	writeFileMkdir(t, filepath.Join(configDirectory, "lookups", "sample_referrer.auto.tfvars.json"),
+		`{"items":{"one":{"group_id":"sample_group.some_key"}}}`)
+
+	if _, err := CompileTransformArtifacts(options); err != nil {
+		t.Fatalf("CompileTransformArtifacts error = %v, want nil: a lookups/ subdirectory entry must not be treated as (or descended into for) a token dependent", err)
 	}
 }
 

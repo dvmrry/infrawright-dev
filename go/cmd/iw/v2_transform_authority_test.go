@@ -190,9 +190,9 @@ func TestV2TransformDefaultCrossStateAuthority(t *testing.T) {
 		t.Errorf("V2 transform output must not write the derivable bindings cache %q", bindingsPath)
 	}
 	for _, path := range []string{
-		"config/demo/zpa_app_connector_group.lookup.json",
-		"config/demo/zpa_application_server.lookup.json",
-		"config/demo/zpa_server_group.lookup.json",
+		"config/demo/lookups/zpa_app_connector_group.lookup.json",
+		"config/demo/lookups/zpa_application_server.lookup.json",
+		"config/demo/lookups/zpa_server_group.lookup.json",
 	} {
 		if _, found := first.tree[path]; !found {
 			t.Errorf("V2 transform output lacks inferred lookup %q", path)

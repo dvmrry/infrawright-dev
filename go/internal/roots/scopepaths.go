@@ -203,11 +203,27 @@ func scopeOnePath(options scopeOnePathOptions) *ChangedPathMatch {
 		kinds[string(ChangedPathKindDeployment)] = struct{}{}
 	}
 
-	if relative, ok := posixpath.RelativeUnder(options.path, artifactRoot(options.deployment, "config"), options.workspace); ok && len(relative) == 2 {
-		if resource, found := resourceFromArtifact(relative[1], configSuffixes, options.resources); found {
-			matchedResources[resource] = struct{}{}
-			tenants[relative[0]] = struct{}{}
-			kinds[string(ChangedPathKindConfig)] = struct{}{}
+	if relative, ok := posixpath.RelativeUnder(options.path, artifactRoot(options.deployment, "config"), options.workspace); ok {
+		// Two shapes attribute to a type: the flat <tenant>/<file> layout
+		// every config/generated-bindings/operator-overlay artifact still
+		// uses, and the book's <tenant>/lookups/<file> subdirectory (Part B
+		// of the sidecar-minimization migration moved lookup sidecars out
+		// of the tenant directory's top level). Both route through the same
+		// suffix-matching helper against the same CONFIG_SUFFIXES list --
+		// only ".lookup.json" is ever found under lookups/, but scoping
+		// does not need to special-case that here.
+		if len(relative) == 2 {
+			if resource, found := resourceFromArtifact(relative[1], configSuffixes, options.resources); found {
+				matchedResources[resource] = struct{}{}
+				tenants[relative[0]] = struct{}{}
+				kinds[string(ChangedPathKindConfig)] = struct{}{}
+			}
+		} else if len(relative) == 3 && relative[1] == "lookups" {
+			if resource, found := resourceFromArtifact(relative[2], configSuffixes, options.resources); found {
+				matchedResources[resource] = struct{}{}
+				tenants[relative[0]] = struct{}{}
+				kinds[string(ChangedPathKindConfig)] = struct{}{}
+			}
 		}
 	}
 

@@ -16,20 +16,43 @@ import (
 	"testing"
 )
 
+// segmentGroupBookContent is the referent book tokenise/tokeniseAtLegacyPath
+// commit, factored out so both write the same bytes to their different
+// locations.
+func segmentGroupBookContent() map[string]any {
+	return map[string]any{
+		"by_id":     map[string]any{"sg-1": "Segment One"},
+		"id_by_key": map[string]any{"segment_one": "sg-1"},
+		"key_by_id": map[string]any{"sg-1": "segment_one"},
+	}
+}
+
 // tokenise rewrites the state-aware fixture's committed artifacts into the
 // post-substitution shape: the tfvars reference leaf carries the qualified
-// token and the referent's book exists with both directions.
+// token and the referent's book exists (at its current
+// config/<tenant>/lookups/ location) with both directions.
 func (f stateAwareFixture) tokenise(t *testing.T) {
 	t.Helper()
 	config := filepath.Join(f.workspace, "config", "tenant")
 	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
 		"items": map[string]any{"app_one": map[string]any{"segment_group_id": "zpa_segment_group.segment_one"}},
 	})
-	writeJSONFile(t, filepath.Join(config, "zpa_segment_group.lookup.json"), map[string]any{
-		"by_id":     map[string]any{"sg-1": "Segment One"},
-		"id_by_key": map[string]any{"segment_one": "sg-1"},
-		"key_by_id": map[string]any{"sg-1": "segment_one"},
+	writeJSONFile(t, filepath.Join(config, "lookups", "zpa_segment_group.lookup.json"), segmentGroupBookContent())
+}
+
+// tokeniseAtLegacyPath is tokenise's Part B migration-bridge counterpart:
+// the tfvars reference leaf carries the qualified token exactly as tokenise
+// writes it, but the referent's book is committed only at its pre-migration
+// location (config/<tenant>/<type>.lookup.json, no lookups/ subdirectory) --
+// the shape a tenant that has not re-transformed since the book migration
+// still has on disk.
+func (f stateAwareFixture) tokeniseAtLegacyPath(t *testing.T) {
+	t.Helper()
+	config := filepath.Join(f.workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"app_one": map[string]any{"segment_group_id": "zpa_segment_group.segment_one"}},
 	})
+	writeJSONFile(t, filepath.Join(config, "zpa_segment_group.lookup.json"), segmentGroupBookContent())
 }
 
 func (f stateAwareFixture) readReferrerFile(t *testing.T, name string) string {
@@ -81,6 +104,38 @@ func TestTokenisedRootEmitsLookupFirstResolvers(t *testing.T) {
 	}
 }
 
+// TestTokenisedRootFallsBackToLegacyBookPath pins Part B's migration bridge
+// end to end: a tenant that has not re-transformed since the book moved to
+// config/<tenant>/lookups/ still has its book only at the pre-migration
+// config/<tenant>/<type>.lookup.json path. Render-derivation must still
+// resolve the token through it, and -- the plan-breaking hazard Part B's
+// design doc calls out -- the emitted book local's file() expression must
+// name the path that actually exists on disk (the legacy one), never the
+// absent lookups/ path: pointing fileexists() at a file that will never
+// exist would silently and permanently disable the plan-time fallback arm.
+func TestTokenisedRootFallsBackToLegacyBookPath(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokeniseAtLegacyPath(t)
+	fixture.removeCommittedBindings(t)
+
+	diagnostics := fixture.generate(t, false)
+	if !containsString(diagnostics, "NOTE bindings: zpa_application_segment: 1 bound, 0 skipped") {
+		t.Fatalf("diagnostics = %v, want the render-derivation accounting over the legacy-path book", diagnostics)
+	}
+
+	bindings := fixture.readReferrerFile(t, expressionBindingsTF)
+	wantResolver := `try(data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"], local.infrawright_reference_book_zpa_segment_group["segment_one"])`
+	if !strings.Contains(bindings, wantResolver) {
+		t.Errorf("expression_bindings.tf = %q, want resolver %q derived through the legacy-path book", bindings, wantResolver)
+	}
+	if !strings.Contains(bindings, "config/tenant/zpa_segment_group.lookup.json") {
+		t.Errorf("expression_bindings.tf = %q, want the book local's file() path naming the legacy location", bindings)
+	}
+	if strings.Contains(bindings, "config/tenant/lookups/zpa_segment_group.lookup.json") {
+		t.Errorf("expression_bindings.tf = %q, want the book local NOT to name the (nonexistent) current lookups/ path", bindings)
+	}
+}
+
 // TestTokenisedRootSupersedesProbeFilter pins the probe hand-off: with the
 // fallback in-language, state-aware generation must keep every binding and
 // never consult the probe for a tokenised root.
@@ -127,7 +182,7 @@ func TestTokenisedRootWithoutBindingsFailsLoudly(t *testing.T) {
 	fixture.tokenise(t)
 	config := filepath.Join(fixture.workspace, "config", "tenant")
 	fixture.removeCommittedBindings(t)
-	if err := os.Remove(filepath.Join(config, "zpa_segment_group.lookup.json")); err != nil {
+	if err := os.Remove(filepath.Join(config, "lookups", "zpa_segment_group.lookup.json")); err != nil {
 		t.Fatalf("remove book: %v", err)
 	}
 
@@ -461,11 +516,7 @@ func TestOldShapeConfigNeverDerivesFromTheBook(t *testing.T) {
 	}
 
 	// The book that WOULD resolve "sg-1" if raw-ID derivation ran at render.
-	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "zpa_segment_group.lookup.json"), map[string]any{
-		"by_id":     map[string]any{"sg-1": "Segment One"},
-		"id_by_key": map[string]any{"segment_one": "sg-1"},
-		"key_by_id": map[string]any{"sg-1": "segment_one"},
-	})
+	writeJSONFile(t, filepath.Join(fixture.workspace, "config", "tenant", "lookups", "zpa_segment_group.lookup.json"), segmentGroupBookContent())
 	diagnostics := fixture.generate(t, false)
 	for _, message := range diagnostics {
 		if strings.HasPrefix(message, "NOTE bindings:") {
