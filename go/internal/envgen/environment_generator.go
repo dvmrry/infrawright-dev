@@ -283,13 +283,6 @@ func tenantEnvironmentDirectory(dep deployment.Deployment, tenant string, output
 
 // environmentRootDirectory ports environmentRootDirectory from
 // the original implementation.
-// EnvironmentRootDirectory resolves the directory a generated root occupies.
-// It is exported for probers that must reach a referenced root's working
-// directory without reimplementing the layout envgen owns.
-func EnvironmentRootDirectory(dep deployment.Deployment, tenant, label string, outputRoot *string) (string, error) {
-	return environmentRootDirectory(dep, tenant, label, outputRoot)
-}
-
 func environmentRootDirectory(dep deployment.Deployment, tenant, label string, outputRoot *string) (string, error) {
 	tenantDirectory, err := tenantEnvironmentDirectory(dep, tenant, outputRoot)
 	if err != nil {
@@ -1240,10 +1233,17 @@ type GenerateEnvironmentRootsOptions struct {
 	// any tfstate contents.
 	StateAware bool
 	// StateProbe overrides how StateAware resolves a referenced root's
-	// state. Nil selects the local prober. It is the injection seam for
-	// tests and for a prober that reads state from a configured backend.
+	// state. Nil consults StateProbeFor, then the local prober. It is the
+	// direct injection seam for tests and library callers.
 	StateProbe StateProbe
-	Tenant     string
+	// StateProbeFor builds the probe after the backend is resolved (flag or
+	// .backend marker) -- the CLI's seam, since only generation can see the
+	// marker. Returning (nil, nil) declines, selecting the local prober;
+	// returning an error aborts the run, because a probe that cannot be
+	// built must not degrade references. Consulted only when StateProbe is
+	// nil.
+	StateProbeFor func(backend *string) (StateProbe, error)
+	Tenant        string
 }
 
 // GenerateEnvironmentRoots ports the exported generateEnvironmentRoots from
@@ -1336,11 +1336,19 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 	var probe StateProbe
 	if options.StateAware {
 		probe = options.StateProbe
+		if probe == nil && options.StateProbeFor != nil {
+			built, err := options.StateProbeFor(backend)
+			if err != nil {
+				return EnvironmentGenerationResult{}, err
+			}
+			probe = built
+		}
 		if probe == nil {
 			// The local prober reads tenantDirectory/<label>/terraform.tfstate
 			// directly and therefore only serves roots on local state. It
-			// remains the default for library callers and tests; the CLI
-			// injects a Terraform-backed prober that serves any backend.
+			// remains the default for library callers and tests; the CLI's
+			// factory supplies a backend-backed prober when the resolved
+			// backend is remote.
 			probe = localStateProbe(tenantDirectory)
 		}
 		probe = memoizedStateProbe(probe)
