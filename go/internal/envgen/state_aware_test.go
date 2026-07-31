@@ -819,3 +819,136 @@ func TestStateAwareStillRefusesBindingCycle(t *testing.T) {
 		t.Errorf("probe calls = %v, want none: a cycle is refused before any state is read", calls)
 	}
 }
+
+// writeBackendMarker writes the tenant's .backend marker, the file gen-env
+// itself maintains, so a test can express a tenant whose backend was chosen
+// on an earlier run without passing the flag on this one.
+func (f stateAwareFixture) writeBackendMarker(t *testing.T, backend string) {
+	t.Helper()
+	directory := filepath.Join(f.outputRoot, "tenant")
+	if err := os.MkdirAll(directory, 0o777); err != nil {
+		t.Fatalf("create tenant directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, ".backend"), []byte(backend+"\n"), 0o666); err != nil {
+		t.Fatalf("write .backend marker: %v", err)
+	}
+}
+
+// generateWith runs GenerateEnvironmentRoots with the fixture's baseline
+// options after applying mutate, returning diagnostics and the error, so
+// factory-seam tests can install StateProbeFor without duplicating the
+// fixture wiring.
+func (f stateAwareFixture) generateWith(
+	t *testing.T,
+	mutate func(*GenerateEnvironmentRootsOptions),
+) ([]string, error) {
+	t.Helper()
+	diagnostics := make([]string, 0)
+	outputRoot := f.outputRoot
+	options := GenerateEnvironmentRootsOptions{
+		Deployment:   loadDeploymentFile(t, f.deploymentPath),
+		FormatHcl:    identityFormatter,
+		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
+		OutputRoot:   &outputRoot,
+		Root:         syntheticRootForTopology(t),
+		Selectors:    []string{"zpa_application_segment"},
+		StateAware:   true,
+		Tenant:       "tenant",
+	}
+	mutate(&options)
+	_, err := GenerateEnvironmentRoots(options)
+	return diagnostics, err
+}
+
+// TestStateProbeForReceivesResolvedBackend pins that the factory sees the
+// backend the run actually resolved -- here the .backend marker, with no
+// backend option passed -- not the flag alone. Otherwise a marker-configured
+// azurerm tenant would silently probe local state files that cannot exist.
+func TestStateProbeForReceivesResolvedBackend(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.writeBackendMarker(t, "azurerm")
+
+	seen := make([]string, 0)
+	_, err := fixture.generateWith(t, func(options *GenerateEnvironmentRootsOptions) {
+		options.StateProbeFor = func(backend *string) (StateProbe, error) {
+			if backend == nil {
+				seen = append(seen, "<nil>")
+			} else {
+				seen = append(seen, *backend)
+			}
+			return func(string, string) (StateProbeResult, error) {
+				return StateProbeResult{Usable: true}, nil
+			}, nil
+		}
+	})
+	if err != nil {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(seen, []string{"azurerm"}) {
+		t.Errorf("factory saw backends %v, want [azurerm] resolved from the marker", seen)
+	}
+}
+
+// TestStateProbeForErrorAbortsGeneration pins fail-closed at the seam: a
+// factory that cannot build a probe (azurerm without backend config being
+// the motivating case) must abort the run before any root is written, not
+// degrade references.
+func TestStateProbeForErrorAbortsGeneration(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+
+	_, err := fixture.generateWith(t, func(options *GenerateEnvironmentRootsOptions) {
+		options.StateProbeFor = func(*string) (StateProbe, error) {
+			return nil, errors.New("backend config required")
+		}
+	})
+	if err == nil || !strings.Contains(err.Error(), "backend config required") {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want the factory's refusal", err)
+	}
+	if _, statErr := os.Stat(fixture.referrerFile("main.tf")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(main.tf) error = %v, want os.ErrNotExist after an aborted run", statErr)
+	}
+}
+
+// TestDirectStateProbeBeatsFactory pins precedence so existing library
+// callers and every test above keep meaning what they said: an explicitly
+// injected probe wins and the factory is never consulted.
+func TestDirectStateProbeBeatsFactory(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+
+	factoryCalled := false
+	_, err := fixture.generateWith(t, func(options *GenerateEnvironmentRootsOptions) {
+		options.StateProbe = func(string, string) (StateProbeResult, error) {
+			return StateProbeResult{Usable: true}, nil
+		}
+		options.StateProbeFor = func(*string) (StateProbe, error) {
+			factoryCalled = true
+			return nil, errors.New("factory must not be consulted")
+		}
+	})
+	if err != nil {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil", err)
+	}
+	if factoryCalled {
+		t.Errorf("StateProbeFor was consulted despite an explicit StateProbe")
+	}
+}
+
+// TestNilFactoryResultFallsBackToLocalProbe pins the local path: a factory
+// answering (nil, nil) declines to build a probe, and generation must use
+// the local prober exactly as when no factory is installed -- proven here by
+// the fallback note only the local prober's absent answer can produce.
+func TestNilFactoryResultFallsBackToLocalProbe(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+
+	diagnostics, err := fixture.generateWith(t, func(options *GenerateEnvironmentRootsOptions) {
+		options.StateProbeFor = func(*string) (StateProbe, error) {
+			return nil, nil
+		}
+	})
+	if err != nil {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil", err)
+	}
+	if !containsDiagnostic(diagnostics, "no usable state") {
+		t.Errorf("diagnostics = %#v, want the local prober's fallback note", diagnostics)
+	}
+}

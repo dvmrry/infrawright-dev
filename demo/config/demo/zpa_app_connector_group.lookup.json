@@ -5,6 +5,12 @@
     "216196257331404701": "tests-apspra-vcr0001",
     "216196257331404706": "tests-acg-vcr0001"
   },
+  "id_by_key": {
+    "rhel9_ottawa_zpa_pse_1": "216196257331370194",
+    "rhel9_ottawa_zpa_pse_2": "216196257331382978",
+    "tests_acg_vcr0001": "216196257331404706",
+    "tests_apspra_vcr0001": "216196257331404701"
+  },
   "key_by_id": {
     "216196257331370194": "rhel9_ottawa_zpa_pse_1",
     "216196257331382978": "rhel9_ottawa_zpa_pse_2",

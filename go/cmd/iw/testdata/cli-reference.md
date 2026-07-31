@@ -382,15 +382,16 @@ Usage:
   iw gen-env [flags]
 
 Flags:
-      --backend string      Terraform backend name
-      --deployment string   deployment overlay path
-  -h, --help                help for gen-env
-      --profile string      pack profile path
-      --resource string     resource selector (repeatable)
-      --root string         pack root directory
-      --state-aware         inspect Terraform state before binding references or staging imports
-      --tenant string       deployment tenant label
-      --terraform string    Terraform executable path
+      --backend string          Terraform backend name
+      --backend-config string   Terraform backend configuration path
+      --deployment string       deployment overlay path
+  -h, --help                    help for gen-env
+      --profile string          pack profile path
+      --resource string         resource selector (repeatable)
+      --root string             pack root directory
+      --state-aware             inspect Terraform state before binding references or staging imports
+      --tenant string           deployment tenant label
+      --terraform string        Terraform executable path
 ```
 
 ## `iw modules`

@@ -1,5 +1,10 @@
 # Cross-state reference fallback — implementation plan
 
+> **Amended by `2026-07-30-cross-state-backend-probe-plan.md`:** the probe's
+> state acquisition was reworked to ask the backend from a scratch directory;
+> the `.terraform`-beside-the-root acquisition this plan produced never fired
+> in clean-workspace pipelines.
+
 Companion to `docs/superpowers/specs/2026-07-25-cross-state-fallback-design.md`.
 Read that first; this plan assumes its established facts and constraints.
 
