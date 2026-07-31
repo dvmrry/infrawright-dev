@@ -780,6 +780,27 @@ func collectTokenLeavesThrough(value any, rest []string, concretePath string, re
 
 // referentOfFieldSpec extracts the referent from one pack references entry,
 // with the same shape-tolerance ResolveCrossStateReferenceTopology applies.
+//
+// Deliberately looser than transformrun.TransformReferenceSpecs, the seam
+// transform's minting substitution and this package's own render-derivation
+// (deriveGeneratedBindingLayer) both build on: that seam requires a field to
+// declare BOTH referent and name_field before it is eligible to mint or bind
+// a token. This function -- feeding allPackReferents (HCL refusal) and
+// jsonConfigTokenLeaves (committed-leaf enumeration for the totality gate)
+// -- only needs a field's declared referent type to detect a token-shaped
+// value, not whether the field is currently mintable, so it accepts
+// referent-only entries too.
+//
+// The asymmetry is safe, not merely tolerated: a referent-only field (no
+// name_field) can make jsonConfigTokenLeaves enumerate a leaf that
+// transformrun.TransformReferenceSpecs has no entry for and therefore
+// derivation can never bind -- but transform's own minting substitution is
+// gated by that identical referent+name_field spec, so it could never have
+// written a token-shaped value at such a field to begin with; the leaf this
+// function over-enumerates is one production could never produce. If it
+// somehow did, assertTokenLeavesCovered's totality gate refuses loudly for
+// lacking a covering binding rather than passing it through silently --
+// fails closed either way.
 func referentOfFieldSpec(raw any) (string, bool) {
 	specification, ok := raw.(map[string]any)
 	if !ok {

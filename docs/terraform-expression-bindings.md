@@ -11,10 +11,20 @@
 > `config/<tenant>/lookups/<referent>.lookup.json` at plan time (a book
 > committed at the pre-migration `config/<tenant>/<referent>.lookup.json`
 > path still resolves during the migration). IDs live in exactly two
-> places: tfstate, and that book. See
+> places: tfstate, and that book. The resolver itself is derived, not
+> committed: gen-env recomputes it at render time from the token, the
+> pack's declared reference edges, and the provider schema, so no
+> `config/<tenant>/<resource_type>.generated.expressions.json` is part of
+> the committed surface (a copy still committed from before this changed
+> wins unchanged for a tree that has not re-transformed). Per-type,
+> committed state is now just the config, the book, and — rarely — a
+> hand-written operator overlay. See
 > `docs/superpowers/specs/2026-07-30-reference-tokens-design.md` for the
-> full contract; the binding grammar below is unchanged and applies to
-> operator-authored sidecars, which are never token-wrapped.
+> token contract and
+> `docs/superpowers/specs/2026-07-31-sidecar-minimization-design.md` for
+> the derivation and migration mechanics; the binding grammar below is
+> unchanged and applies to operator-authored sidecars, which are never
+> token-wrapped.
 
 Infrawright can bind an exact projected resource path to a Terraform
 expression. This is useful when the generated config should refer to a value

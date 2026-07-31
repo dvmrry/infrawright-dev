@@ -264,4 +264,7 @@ the next transform/adopt run rewrites.
   at the cost of a tenant-API dependency at plan time.
 - Folding `.generated.expressions.json` out of the committed surface and
   relocating `lookup.json` — falls out naturally after this lands and is
-  specified separately.
+  specified separately: see
+  `docs/superpowers/specs/2026-07-31-sidecar-minimization-design.md`, now
+  shipped. The committed surface per resource type is the config, the book
+  under `lookups/`, and the rare operator overlay; nothing else.

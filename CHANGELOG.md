@@ -31,6 +31,38 @@
 
 ### Cross-state references
 
+- Sidecar minimization: per resource type, the committed surface is now
+  just the config (`<type>.auto.tfvars.json`, carrying tokens), the book
+  (`lookups/<type>.lookup.json`), and — rarely — a hand-written operator
+  overlay (`<type>.expressions.json`). Nothing else: the generated-bindings
+  cache (`<type>.generated.expressions.json`) is a pure function of
+  (token, pack reference edges, provider schema) that both transform/adopt
+  and gen-env already recompute in-process, so it is no longer written,
+  and the book moves out of the config directory root into a `lookups/`
+  subdirectory.
+- No flag day for either move. A committed `.generated.expressions.json`
+  still present wins outright — a tree mid-migration keeps rendering
+  exactly today's bytes, whatever the file says — until its own next
+  transform/adopt run stale-cleans it; gen-env derives the identical
+  binding at render time, by construction, whenever the cache is absent
+  and the config carries tokens. A book still committed at its
+  pre-migration `config/<tenant>/<type>.lookup.json` path resolves
+  identically to one already relocated to
+  `config/<tenant>/lookups/<type>.lookup.json`: every book reader prefers
+  the current path and falls back to the legacy one, and the emitted
+  plan-time `file()` expression always names whichever path actually has
+  a book on disk at generation time — never the (possibly nonexistent)
+  current path — so the fallback arm can't be silently and permanently
+  disabled by pointing `fileexists()` at a file that will never exist.
+- Publish reports every stale-clean it performs — a retired bindings
+  cache, a relocated book's abandoned legacy-path copy — through the same
+  diagnostic channel as every other artifact write and removal, so a
+  transform/adopt run visibly shows a tenant's per-type migration
+  progress as it happens. The legacy-path lookup cleanup runs only when
+  the same run has something informed to say about that type's book (a
+  fresh write, or an inferred-absent removal), never unconditionally, so
+  a run with no opinion on a type never risks deleting a book's only
+  surviving copy.
 - Committed config stops carrying tenant IDs for declared reference
   fields: transform and adopt now write qualified reference tokens
   (`"<referent_type>.<key>"`, e.g.

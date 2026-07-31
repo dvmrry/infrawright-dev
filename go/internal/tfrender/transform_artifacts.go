@@ -136,10 +136,19 @@ type TransformArtifactPaths struct {
 	Imports           string
 	// LegacyLookup is the book's pre-migration location
 	// (<configDir>/<type>.lookup.json, the same directory the config and
-	// generated-bindings files sit in). Never written; publish stale-cleans
-	// it exactly like StaleConfig, and every book reader falls back to it
-	// when Lookup does not exist on disk, so a tenant that has not
-	// re-transformed since this migration keeps rendering unchanged.
+	// generated-bindings files sit in). Never written. Unlike StaleConfig,
+	// publish does not stale-clean it unconditionally on every run: it is
+	// only ever removed inside the same two branches that touch Lookup
+	// itself -- a fresh write (LookupText != nil) or an inferred-absent
+	// removal (RemoveLookupWhenAbsent, when this run's active pack root
+	// declares no surviving inbound reference into this type). When neither
+	// branch fires -- this run's scope simply has no opinion on this type's
+	// book, e.g. a selective/partial run whose active root omits the
+	// referrer that declares the edge -- the legacy copy is left alone
+	// rather than risk deleting a book's only surviving copy on a run that
+	// never decided it should go. Every book reader falls back to it when
+	// Lookup does not exist on disk, so a tenant that has not re-transformed
+	// since this migration keeps rendering unchanged.
 	LegacyLookup string
 	// Lookup is the book's current, authoritative location:
 	// <configDir>/lookups/<type>.lookup.json. Publish creates the lookups/
