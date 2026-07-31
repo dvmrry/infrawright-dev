@@ -366,23 +366,46 @@ func TestForeignReferentTokenRefused(t *testing.T) {
 	}
 }
 
-// TestHclConfigWithTokenShapedValueRefused pins the JSON-only contract at
-// the render side: an HCL-format config carrying a token-shaped value is
-// refused outright -- no book, no binding mode, no silent lane.
-func TestHclConfigWithTokenShapedValueRefused(t *testing.T) {
-	fixture := newStateAwareFixture(t)
-	writeJSONFile(t, fixture.deploymentPath, map[string]any{
-		"overlay":       fixture.workspace,
+// useHclTfvars rewrites the fixture's deployment to HCL-format tfvars and
+// drops the committed bindings cache, which addresses a JSON config that no
+// longer exists under that format.
+func (f stateAwareFixture) useHclTfvars(t *testing.T) {
+	t.Helper()
+	writeJSONFile(t, f.deploymentPath, map[string]any{
+		"overlay":       f.workspace,
 		"tfvars_format": "hcl",
 		"roots": map[string]any{
 			"zpa": map[string]any{"cross_state_references": true},
 		},
 	})
-	config := filepath.Join(fixture.workspace, "config", "tenant")
-	hcl := "items = {\n  app_one = {\n    segment_group_id = \"zpa_segment_group.segment_one\"\n  }\n}\n"
-	if err := os.WriteFile(filepath.Join(config, "zpa_application_segment.auto.tfvars"), []byte(hcl), 0o666); err != nil {
+	f.removeCommittedBindings(t)
+}
+
+func (f stateAwareFixture) writeHclConfig(t *testing.T, resourceType, body string) {
+	t.Helper()
+	file := filepath.Join(f.workspace, "config", "tenant", resourceType+".auto.tfvars")
+	if err := os.WriteFile(file, []byte(body), 0o666); err != nil {
 		t.Fatalf("write hcl config: %v", err)
 	}
+}
+
+// TestHclConfigWithTokenShapedValueRefused pins the JSON-only contract at
+// the render side: an HCL-format config carrying a value the referent's
+// committed book decodes as a token is refused outright -- no binding mode,
+// no silent lane.
+//
+// The book is committed deliberately: since the round-5 re-review, the HCL
+// refusal keys on book membership exactly as the JSON scan does, so without a
+// book on disk there is nothing to distinguish this value from any other
+// dotted string.
+func TestHclConfigWithTokenShapedValueRefused(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.useHclTfvars(t)
+	writeJSONFile(t,
+		filepath.Join(fixture.workspace, "config", "tenant", "lookups", "zpa_segment_group.lookup.json"),
+		segmentGroupBookContent())
+	fixture.writeHclConfig(t, "zpa_application_segment",
+		"items = {\n  app_one = {\n    segment_group_id = \"zpa_segment_group.segment_one\"\n  }\n}\n")
 
 	outputRoot := fixture.outputRoot
 	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
@@ -393,6 +416,47 @@ func TestHclConfigWithTokenShapedValueRefused(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "JSON tfvars only") {
 		t.Fatalf("GenerateEnvironmentRoots error = %v, want the HCL token refusal", err)
+	}
+}
+
+// TestHclInnocentDottedStringNotRefused is the round-5 re-review's concrete
+// valid-input repro. zpa_segment_group declares no outgoing reference field of
+// its own but IS a pack referent elsewhere, and `description` is ordinary
+// module input. Under HCL tfvars, a shape-only scan over the widened referent
+// set refused that config outright -- a legitimate deployment made
+// ungenerable.
+//
+// Both halves of the disambiguator are pinned: no book at all, and a book that
+// simply does not decode the value's remainder.
+func TestHclInnocentDottedStringNotRefused(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		book bool
+	}{
+		{name: "no book committed", book: false},
+		{name: "book without the key", book: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newStateAwareFixture(t)
+			fixture.useHclTfvars(t)
+			if testCase.book {
+				writeJSONFile(t,
+					filepath.Join(fixture.workspace, "config", "tenant", "lookups", "zpa_segment_group.lookup.json"),
+					segmentGroupBookContent())
+			}
+			fixture.writeHclConfig(t, "zpa_segment_group",
+				"items = {\n  segment_one = {\n    description = \"zpa_segment_group.note\"\n    name        = \"Segment One\"\n  }\n}\n")
+
+			outputRoot := fixture.outputRoot
+			if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+				Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+				FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+				OutputRoot: &outputRoot, Root: syntheticRootForTopology(t),
+				Selectors: []string{"zpa_segment_group"}, Tenant: "tenant",
+			}); err != nil {
+				t.Fatalf("GenerateEnvironmentRoots error = %v, want nil for an ordinary dotted description", err)
+			}
+		})
 	}
 }
 
@@ -599,6 +663,31 @@ func TestDroppedPackEdgeOrphansCommittedTokenRefused(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("GenerateEnvironmentRoots error = %q, want it to name %q", err, want)
 		}
+	}
+}
+
+// TestDroppedPackEdgeOrphanDetectedWithLegacyPathBook is the same refusal on a
+// tenant that has not re-transformed since the book moved to
+// config/<tenant>/lookups/. The orphaned token's ONLY decoder is the book at
+// the pre-migration path, so a scan that inventoried the current location
+// alone would find no referent, classify the token as an ordinary string, and
+// fail open exactly as before.
+func TestDroppedPackEdgeOrphanDetectedWithLegacyPathBook(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.tokeniseAtLegacyPath(t)
+	fixture.removeCommittedBindings(t)
+
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot,
+		Root:       syntheticRootWithZpaReferences(t, zpaReferencesWithoutSegmentGroupEdge()),
+		Selectors:  []string{"zpa_application_segment"}, Tenant: "tenant",
+	})
+	if err == nil || !strings.Contains(err.Error(), "zpa_segment_group.segment_one") ||
+		!strings.Contains(err.Error(), "app_one.segment_group_id") {
+		t.Fatalf("GenerateEnvironmentRoots error = %v, want the orphan refusal through the legacy-path book", err)
 	}
 }
 

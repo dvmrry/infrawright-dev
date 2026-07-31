@@ -46,8 +46,20 @@ something the renderer can compute. Changes:
      decodes as a token no current edge governs. Book membership (prefix
      names a type with a committed book, remainder is a key that book
      decodes) is the disambiguator that keeps an innocent dotted string
-     innocent; it is sound because the retirement guard refuses to remove a
-     book while committed tokens still reference its type.
+     innocent. The same rule governs the HCL-format refusal, which must not
+     fire on a legitimate dotted value at a field no book decodes.
+   - **Book membership is only sound because the producer keeps it sound.**
+     Two guards make "a decodable token stays decodable" an enforced
+     invariant: `tokenDependents` refuses to RETIRE a book while committed
+     configs reference its type, and `assertNoBookKeyStranding` refuses to
+     publish a book update that would DROP a key committed configs still
+     name. The second exists because the first was not enough — an ordinary
+     referent re-transform (item renamed or deleted) shrinks the key set
+     without removing the book. That guard is scoped to the current run:
+     referents are transformed before their referrers, so a dependent this
+     run also rewrites is transient, and refusing on it would deadlock
+     (transforming the referrer first re-mints the same key from the
+     still-committed book).
 4. **Raw-ID derivation stays transform-only.** The derivation trigger is per
    resource type, so one tokenised item pulls its raw-ID siblings through the
    deriver too. Render-derivation therefore runs with
@@ -93,6 +105,25 @@ something the renderer can compute. Changes:
 - The book's plan-time `file()` path always names a file that exists at
   generation time; a missing book keeps failing loudly through the
   existing totality/refusal gates, never silently.
+- A key that some committed config still names by token cannot leave that
+  type's book through any pipeline operation — neither by the book being
+  retired nor by the key being dropped from a book that survives.
+
+## Accepted residuals
+
+These are named rather than guarded, because the guards above cover the
+pipeline's own writes and nothing else:
+
+- **A book deleted or edited by hand.** Nothing in the pipeline can prevent
+  it. Once the book is gone, a committed token for a type whose pack
+  reference edge has ALSO been retired is indistinguishable from an ordinary
+  dotted string, and detection degrades to the pack metadata that no longer
+  mentions the field. With the edge still declared, the ordinary totality
+  gate still refuses.
+- **A dependent skipped mid-run.** The key-shrinkage guard treats every type
+  in the run's scope as a dependent this run will repair. A type whose
+  transform is then skipped for want of a pull file is not repaired, and its
+  stale token survives that run.
 
 ## Out of scope
 

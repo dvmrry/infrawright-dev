@@ -612,7 +612,7 @@ func enumerateCommittedReferenceTokens(
 	if err != nil {
 		return nil, err
 	}
-	scan, err := resolveReferentScanSet(configDirectory, references)
+	bookKeys, err := committedBookKeys(configDirectory)
 	if err != nil {
 		return nil, err
 	}
@@ -632,13 +632,13 @@ func enumerateCommittedReferenceTokens(
 		}
 		if !strings.HasSuffix(config, ".json") {
 			// Tokens are a JSON-format contract. An HCL config cannot be
-			// leaf-verified, so a token-shaped value in one is refused outright
+			// leaf-verified, so a committed token in one is refused outright
 			// -- fail closed, never a silent passthrough -- with no dependence
-			// on any book or binding mode.
-			if shaped := hclTokenShapedValue(string(raw), scan.referents); shaped != "" {
+			// on binding mode.
+			if claimed := hclCommittedTokenValue(string(raw), bookKeys); claimed != "" {
 				return nil, fmt.Errorf(
 					"%s is HCL-format tfvars and contains the reference-token-shaped value %q; tokenised configs are supported for JSON tfvars only -- convert the deployment's tfvars_format or restore literal IDs",
-					config, shaped,
+					config, claimed,
 				)
 			}
 			continue
@@ -655,47 +655,28 @@ func enumerateCommittedReferenceTokens(
 		}
 		scanned = append(scanned, scannedMember{resourceType: resourceType, items: items})
 	}
-	if err := assertNoOrphanedTokenClaims(scanned, leaves, scan.bookKeys); err != nil {
+	if err := assertNoOrphanedTokenClaims(scanned, leaves, bookKeys); err != nil {
 		return nil, err
 	}
 	return leaves, nil
 }
 
-// referentScanSet is the two-part view of "which resource types can a
-// committed value be naming" that token detection needs once pack metadata
-// alone stops being sufficient.
-type referentScanSet struct {
-	// referents is every type any committed value could plausibly qualify:
-	// the current pack's declared referents, plus every type with a committed
-	// book. A retired edge removes the first without removing the second.
-	referents map[string]bool
-	// bookKeys holds, for each referent whose book resolved on disk, the set
-	// of keys that book decodes. A referent with no book has no entry.
-	bookKeys map[string]map[string]bool
-}
-
-// resolveReferentScanSet unions the pack's declared referents with the types
-// carrying a committed book (at either the current lookups/ location or the
-// legacy top-level one) and reads each surviving book's key set.
-func resolveReferentScanSet(
-	configDirectory string,
-	references map[string]map[string]any,
-) (referentScanSet, error) {
-	referents := allPackReferents(references)
-	committed, err := tfrender.CommittedBookReferents(configDirectory)
+// committedBookKeys inventories every book committed under the tenant's config
+// directory -- at the current lookups/ location or the legacy top-level one --
+// and reads each one's decodable key set.
+//
+// The inventory is deliberately NOT restricted to types the current pack
+// declares a reference edge to: a retired edge removes the pack's record of a
+// referent without removing the book, and that book is the only surviving
+// evidence that committed values naming it are tokens. Conversely, a pack
+// referent with no committed book contributes nothing -- with no key set there
+// is nothing to validate a claim against, and shape alone is not evidence.
+func committedBookKeys(configDirectory string) (map[string]map[string]bool, error) {
+	referents, err := tfrender.CommittedBookReferents(configDirectory)
 	if err != nil {
-		return referentScanSet{}, err
+		return nil, err
 	}
-	for _, referent := range committed {
-		referents[referent] = true
-	}
-	bookKeys, err := tfrender.CommittedBookKeys(
-		configDirectory, canonjson.SortedStrings(mapKeysBoolSetGeneric(referents)),
-	)
-	if err != nil {
-		return referentScanSet{}, err
-	}
-	return referentScanSet{referents: referents, bookKeys: bookKeys}, nil
+	return tfrender.CommittedBookKeys(configDirectory, referents)
 }
 
 // assertNoOrphanedTokenClaims is the dropped-edge gate. It walks EVERY string
@@ -707,11 +688,23 @@ func resolveReferentScanSet(
 // claim only when its prefix names a type with a committed book AND its
 // remainder is a key that book decodes. That is exactly the set of values a
 // past transform could have minted, so an innocent dotted string
-// ("zpa_segment_group.note", where "note" is no book key) stays ignored. Book
-// presence is a sound signal because the retirement guard (tfrender's
-// tokenDependents) refuses to remove a book while any committed config still
-// references its type by token -- the book cannot vanish out from under the
-// tokens that depend on it.
+// ("zpa_segment_group.note", where "note" is no book key) stays ignored.
+//
+// Book membership is only a sound signal because the producer keeps it one.
+// Two guards in tfrender make "a decodable token stays decodable" an enforced
+// invariant across pipeline operations: tokenDependents refuses to RETIRE a
+// book while committed configs still reference its type, and
+// assertNoBookKeyStranding refuses to publish a book update that would DROP a
+// key committed configs still name. The second was added because the first
+// alone was not enough -- an ordinary referent re-transform shrinks the key
+// set without removing the book, and the orphaned token went blind
+// (adversarial-review finding, round 5).
+//
+// The residual, named rather than claimed away: a book deleted or edited by
+// hand outside the pipeline, and a dependent whose own transform is skipped
+// mid-run for want of a pull file, are both outside those guards. Detection
+// there degrades to the pack's own edge metadata, which is exactly what a
+// dropped edge removes.
 //
 // Refusal, never resolution: with no current edge there is no declared
 // referrer->referent relationship to bind, and inventing one would be exactly
@@ -808,41 +801,53 @@ func collectStringLeaves(value any, concretePath string, report func(path, text 
 	}
 }
 
-// allPackReferents collects every referent type any pack reference
-// declares, so foreign-token handling keys on pack truth rather than one
-// field's declaration. It is one half of referentScanSet.referents (the
-// other being the types carrying a committed book), which is what the HCL
-// refusal keys on.
-func allPackReferents(references map[string]map[string]any) map[string]bool {
-	referents := map[string]bool{}
-	for _, fields := range references {
-		for _, raw := range fields {
-			if referent, ok := referentOfFieldSpec(raw); ok {
-				referents[referent] = true
-			}
-		}
-	}
-	return referents
-}
-
-// hclTokenShapedValue reports the first quoted string in an HCL config
-// that opens with any pack-declared referent type and a dot, or "" when
-// none exists.
-func hclTokenShapedValue(text string, referents map[string]bool) string {
-	for referent := range referents {
+// hclCommittedTokenValue reports the first quoted string in an HCL config
+// that a committed book decodes as a reference token -- prefix names a type
+// with a book, remainder is a key that book decodes -- or "" when none
+// exists. Referents are visited in sorted order so the reported value is
+// deterministic across runs.
+//
+// Book membership is required here for the same reason the JSON scan requires
+// it, and the omission was a real defect: a legitimate optional field such as
+// a segment group's own `description` may hold a dotted string that opens with
+// a pack referent type's name, and refusing on shape alone made an ordinary
+// HCL deployment ungenerable (adversarial-review finding, round 5).
+//
+// A token whose key no book decodes is therefore NOT refused here. That case
+// is not silent: the producer refuses to publish a book update that would drop
+// a key committed configs still name (tfrender's assertNoBookKeyStranding), so
+// a decodable token stays decodable through every pipeline operation.
+func hclCommittedTokenValue(text string, bookKeys map[string]map[string]bool) string {
+	for _, referent := range canonjson.SortedStrings(mapKeysOfBookKeys(bookKeys)) {
+		keys := bookKeys[referent]
 		prefix := `"` + referent + `.`
-		index := strings.Index(text, prefix)
-		if index < 0 {
-			continue
+		offset := 0
+		for {
+			index := strings.Index(text[offset:], prefix)
+			if index < 0 {
+				break
+			}
+			start := offset + index + 1
+			end := strings.IndexByte(text[start:], '"')
+			if end < 0 {
+				break
+			}
+			value := text[start : start+end]
+			if keys[value[len(referent)+1:]] {
+				return value
+			}
+			offset = start + end
 		}
-		start := index + 1
-		end := strings.IndexByte(text[start:], '"')
-		if end < 0 {
-			continue
-		}
-		return text[start : start+end]
 	}
 	return ""
+}
+
+func mapKeysOfBookKeys(m map[string]map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 // jsonConfigItems parses one member's committed JSON tfvars and returns its
@@ -970,11 +975,10 @@ func collectTokenLeavesThrough(value any, rest []string, concretePath string, re
 // transform's minting substitution and this package's own render-derivation
 // (deriveGeneratedBindingLayer) both build on: that seam requires a field to
 // declare BOTH referent and name_field before it is eligible to mint or bind
-// a token. This function -- feeding allPackReferents (HCL refusal) and
-// jsonConfigTokenLeaves (committed-leaf enumeration for the totality gate)
-// -- only needs a field's declared referent type to detect a token-shaped
-// value, not whether the field is currently mintable, so it accepts
-// referent-only entries too.
+// a token. This function -- feeding jsonConfigTokenLeaves (committed-leaf
+// enumeration for the totality gate) -- only needs a field's declared
+// referent type to detect a token-shaped value, not whether the field is
+// currently mintable, so it accepts referent-only entries too.
 //
 // The asymmetry is safe, not merely tolerated: a referent-only field (no
 // name_field) can make jsonConfigTokenLeaves enumerate a leaf that

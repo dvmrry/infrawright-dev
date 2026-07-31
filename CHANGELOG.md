@@ -107,7 +107,18 @@
   current edge governs, naming the leaf, the token, and the remedy
   (re-transform, or restore the edge). A value counts as a token only when
   its prefix names a type with a committed book *and* its remainder is a
-  key that book decodes, so an innocent dotted string stays untouched.
+  key that book decodes, so an innocent dotted string stays untouched —
+  including in HCL-format tfvars, where a legitimate dotted value at a
+  field no book decodes is no longer refused.
+- A book key that committed config still names by token cannot leave the
+  book. The retirement guard already refused to remove a whole book while
+  dependents survived; transform and adopt now also refuse to publish a
+  book update that would DROP a key dependents still name, which an
+  ordinary referent re-transform (item renamed or deleted) otherwise does
+  silently. The refusal names the key, the dependent configs, and the
+  remedy. Dependents the same run also rewrites are exempt — referents are
+  transformed before their referrers, so those tokens are transient, and
+  refusing on them would deadlock.
 - Raw tenant IDs bind at transform, never at render. A config mixing a
   tokenised leaf with a still-literal one derives only the token: gen-env's
   render-time derivation skips raw IDs without consulting the book at all,
