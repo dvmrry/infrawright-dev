@@ -72,17 +72,15 @@ make source-operation-map \
   SCHEMA=tmp/provider-schema.json \
   OPENAPI=tmp/openapi.json \
   SOURCE_ROOT=tmp/terraform-provider-example \
-  PROVIDER_SOURCE=registry.terraform.io/example/example \
-  RESOURCE_PREFIX=example \
-  OUT=reports/readiness/example-read-registry.json \
-  DIAGNOSTICS=reports/readiness/example-source-diagnostics.json
+  SOURCE_MANIFEST=tmp/source-manifest.json \
+  ARTIFACT_DIR=reports/readiness/example-source-evidence
 
 make openapi-map \
   SCHEMA=tmp/provider-schema.json \
   OPENAPI=tmp/openapi.json \
   PROVIDER_SOURCE=registry.terraform.io/example/example \
   RESOURCE_PREFIX=example \
-  REGISTRY=reports/readiness/example-read-registry.json \
+  REGISTRY=reports/readiness/example-source-evidence/source-registry.json \
   OUT=reports/readiness/example-openapi-map.json
 ```
 
@@ -90,9 +88,10 @@ This does not replace a real pack registry, but it turns "provider source calls
 OpenAPI operation X" into deterministic read-path evidence. The derived JSON
 uses `read` and, when discoverable, `list` paths so a detail read endpoint is
 not confused with a pack `fetch.path` that enumerates live resources.
-`--out` is a full resource-keyed evidence registry: mapped resources include
-selected operation evidence, while ambiguous and unmapped resources stay present
-with `status` and `reason` so downstream coverage cannot silently drop them.
+`source-registry.json` in the artifact bundle is a full resource-keyed evidence
+registry: mapped resources include selected operation evidence, while ambiguous
+and unmapped resources stay present with `status` and `reason` so downstream
+coverage cannot silently drop them.
 The source evidence contract is documented at
 [`docs/schemas/source-operation-evidence.schema.json`](schemas/source-operation-evidence.schema.json).
 Each operation can carry a `hops` chain, such as provider call ->
@@ -142,8 +141,9 @@ SDK source           const domainsBasePath = "v2/domains"
 OpenAPI              GET /v2/domains/{domain_name}
 ```
 
-`source-operation-map` accepts an optional `--sdk-root` pointing at a vendored
-Go SDK source tree. When provided, the authoring library recovers
+`source-operation-map` accepts an optional `--sdk-root` (`MODULE=DIR` in
+qualified mode, `MODULE@VERSION=DIR` with `--allow-unverified-source`) pointing
+at a vendored Go SDK source tree. When provided, the authoring library recovers
 `(client_symbol, method, path_template)` triples from the simple, common
 shapes:
 
@@ -182,11 +182,9 @@ make source-operation-map \
   SCHEMA=tmp/provider-schema.json \
   OPENAPI=tmp/openapi.json \
   SOURCE_ROOT=tmp/terraform-provider-digitalocean \
-  SDK_ROOT=tmp/terraform-provider-digitalocean/vendor/github.com/digitalocean/godo \
-  PROVIDER_SOURCE=registry.terraform.io/digitalocean/digitalocean \
-  RESOURCE_PREFIX=digitalocean \
-  OUT=reports/readiness/digitalocean-read-registry.json \
-  DIAGNOSTICS=reports/readiness/digitalocean-source-diagnostics.json
+  SDK_ROOT=godo=tmp/terraform-provider-digitalocean/vendor/github.com/digitalocean/godo \
+  SOURCE_MANIFEST=tmp/source-manifest.json \
+  ARTIFACT_DIR=reports/readiness/digitalocean-source-evidence
 ```
 
 ## Surface Warnings
@@ -354,9 +352,11 @@ document" as hundreds of field-level drift questions.
 
 Provider readiness needs version-locked evidence, but the repository should not
 store rendered schemas, provider source trees, SDK source trees, and OpenAPI
-artifacts for every provider version. Instead, store small provider recipes
-under `docs/recipes/providers/` and render the evidence bundle on the consumer
-or CI side for the requested provider version with `make provider-probe`.
+artifacts for every provider version. Instead, author a provider recipe with an
+embedded `source_provenance` manifest (the qualified contract) and render the
+evidence bundle on the consumer or CI side with `make provider-probe`. The
+legacy download-and-clone recipe contract (and the proof-of-concept recipes
+that used it) was retired; a recipe without `source_provenance` is rejected.
 
 The committed recipe should describe how to resolve inputs:
 

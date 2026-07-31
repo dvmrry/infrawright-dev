@@ -63,11 +63,6 @@ func TestSourceCommandsRejectModeConflictsBeforeReadsOrPublication(t *testing.T)
 			args: []string{"--source-manifest", "manifest.json"}, want: "--artifact-dir is required",
 		},
 		{
-			name: "qualified rejects legacy destination", command: sourceOperationMapCommandWithDependencies,
-			args: []string{"--source-manifest", "manifest.json", "--artifact-dir", "artifacts", "--out", "registry.json"},
-			want: "--out is not accepted in source-operation-map source-first mode",
-		},
-		{
 			name: "qualified selection comes only from manifest", command: sourceOperationMapCommandWithDependencies,
 			args: []string{"--source-manifest", "manifest.json", "--artifact-dir", "artifacts", "--resources", "example_a"},
 			want: "--resources is not accepted in source-operation-map qualified mode",
@@ -78,8 +73,9 @@ func TestSourceCommandsRejectModeConflictsBeforeReadsOrPublication(t *testing.T)
 			want: "--openapi is not accepted with --allow-unverified-source; unverified OpenAPI state is sealed absent",
 		},
 		{
-			name: "legacy map rejects repeated sdk roots", command: sourceOperationMapCommandWithDependencies,
-			args: []string{"--sdk-root", "one", "--sdk-root", "two"}, want: "--sdk-root may be passed only once",
+			name: "legacy map mode is retired", command: sourceOperationMapCommandWithDependencies,
+			args: []string{"--schema", "schema.json", "--openapi", "openapi.json", "--source-root", "source"},
+			want: "source-operation-map requires --source-manifest (qualified) or --allow-unverified-source; the legacy text-scanner mode is retired",
 		},
 		{
 			name: "legacy eval mode is retired", command: sourceEvidenceEvalCommandWithDependencies,

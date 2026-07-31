@@ -149,7 +149,7 @@ func TestRunQualifiedRejectsLegacyAliasBeforeRootsOrHost(t *testing.T) {
 			"sdk_roots": map[string]any{"example.invalid/sdk": "missing-sdk"},
 		},
 	})
-	if _, err := Run(context.Background(), RunOptions{RecipePath: recipePath, LegacyHost: panicLegacyHost{t: t}}); err == nil || !strings.Contains(err.Error(), "openapi.url") {
+	if _, err := Run(context.Background(), RunOptions{RecipePath: recipePath}); err == nil || !strings.Contains(err.Error(), "openapi.url") {
 		t.Fatalf("Run(qualified legacy alias) error = %v, want openapi.url rejection", err)
 	}
 }
@@ -169,10 +169,30 @@ func TestRunQualifiedRejectsEmptyNullAndUnknownLegacySectionsBeforeRootsOrHost(t
 					"manifest": "missing-manifest.json", "provider_root": "missing-provider", "schema_root": "missing-schema",
 				},
 			})
-			if _, err := Run(context.Background(), RunOptions{RecipePath: recipePath, LegacyHost: panicLegacyHost{t: t}}); err == nil || !strings.Contains(err.Error(), "legacy section source") {
+			if _, err := Run(context.Background(), RunOptions{RecipePath: recipePath}); err == nil || !strings.Contains(err.Error(), "legacy section source") {
 				t.Fatalf("Run(qualified %s legacy section) error = %v, want source-section rejection", name, err)
 			}
 		})
+	}
+}
+
+// TestRecipeWithoutProvenanceIsRejected pins the retirement contract: a recipe
+// that omits source_provenance never falls back to the retired LegacyV1 lane.
+func TestRecipeWithoutProvenanceIsRejected(t *testing.T) {
+	root := t.TempDir()
+	recipePath := filepath.Join(root, "recipe.json")
+	writeQualifiedRecipe(t, recipePath, map[string]any{
+		"name":            "example",
+		"provider_source": "registry.terraform.io/example/example",
+		"openapi":         map[string]any{"format": "json", "path": "openapi.json"},
+		"source":          map[string]any{"path": "provider"},
+	})
+	const want = "recipe requires a source_provenance manifest; the legacy v1 probe contract is retired"
+	if _, err := InspectRecipeMode(recipePath); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("InspectRecipeMode(no provenance) error = %v, want %q", err, want)
+	}
+	if _, err := Run(context.Background(), RunOptions{RecipePath: recipePath}); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("Run(no provenance) error = %v, want %q", err, want)
 	}
 }
 
@@ -199,7 +219,7 @@ func TestInspectRecipeModeAndRunExpectedModeFailClosedBeforeQualifiedWork(t *tes
 	if err != nil || mode != QualifiedV2 {
 		t.Fatalf("InspectRecipeMode() = (%q, %v), want (%q, nil)", mode, err, QualifiedV2)
 	}
-	_, err = Run(context.Background(), RunOptions{RecipePath: recipePath, ExpectedMode: LegacyV1, LegacyHost: panicLegacyHost{t: t}})
+	_, err = Run(context.Background(), RunOptions{RecipePath: recipePath, ExpectedMode: Mode("legacy_v1")})
 	if err == nil || !strings.Contains(err.Error(), "recipe mode changed after preflight") {
 		t.Fatalf("Run(expected legacy after qualified preflight) error = %v, want mode-change rejection", err)
 	}
@@ -225,15 +245,12 @@ func TestRunQualifiedSourceOnlyMatchesSealedComposition(t *testing.T) {
 		t.Fatalf("CompileQualified() error = %v", err)
 	}
 
-	result, err := Run(ctx, RunOptions{RecipePath: recipePath, LegacyHost: panicLegacyHost{t: t}})
+	result, err := Run(ctx, RunOptions{RecipePath: recipePath})
 	if err != nil {
 		t.Fatalf("Run(qualified source-only fixture) error = %v", err)
 	}
 	if result.Mode() != QualifiedV2 {
 		t.Errorf("Run().Mode() = %q, want %q", result.Mode(), QualifiedV2)
-	}
-	if result.WorkDirectory() != "" {
-		t.Errorf("Run().WorkDirectory() = %q, want empty", result.WorkDirectory())
 	}
 	want := direct.Artifacts()
 	got := result.Artifacts()
@@ -279,7 +296,7 @@ func TestRunQualifiedUsableOpenAPIAppendsOnlyDiagnosticMap(t *testing.T) {
 			"sdk_roots": map[string]any{"example.invalid/sourcefirst-sdk": "sdk"},
 		},
 	})
-	result, err := Run(context.Background(), RunOptions{RecipePath: recipePath, LegacyHost: panicLegacyHost{t: t}})
+	result, err := Run(context.Background(), RunOptions{RecipePath: recipePath})
 	if err != nil {
 		t.Fatalf("Run(qualified usable OpenAPI fixture) error = %v", err)
 	}
@@ -322,7 +339,7 @@ func TestRunQualifiedMapFailureRetainsSealedCore(t *testing.T) {
 			"sdk_roots": map[string]any{"example.invalid/sourcefirst-sdk": "sdk"},
 		},
 	})
-	result, err := Run(context.Background(), RunOptions{RecipePath: recipePath, LegacyHost: panicLegacyHost{t: t}})
+	result, err := Run(context.Background(), RunOptions{RecipePath: recipePath})
 	if err != nil {
 		t.Fatalf("Run(qualified map-only failure) error = %v, want sealed core bundle", err)
 	}
@@ -398,23 +415,6 @@ func writeQualifiedRecipe(t *testing.T, path string, value map[string]any) {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-}
-
-type panicLegacyHost struct{ t *testing.T }
-
-func (h panicLegacyHost) Download(context.Context, DownloadRequest) error {
-	h.t.Fatal("qualified recipe called LegacyHost.Download")
-	return nil
-}
-
-func (h panicLegacyHost) Clone(context.Context, CloneRequest) error {
-	h.t.Fatal("qualified recipe called LegacyHost.Clone")
-	return nil
-}
-
-func (h panicLegacyHost) CaptureTerraformSchema(context.Context, TerraformSchemaRequest) ([]byte, error) {
-	h.t.Fatal("qualified recipe called LegacyHost.CaptureTerraformSchema")
-	return nil, nil
 }
 
 func materializeQualifiedSourceOnlyFixture(t *testing.T) (string, sourcebind.LocalRoots) {
