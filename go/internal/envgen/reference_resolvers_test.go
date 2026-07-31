@@ -419,6 +419,38 @@ func TestHclConfigWithTokenShapedValueRefused(t *testing.T) {
 	}
 }
 
+// TestHclDeclaredEdgeTokenWithNoBookRefused pins the round-3 re-review's
+// second repro. Requiring book membership everywhere lost a fail-closed path:
+// with the pack edge STILL declared, no committed book, and no bindings cache,
+// a token at the declared reference field produced no claim, left tokensPresent
+// false, and rode the opaque module variable to the provider untouched.
+//
+// Membership cannot be checked without a book, so this lane matches on shape
+// alone -- confined to the reference fields of a member that declares them,
+// which is the one place a token-shaped value is never innocent.
+func TestHclDeclaredEdgeTokenWithNoBookRefused(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	fixture.useHclTfvars(t)
+	fixture.writeHclConfig(t, "zpa_application_segment",
+		"items = {\n  app_one = {\n    segment_group_id = \"zpa_segment_group.segment_one\"\n  }\n}\n")
+
+	outputRoot := fixture.outputRoot
+	_, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter, OnDiagnostic: func(string) {},
+		OutputRoot: &outputRoot, Root: syntheticRootForTopology(t),
+		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
+	})
+	if err == nil {
+		t.Fatalf("GenerateEnvironmentRoots error = nil, want a refusal for a declared-edge token with no book to decode it")
+	}
+	for _, want := range []string{"zpa_segment_group.segment_one", "zpa_segment_group", "no committed book"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("GenerateEnvironmentRoots error = %q, want it to name %q", err, want)
+		}
+	}
+}
+
 // TestHclInnocentDottedStringNotRefused is the round-5 re-review's concrete
 // valid-input repro. zpa_segment_group declares no outgoing reference field of
 // its own but IS a pack referent elsewhere, and `description` is ordinary

@@ -109,16 +109,24 @@
   its prefix names a type with a committed book *and* its remainder is a
   key that book decodes, so an innocent dotted string stays untouched —
   including in HCL-format tfvars, where a legitimate dotted value at a
-  field no book decodes is no longer refused.
+  field no book decodes is no longer refused. HCL keeps a second,
+  shape-only refusal for the one case membership cannot classify: a
+  `<referent>.`-prefixed value at a member that still DECLARES a reference
+  edge to a referent with no committed book anywhere. Without it such a
+  token reached the module boundary with no gate having run.
 - A book key that committed config still names by token cannot leave the
   book. The retirement guard already refused to remove a whole book while
   dependents survived; transform and adopt now also refuse to publish a
   book update that would DROP a key dependents still name, which an
   ordinary referent re-transform (item renamed or deleted) otherwise does
-  silently. The refusal names the key, the dependent configs, and the
-  remedy. Dependents the same run also rewrites are exempt — referents are
-  transformed before their referrers, so those tokens are transient, and
-  refusing on them would deadlock.
+  silently. Nothing is published when it refuses, and the message names the
+  key, the dependent configs, and the manual remedy. No dependent is
+  exempt, including one the same run also selects: the runners publish each
+  type immediately and independently and continue past a member that skips
+  or fails, so an exemption there would strand the token it excused. The
+  cost is that renaming a referent item now refuses until each dependent's
+  committed reference is updated by hand — loud and self-consistent rather
+  than quiet and stranded.
 - Raw tenant IDs bind at transform, never at render. A config mixing a
   tokenised leaf with a still-literal one derives only the token: gen-env's
   render-time derivation skips raw IDs without consulting the book at all,

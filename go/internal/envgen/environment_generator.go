@@ -641,6 +641,18 @@ func enumerateCommittedReferenceTokens(
 					config, claimed,
 				)
 			}
+			// The book-membership rule cannot classify a referent with no
+			// committed book, and silence there is not safe while the pack
+			// edge is still DECLARED: the token would ride var.<items> to a
+			// string-typed provider field with no gate having run.
+			if referent, value := hclUnbookedReferentValue(
+				string(raw), references[resourceType], bookKeys,
+			); value != "" {
+				return nil, fmt.Errorf(
+					"%s is HCL-format tfvars and contains %q while %s has no committed book to decode it; tokenised configs are supported for JSON tfvars only -- convert the deployment's tfvars_format, restore literal IDs, or re-transform %s so its book is committed",
+					config, value, referent, referent,
+				)
+			}
 			continue
 		}
 		items, err := jsonConfigItems(raw, config, variableName(topology, resourceType))
@@ -840,6 +852,55 @@ func hclCommittedTokenValue(text string, bookKeys map[string]map[string]bool) st
 		}
 	}
 	return ""
+}
+
+// hclUnbookedReferentValue reports the first quoted string in an HCL config
+// that opens with a referent THIS MEMBER declares a reference edge to and
+// whose book is not committed anywhere, or ("", "") when none exists.
+//
+// This lane matches on shape alone, and must: with no book there is no key set
+// to check membership against. It is the fail-closed path for an active edge
+// whose referent has not been transformed yet -- without it, an HCL token at a
+// declared reference field produced no claim, left the root untokenised, and
+// reached the module's opaque variable ungated (adversarial-review finding,
+// round 6).
+//
+// The conservative false-positive surface is deliberately confined: only the
+// referents of fields the CURRENT pack declares on THIS member are scanned, so
+// a legitimate dotted value elsewhere -- another member's description, or a
+// field with no reference edge -- is untouched. A false positive is possible
+// only for a value that opens with a declared referent's own type name inside
+// the config of the very type that references it, and the remedy (commit the
+// referent's book by transforming it) is the operation that tree needs anyway.
+func hclUnbookedReferentValue(
+	text string,
+	fields map[string]any,
+	bookKeys map[string]map[string]bool,
+) (string, string) {
+	unbooked := map[string]bool{}
+	for _, raw := range fields {
+		referent, ok := referentOfFieldSpec(raw)
+		if !ok {
+			continue
+		}
+		if _, booked := bookKeys[referent]; !booked {
+			unbooked[referent] = true
+		}
+	}
+	for _, referent := range canonjson.SortedStrings(mapKeysBoolSetGeneric(unbooked)) {
+		prefix := `"` + referent + `.`
+		index := strings.Index(text, prefix)
+		if index < 0 {
+			continue
+		}
+		start := index + 1
+		end := strings.IndexByte(text[start:], '"')
+		if end < 0 {
+			continue
+		}
+		return referent, text[start : start+end]
+	}
+	return "", ""
 }
 
 func mapKeysOfBookKeys(m map[string]map[string]bool) []string {

@@ -55,11 +55,13 @@ something the renderer can compute. Changes:
      publish a book update that would DROP a key committed configs still
      name. The second exists because the first was not enough — an ordinary
      referent re-transform (item renamed or deleted) shrinks the key set
-     without removing the book. That guard is scoped to the current run:
-     referents are transformed before their referrers, so a dependent this
-     run also rewrites is transient, and refusing on it would deadlock
-     (transforming the referrer first re-mints the same key from the
-     still-committed book).
+     without removing the book. That guard exempts nobody and is scoped to
+     one config directory. It briefly exempted types the same run also
+     selected; that was unsound, because the runners publish each type
+     immediately and independently and continue past a later member that
+     skips or fails, so the exemption published the new book and then never
+     repaired the dependent. Removing it reintroduces the referent-rename
+     deadlock, which is accepted below.
 4. **Raw-ID derivation stays transform-only.** The derivation trigger is per
    resource type, so one tokenised item pulls its raw-ID siblings through the
    deriver too. Render-derivation therefore runs with
@@ -107,23 +109,51 @@ something the renderer can compute. Changes:
   existing totality/refusal gates, never silently.
 - A key that some committed config still names by token cannot leave that
   type's book through any pipeline operation — neither by the book being
-  retired nor by the key being dropped from a book that survives.
+  retired nor by the key being dropped from a book that survives. No
+  dependent is exempt, including one the same run also selects: an exemption
+  is only sound inside a successfully preflighted, rollback-capable
+  publication transaction, and no invocation path here provides one.
+
+## The HCL lane
+
+Tokens are a JSON-tfvars contract, so an HCL config is refused rather than
+leaf-verified. Two rules, because only one of them can be checked:
+
+1. **A value a committed book decodes is refused.** Prefix names a type with
+   a book, remainder is a key that book decodes. Membership is checkable, so
+   it is checked, and an ordinary dotted string at any field is left alone.
+2. **A `<referent>.`-prefixed value at a member that DECLARES a reference
+   edge to a bookless referent is refused on shape alone.** Membership is not
+   checkable without a book, and staying silent would let the token ride
+   `var.<items>` to a string-typed provider field with no gate having run. The
+   conservative surface is confined to the referents of fields the current
+   pack declares on that member; every other dotted value in every other
+   config is untouched.
+
+Together these keep the invariant "an active edge always triggers the token
+gates" true for HCL as well as for structurally scanned JSON.
 
 ## Accepted residuals
 
-These are named rather than guarded, because the guards above cover the
-pipeline's own writes and nothing else:
+These are named rather than guarded:
 
 - **A book deleted or edited by hand.** Nothing in the pipeline can prevent
   it. Once the book is gone, a committed token for a type whose pack
   reference edge has ALSO been retired is indistinguishable from an ordinary
   dotted string, and detection degrades to the pack metadata that no longer
-  mentions the field. With the edge still declared, the ordinary totality
-  gate still refuses.
-- **A dependent skipped mid-run.** The key-shrinkage guard treats every type
-  in the run's scope as a dependent this run will repair. A type whose
-  transform is then skipped for want of a pull file is not repaired, and its
-  stale token survives that run.
+  mentions the field. With the edge still declared, the token gates still
+  refuse — through the ordinary totality gate for JSON, and through the HCL
+  lane's rule 2 for HCL.
+- **The referent-rename deadlock.** Renaming or deleting a referent item
+  drops its key, and every committed dependent still names it, so the
+  referent's transform refuses. Re-transforming the dependent first does not
+  help: it re-mints the same departing key from the still-committed book. The
+  operator must break the tie by hand — update the dependent's committed
+  reference to the new key, or delete that config and re-transform it after
+  the referent succeeds. This is accepted deliberately. The alternative was a
+  selection-scoped exemption, which was silent and left the tree stranded
+  whenever a later selected member skipped or failed; loud and
+  self-consistent beats quiet and stranded.
 
 ## Out of scope
 
