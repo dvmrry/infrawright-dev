@@ -11,7 +11,6 @@ DEMO_DEPLOYMENT ?= demo/deployment.json
 # assembly and may embed non-Go assets. A broader prerequisite set causes only
 # harmless extra rebuilds and cannot miss a newly introduced local build input.
 GO_BUILD_INPUTS := $(shell find go -type f)
-MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(IW) deployment module-dir)
 OPTIONAL_TENANT_ARG = $(if $(filter undefined,$(origin TENANT)),,--tenant "$(TENANT)")
 
 -include local.mk
@@ -27,8 +26,10 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env refresh transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
-.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+# One declaration. The two that were here had drifted -- only the first listed
+# `refresh`, only the second listed `check-config` -- and neither listed
+# `check-schema-parity`, which is a real target.
+.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-schema-parity check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env refresh transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/iw: $(GO_BUILD_INPUTS)
 	@mkdir -p dist

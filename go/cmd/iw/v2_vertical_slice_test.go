@@ -106,15 +106,6 @@ func v2ReadFile(t *testing.T, path string) []byte {
 	return content
 }
 
-func v2RequireFileBytes(t *testing.T, gotPath, wantPath string) {
-	t.Helper()
-	got := v2ReadFile(t, gotPath)
-	want := v2ReadFile(t, wantPath)
-	if !bytes.Equal(got, want) {
-		t.Errorf("file bytes mismatch for %q against %q\n got: %q\nwant: %q", gotPath, wantPath, got, want)
-	}
-}
-
 func v2RequireTreeManifest(t *testing.T, label string, tree map[string][]byte, expected []string) {
 	t.Helper()
 	actual := make([]string, 0, len(tree))

@@ -9,10 +9,6 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-func assessmentArray(values ...any) []any {
-	return values
-}
-
 func completeAssessmentPlan() map[string]any {
 	return map[string]any{
 		"format_version": "1.2",

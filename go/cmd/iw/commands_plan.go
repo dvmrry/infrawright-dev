@@ -177,11 +177,6 @@ func (adapter *lazyPlanTerraform) Plan(request plan.PlanTerraformRequest) error 
 	return adapter.adapter.Plan(request)
 }
 
-// planCommand ports planCommand from the original implementation.
-func planCommand(arguments []string) (int, error) {
-	return planCommandWithDependencies(arguments, defaultPlanCommandDependencies())
-}
-
 func planCommandWithDependencies(
 	arguments []string,
 	dependencies planCommandDependencies,
@@ -246,11 +241,6 @@ func planCommandInput(parsed commandInput, dependencies planCommandDependencies)
 		return 0, err
 	}
 	return 0, nil
-}
-
-// cleanPlansCommand ports cleanPlansCommand from the original implementation.
-func cleanPlansCommand(arguments []string) (int, error) {
-	return cleanPlansCommandWithDependencies(arguments, defaultPlanCommandDependencies())
 }
 
 func cleanPlansCommandWithDependencies(

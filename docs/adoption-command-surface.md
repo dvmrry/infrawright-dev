@@ -99,9 +99,8 @@ saved plan stale before classification or apply.
 Committed config means you own a resource; a `fetch` block in the registry
 means the engine can pull its live state. When the first holds and the second
 does not, the resource is nominally managed and invisible: `make fetch` errors
-on it, `make drift` starts with a fetch and so goes blind to it, and every
-other check keeps reporting healthy, because they all sit above the fetch
-layer.
+on it, anything downstream of a fetch goes blind to it, and every other check
+keeps reporting healthy, because they all sit above the fetch layer.
 
 `make check-config` is the only check that looks across that boundary.
 `check-pack` validates each file's shape, and a missing `fetch` block is valid

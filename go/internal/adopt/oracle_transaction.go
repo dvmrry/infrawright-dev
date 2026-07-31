@@ -333,33 +333,3 @@ func fillEmptyBatchResources(resources []OracleBatchResourceRequest, output Orac
 	}
 	return result
 }
-
-// ImportProviderStateOptions is the single-resource options bag from
-// the original implementation.
-type ImportProviderStateOptions struct {
-	Environment   map[string]string
-	KeepWorkdir   bool
-	KeyToImportID map[string]string
-	OnDiagnostic  func(string)
-	Policy        *metadata.DriftPolicy
-	RawItems      map[string]map[string]any
-	ResourceType  string
-	Root          *metadata.LoadedPackRoot
-	Runner        OracleCommandRunner
-	TemporaryRoot string
-}
-
-// ImportProviderState ports importProviderState from
-// the original implementation.
-func ImportProviderState(options ImportProviderStateOptions) (map[string]OracleStateObject, error) {
-	output, err := ImportProviderStates(ImportProviderStatesOptions{
-		Environment: options.Environment, KeepWorkdir: options.KeepWorkdir,
-		OnDiagnostic: options.OnDiagnostic,
-		Resources:    []OracleBatchResourceRequest{{KeyToImportID: options.KeyToImportID, Policy: options.Policy, RawItems: options.RawItems, ResourceType: options.ResourceType}},
-		Root:         options.Root, Runner: options.Runner, TemporaryRoot: options.TemporaryRoot,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return output[options.ResourceType], nil
-}

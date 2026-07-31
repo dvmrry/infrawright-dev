@@ -83,15 +83,6 @@ func defaultAuthoringProbeDependencies() authoringProbeDependencies {
 	}
 }
 
-// providerProbeCommand ports providerProbeCommand from
-// the original implementation. The frozen v1 contract retains the legacy
-// work-directory destination. Qualified v2 requires an explicit work root so
-// the caller grants the complete-set publisher ownership of its artifacts
-// child and its sibling transaction names.
-func providerProbeCommand(arguments []string) (int, error) {
-	return providerProbeCommandWithDependencies(arguments, defaultAuthoringProbeDependencies())
-}
-
 func providerProbeCommandWithDependencies(arguments []string, dependencies authoringProbeDependencies) (int, error) {
 	return executeStandaloneCobra(newProviderProbeCobraCommand(dependencies), arguments)
 }

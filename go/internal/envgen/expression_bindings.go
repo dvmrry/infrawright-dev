@@ -121,7 +121,7 @@ type ExpressionBinding struct {
 	// canonical, already-range-checked list index), in traversal order.
 	PathParts []any
 	// Expression is always non-empty and already validated against the v1
-	// allowlist (see ValidateExpression).
+	// allowlist (see validateExpression).
 	Expression string
 	Sensitive  bool
 	// Reason is nil for the TS source's `reason: string | null` being null.
@@ -143,13 +143,6 @@ type HclExpression struct {
 // throws from `validateExpression(expression, "HclExpression")`.
 func newHclExpression(expression string) *HclExpression {
 	return &HclExpression{Expression: validateExpression(expression, "HclExpression")}
-}
-
-// NewHclExpression ports the HclExpression constructor from
-// the original implementation.
-func NewHclExpression(expression string) (result *HclExpression, err error) {
-	defer recoverBindingsError(&err)
-	return newHclExpression(expression), nil
 }
 
 // pythonJSONString ports the local pythonJsonString helper from

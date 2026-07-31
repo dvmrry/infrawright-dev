@@ -85,7 +85,6 @@ func renderableJSON(value any) any {
 	}
 }
 
-var httpMethods = map[string]bool{"get": true, "post": true, "put": true, "patch": true, "delete": true}
 var surfaceHint = regexp.MustCompile(`(?:^|_)(?:url|uri|host|endpoint|token|auth|cloud|region|realm)(?:$|_)`)
 
 // Build creates the sealed generic diagnostic report from
@@ -213,7 +212,6 @@ func providerFromSchema(data Object, providerSource *string) (Object, error) {
 	return cloneObject(values[0]), nil
 }
 
-func methods(path openapiadapter.LegacyPath) []string { return append([]string(nil), path.Methods...) }
 func hasMethod(path openapiadapter.LegacyPath, method string) bool {
 	for _, item := range path.Methods {
 		if item == strings.ToLower(method) {

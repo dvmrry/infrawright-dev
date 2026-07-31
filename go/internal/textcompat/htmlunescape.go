@@ -47,7 +47,6 @@ import (
 var characterReference = regexp.MustCompile(`&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)`)
 
 var (
-	big0      = big.NewInt(0)
 	big1      = big.NewInt(1)
 	big8      = big.NewInt(8)
 	big11     = big.NewInt(11)

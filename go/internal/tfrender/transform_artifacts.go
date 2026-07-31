@@ -2325,20 +2325,6 @@ func prepareBatchArtifactMutations(mutations []batchArtifactMutation) ([]prepare
 	)
 }
 
-// prepareBatchArtifactMutationsWithStageWriter keeps the stage write as an
-// injected leaf so tests can exercise its otherwise unreachable failure path
-// without mutable package state or timing races.
-func prepareBatchArtifactMutationsWithStageWriter(
-	mutations []batchArtifactMutation,
-	writeStageFile func(string, []byte, os.FileMode) error,
-) ([]preparedBatchArtifactMutation, []string, error) {
-	return prepareBatchArtifactMutationsWithFilesystem(
-		mutations,
-		writeStageFile,
-		removeTransactionDirectories,
-	)
-}
-
 // prepareBatchArtifactMutationsWithFilesystem injects the two filesystem
 // leaves needed to deterministically cover staging-plus-cleanup aggregation.
 // Production passes the real functions per call; no mutable package seam is

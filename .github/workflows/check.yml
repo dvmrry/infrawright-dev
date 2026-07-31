@@ -71,17 +71,31 @@ jobs:
         with:
           go-version: "1.26.5"
           cache-dependency-path: go/go.sum
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-        with:
-          terraform_version: "1.15.4"
-          terraform_wrapper: false
       - name: Verify Go formatting and vet
         run: |
           test -z "$(gofmt -l go/cmd go/internal)"
           cd go
           go vet ./...
       - name: Whitespace hygiene
-        run: git diff --check
+        # `git diff --check` alone inspects the working tree, which is clean on
+        # a fresh checkout and so never inspected the PR's own commits. Diff
+        # committed changes instead: for pull requests against the merge base,
+        # for pushes against the previous branch tip (covering every commit in
+        # a multi-commit push), falling back to the last commit when the
+        # previous tip is unavailable (new branch or forced push).
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$base" ]; then
+            git diff --check "$(git merge-base "$base" HEAD)" HEAD
+            exit 0
+          fi
+          before="${{ github.event.before }}"
+          if [ -n "$before" ] && ! echo "$before" | grep -q '^0*$' && git cat-file -e "$before" 2>/dev/null; then
+            git diff --check "$before" HEAD
+            exit 0
+          fi
+          echo "No usable push base; checking the last commit."
+          git diff --check HEAD~1 HEAD
 
   full-go-check:
     needs: scope

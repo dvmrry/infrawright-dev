@@ -42,7 +42,9 @@ make provider-probe RECIPE=docs/recipes/providers/github.json
 make provider-probe RECIPE=docs/recipes/providers/digitalocean.json
 ```
 
-By default, outputs are written under:
+Without `WORK_DIR`, the probe prepares its work in a private temporary
+directory that is not preserved. Pass `WORK_DIR` whenever you want to keep the
+artifacts:
 
 ```text
 local/provider-probes/<provider>/artifacts/
