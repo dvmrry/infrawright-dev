@@ -12,6 +12,7 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/google/go-cmp/cmp"
 )
 
 // writePlanRootsFixture builds a representative envs tree:
@@ -61,6 +62,220 @@ func rootByLabel(t *testing.T, roots []MaterializedPlanRoot, tenant, label strin
 	}
 	t.Fatalf("no materialized root for tenant=%s label=%s in %+v", tenant, label, roots)
 	return MaterializedPlanRoot{}
+}
+
+func loadedPlanRootsDataReferentFixture(t *testing.T, workspace string) metadata.LoadedPackRoot {
+	t.Helper()
+	for _, label := range []string{
+		"sample_alpha_data",
+		"sample_clean",
+		"sample_groups_data",
+		"sample_rule",
+	} {
+		mustMkdirAll(t, filepath.Join(workspace, "envs/acme", label))
+	}
+
+	return metadata.LoadedPackRoot{
+		Active: metadata.PackSelection{Packs: []string{"sample"}},
+		Packs: metadata.PackMetadata{
+			ProviderPrefixes: map[string]string{"sample_": "sample"},
+			Manifests: []metadata.PackManifest{{
+				Name: "sample",
+				Data: metadata.JsonObject{
+					"references": metadata.JsonObject{
+						"sample_rule": metadata.JsonObject{
+							"alpha.id": metadata.JsonObject{
+								"name_field": "name",
+								"referent":   "sample_alpha_data",
+							},
+							"groups.id": metadata.JsonObject{
+								"name_field": "name",
+								"referent":   "sample_groups_data",
+							},
+							"groups.name": metadata.JsonObject{
+								"name_field": "name",
+								"referent":   "sample_groups_data",
+							},
+						},
+					},
+				},
+			}},
+		},
+		Resources: map[string]metadata.LoadedResourceMetadata{
+			"sample_alpha_data": {
+				Type: "sample_alpha_data", Product: "sample", Provider: "sample",
+				Registry: metadata.JsonObject{"data_referent": true},
+			},
+			"sample_clean": {
+				Type: "sample_clean", Product: "sample", Provider: "sample",
+				Registry: metadata.JsonObject{"generate": true},
+			},
+			"sample_groups_data": {
+				Type: "sample_groups_data", Product: "sample", Provider: "sample",
+				Registry: metadata.JsonObject{"data_referent": true},
+			},
+			"sample_rule": {
+				Type: "sample_rule", Product: "sample", Provider: "sample",
+				Registry: metadata.JsonObject{"generate": true},
+			},
+		},
+	}
+}
+
+func TestLoadedPlanRootsProjectsDataReferentsFromMemberReferences(t *testing.T) {
+	workspace := t.TempDir()
+	root := loadedPlanRootsDataReferentFixture(t, workspace)
+	result, err := LoadedPlanRoots(LoadedPlanRootsOptions{
+		Workspace:  workspace,
+		Deployment: singletonDeployment(),
+		Root:       root,
+		Tenant:     nil,
+		Selectors:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("LoadedPlanRoots(data referent projection) error = %v, want nil", err)
+	}
+
+	referrer := rootByLabel(t, result.Result.Roots, "acme", "sample_rule")
+	if diff := cmp.Diff([]string{"sample_alpha_data", "sample_groups_data"}, referrer.DataReferents); diff != "" {
+		t.Errorf("LoadedPlanRoots(data referent projection) sample_rule.DataReferents mismatch (-want +got):\n%s", diff)
+	}
+
+	for _, label := range []string{"sample_clean", "sample_alpha_data", "sample_groups_data"} {
+		materialized := rootByLabel(t, result.Result.Roots, "acme", label)
+		if materialized.DataReferents == nil {
+			t.Errorf("LoadedPlanRoots(data referent projection) %s.DataReferents = nil, want non-nil empty slice", label)
+		}
+		if diff := cmp.Diff([]string{}, materialized.DataReferents); diff != "" {
+			t.Errorf("LoadedPlanRoots(data referent projection) %s.DataReferents mismatch (-want +got):\n%s", label, diff)
+		}
+	}
+}
+
+func TestPlanRootsFromResourceSetLeavesDataReferentsEmpty(t *testing.T) {
+	workspace := t.TempDir()
+	for _, label := range []string{"sample_rule", "sample_groups_data"} {
+		mustMkdirAll(t, filepath.Join(workspace, "envs/acme", label))
+	}
+	resourceSet := metadata.ResourceSet{
+		DeclaredProviders: []string{"sample"},
+		Resources: []metadata.ResourceDescriptor{
+			{Type: "sample_rule", Provider: "sample", Generated: true},
+			{Type: "sample_groups_data", Provider: "sample", DataReferent: true},
+		},
+	}
+	result, err := PlanRootsFromResourceSet(PlanRootsOptions{
+		Workspace:   workspace,
+		Deployment:  singletonDeployment(),
+		ResourceSet: resourceSet,
+		Selectors:   []string{},
+	})
+	if err != nil {
+		t.Fatalf("PlanRootsFromResourceSet(data-only limitation) error = %v, want nil", err)
+	}
+	referrer := rootByLabel(t, result.Result.Roots, "acme", "sample_rule")
+	if referrer.DataReferents == nil {
+		t.Fatalf("PlanRootsFromResourceSet(data-only limitation) DataReferents = nil, want non-nil empty slice")
+	}
+	if diff := cmp.Diff([]string{}, referrer.DataReferents); diff != "" {
+		t.Errorf("PlanRootsFromResourceSet(data-only limitation) sample_rule.DataReferents mismatch (-want +got):\n%s", diff)
+	}
+
+	loadedWorkspace := t.TempDir()
+	loadedRoot := loadedPlanRootsDataReferentFixture(t, loadedWorkspace)
+	loaded, err := LoadedPlanRoots(LoadedPlanRootsOptions{
+		Workspace:  loadedWorkspace,
+		Deployment: singletonDeployment(),
+		Root:       loadedRoot,
+		Selectors:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("LoadedPlanRoots(same reference-bearing types) error = %v, want nil", err)
+	}
+	loadedReferrer := rootByLabel(t, loaded.Result.Roots, "acme", "sample_rule")
+	if diff := cmp.Diff([]string{"sample_alpha_data", "sample_groups_data"}, loadedReferrer.DataReferents); diff != "" {
+		t.Errorf("LoadedPlanRoots(same reference-bearing types) sample_rule.DataReferents mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func multiMemberPlanRootFixture() (metadata.LoadedPackRoot, RootTopology, RootTopologyRoot) {
+	reference := func(referent string) metadata.JsonObject {
+		return metadata.JsonObject{"name_field": "name", "referent": referent}
+	}
+	root := metadata.LoadedPackRoot{
+		Active: metadata.PackSelection{Packs: []string{"sample"}},
+		Packs: metadata.PackMetadata{Manifests: []metadata.PackManifest{{
+			Name: "sample",
+			Data: metadata.JsonObject{"references": metadata.JsonObject{
+				"sample_member_a": metadata.JsonObject{
+					"duplicate_a": reference("sample_data_a"),
+					"self":        reference("sample_data_self"),
+					"zeta":        reference("sample_data_z"),
+				},
+				"sample_member_b": metadata.JsonObject{
+					"alpha": reference("sample_data_a"),
+					"beta":  reference("sample_data_z"),
+				},
+			}},
+		}}},
+		Resources: map[string]metadata.LoadedResourceMetadata{
+			"sample_member_a": {
+				Type: "sample_member_a", Provider: "sample",
+				Registry: metadata.JsonObject{"generate": true},
+			},
+			"sample_member_b": {
+				Type: "sample_member_b", Provider: "sample",
+				Registry: metadata.JsonObject{"generate": true},
+			},
+			"sample_data_a": {
+				Type: "sample_data_a", Provider: "sample",
+				Registry: metadata.JsonObject{"data_referent": true},
+			},
+			"sample_data_self": {
+				Type: "sample_data_self", Provider: "sample",
+				Registry: metadata.JsonObject{"data_referent": true},
+			},
+			"sample_data_z": {
+				Type: "sample_data_z", Provider: "sample",
+				Registry: metadata.JsonObject{"data_referent": true},
+			},
+		},
+	}
+	topology := RootTopology{ResourceRoots: map[string]string{
+		"sample_member_a":  "sample_managed",
+		"sample_member_b":  "sample_managed",
+		"sample_data_a":    "sample_a_data",
+		"sample_data_self": "sample_managed",
+		"sample_data_z":    "sample_z_data",
+	}}
+	materialized := RootTopologyRoot{
+		Label:   "sample_managed",
+		Members: []string{"sample_member_a", "sample_member_b"},
+	}
+	return root, topology, materialized
+}
+
+func TestPlanRootDataReferentsProjectsEveryMemberSortedAndDeduplicated(t *testing.T) {
+	root, topology, materialized := multiMemberPlanRootFixture()
+	got := planRootDataReferents(root, topology, singletonDeployment(), materialized)
+	if diff := cmp.Diff([]string{"sample_a_data", "sample_z_data"}, got); diff != "" {
+		t.Errorf("planRootDataReferents(multi-member root) = %v, want sorted deduplicated labels; diff (-want +got):\n%s", got, diff)
+	}
+}
+
+func TestPlanRootDataReferentsExplicitFalseEmitsEmpty(t *testing.T) {
+	root, topology, materialized := multiMemberPlanRootFixture()
+	dep := singletonDeployment()
+	dep.Roots = map[string]deployment.RootProviderConfig{
+		"sample": {HasCrossStateReferences: true, CrossStateReferences: false},
+	}
+	got := planRootDataReferents(root, topology, dep, materialized)
+	if got == nil {
+		t.Fatalf("planRootDataReferents(explicit false) = nil, want non-nil empty slice")
+	}
+	if diff := cmp.Diff([]string{}, got); diff != "" {
+		t.Errorf("planRootDataReferents(explicit false) = %v, want empty; diff (-want +got):\n%s", got, diff)
+	}
 }
 
 // TestPlanRootsClassifiesArtifactStateAndSkipsUnknownRootDirectories ports

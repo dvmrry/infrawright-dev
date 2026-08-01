@@ -11,6 +11,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/posixpath"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
+	"github.com/dvmrry/infrawright-dev/go/internal/refedges"
 )
 
 // PlanRootArtifactState ports the `"absent" | "complete" | "incomplete"`
@@ -43,10 +44,14 @@ type MaterializedPlanRootArtifacts struct {
 // MaterializedPlanRoot ports the MaterializedPlanRoot interface from
 // the original implementation.
 type MaterializedPlanRoot struct {
-	Tenant        string
-	Label         string
-	Provider      *string
-	Members       []string
+	Tenant   string
+	Label    string
+	Provider *string
+	Members  []string
+	// DataReferents is populated only by the loaded-pack lane. The
+	// ResourceSet lane cannot see manifest reference declarations and
+	// deliberately returns a non-nil empty slice here.
+	DataReferents []string
 	EnvDir        string
 	ArtifactState PlanRootArtifactState
 	Artifacts     MaterializedPlanRootArtifacts
@@ -195,12 +200,53 @@ func discover(options discoverOptions) []discoveredRoot {
 // parameters, the Go analogue of the inline options-object parameter type
 // the original implementation's planRootsFromTopologies accepts.
 type planRootsFromTopologiesOptions struct {
-	workspace  string
-	deployment deployment.Deployment
-	tenant     *string
-	selectors  []string
-	all        RootTopology
-	selected   RootTopologyResult
+	workspace     string
+	deployment    deployment.Deployment
+	tenant        *string
+	selectors     []string
+	all           RootTopology
+	selected      RootTopologyResult
+	referenceRoot *metadata.LoadedPackRoot
+}
+
+// planRootDataReferents projects the data-leaf dependency portion of the
+// cross-state reference topology onto one materialized root. It intentionally
+// consumes only pack references, resource-to-root labels, and registry
+// data_referent flags so roots does not import envgen (which already imports
+// roots). The result is always a sorted, deduplicated, non-nil slice.
+func planRootDataReferents(
+	root metadata.LoadedPackRoot,
+	topology RootTopology,
+	dep deployment.Deployment,
+	materializedRoot RootTopologyRoot,
+) []string {
+	qualified, err := refedges.Resolve(refedges.Options{
+		Deployment:    dep,
+		Root:          root,
+		ResourceRoots: topology.ResourceRoots,
+	})
+	if err != nil {
+		domainError(err.Error())
+	}
+	labels := make(map[string]struct{})
+	for _, edge := range qualified.Edges {
+		if edge.ReferrerRoot != materializedRoot.Label {
+			continue
+		}
+		referentResource, ok := root.Resources[edge.Referent]
+		if !ok {
+			continue
+		}
+		dataReferent, isDataReferent := referentResource.Registry["data_referent"].(bool)
+		if isDataReferent && dataReferent {
+			labels[edge.ReferentRoot] = struct{}{}
+		}
+	}
+	labelList := make([]string, 0, len(labels))
+	for label := range labels {
+		labelList = append(labelList, label)
+	}
+	return canonjson.SortedStrings(labelList)
 }
 
 // planRootsFromTopologies ports planRootsFromTopologies from
@@ -241,7 +287,6 @@ func planRootsFromTopologies(options planRootsFromTopologiesOptions) PlanRootsRe
 		tenant:       options.tenant,
 		rootsByLabel: rootsByLabel,
 	})
-
 	diagnostics := make([]WholeRootDiagnostic, 0)
 	roots := make([]MaterializedPlanRoot, 0, len(discovered))
 	for _, entry := range discovered {
@@ -265,11 +310,21 @@ func planRootsFromTopologies(options planRootsFromTopologiesOptions) PlanRootsRe
 		default:
 			artifactState = ArtifactStateAbsent
 		}
+		dataReferents := []string{}
+		if options.referenceRoot != nil {
+			dataReferents = planRootDataReferents(
+				*options.referenceRoot,
+				options.all,
+				options.deployment,
+				entry.root,
+			)
+		}
 		roots = append(roots, MaterializedPlanRoot{
 			Tenant:        entry.tenant,
 			Label:         entry.root.Label,
 			Provider:      entry.root.Provider,
 			Members:       entry.root.Members,
+			DataReferents: dataReferents,
 			EnvDir:        entry.path,
 			ArtifactState: artifactState,
 			Artifacts: MaterializedPlanRootArtifacts{
@@ -296,7 +351,9 @@ func planRootsFromTopologies(options planRootsFromTopologiesOptions) PlanRootsRe
 
 // PlanRootsOptions bundles PlanRootsFromResourceSet's parameters, the Go
 // analogue of the inline options-object parameter type
-// the original implementation's planRoots accepts.
+// the original implementation's planRoots accepts. Its ResourceSet input
+// has no active manifest reference table, so this lane always returns
+// non-nil empty DataReferents; use LoadedPlanRoots for dependency projection.
 type PlanRootsOptions struct {
 	Workspace   string
 	Deployment  deployment.Deployment
@@ -311,7 +368,11 @@ type PlanRootsOptions struct {
 // Named PlanRootsFromResourceSet (rather than PlanRoots, which the PlanRoots
 // struct type above already claims) for the same function/type name-clash
 // reason roots.go's RootTopologyFromResourceSet is not named RootTopology --
-// see that function's doc comment.
+// see that function's doc comment. This compatibility lane cannot compute
+// DataReferents because metadata.ResourceSet contains resource descriptors,
+// not the active pack manifests' reference declarations; it always emits a
+// non-nil empty slice. LoadedPlanRoots is the only dependency-projection
+// surface.
 func PlanRootsFromResourceSet(options PlanRootsOptions) (result PlanRootsResult, err error) {
 	defer recoverProcessFailure(&err)
 	if len(options.Selectors) > 0 {
@@ -340,12 +401,13 @@ func PlanRootsFromResourceSet(options PlanRootsOptions) (result PlanRootsResult,
 		selectors: options.Selectors,
 	})
 	return planRootsFromTopologies(planRootsFromTopologiesOptions{
-		workspace:  options.Workspace,
-		deployment: options.Deployment,
-		tenant:     options.Tenant,
-		selectors:  options.Selectors,
-		all:        all.Topology,
-		selected:   selected,
+		workspace:     options.Workspace,
+		deployment:    options.Deployment,
+		tenant:        options.Tenant,
+		selectors:     options.Selectors,
+		all:           all.Topology,
+		selected:      selected,
+		referenceRoot: nil,
 	}), nil
 }
 
@@ -384,11 +446,12 @@ func LoadedPlanRoots(options LoadedPlanRootsOptions) (result PlanRootsResult, er
 		selectors: options.Selectors,
 	})
 	return planRootsFromTopologies(planRootsFromTopologiesOptions{
-		workspace:  options.Workspace,
-		deployment: options.Deployment,
-		tenant:     options.Tenant,
-		selectors:  options.Selectors,
-		all:        all.Topology,
-		selected:   selected,
+		workspace:     options.Workspace,
+		deployment:    options.Deployment,
+		tenant:        options.Tenant,
+		selectors:     options.Selectors,
+		all:           all.Topology,
+		selected:      selected,
+		referenceRoot: &options.Root,
 	}), nil
 }

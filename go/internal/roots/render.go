@@ -112,7 +112,10 @@ func RenderLegacyChangedPathScope(scope ChangedPathScope) (string, error) {
 	})
 }
 
-// RenderLegacyPlanRoots ports renderLegacyPlanRoots.
+// RenderLegacyPlanRoots is the authoritative current plan-roots JSON
+// renderer. The legacy name is retained for the established API surface;
+// schema-v1 fields, including data_referents, are emitted here for every
+// current caller.
 func RenderLegacyPlanRoots(planRoots PlanRoots) (string, error) {
 	rootsValue := make([]any, len(planRoots.Roots))
 	for index, root := range planRoots.Roots {
@@ -121,6 +124,7 @@ func RenderLegacyPlanRoots(planRoots PlanRoots) (string, error) {
 			"label":          root.Label,
 			"provider":       nullableString(root.Provider),
 			"members":        stringsValue(root.Members),
+			"data_referents": stringsValue(root.DataReferents),
 			"env_dir":        root.EnvDir,
 			"artifact_state": string(root.ArtifactState),
 			"artifacts": map[string]any{
