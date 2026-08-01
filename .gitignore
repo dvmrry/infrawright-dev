@@ -13,3 +13,9 @@ dist/
 /demo/modules/
 /modules/
 **/tfplan.sources
+
+# Worker-local Go build caches (never commit)
+go/.gocache/
+go/.gotmp/
+.gocache/
+.gotmp/

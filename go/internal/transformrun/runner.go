@@ -182,6 +182,19 @@ func transformHasInferredLookupLifecycle(
 	return len(inboundLookupReferences(root, resource)) > 0
 }
 
+func dataReferentLookupNameField(root metadata.LoadedPackRoot, resource metadata.LoadedResourceMetadata) (string, error) {
+	sources := transform.MergedTransformLookupSources(root)
+	source, ok := sources[resource.Type]
+	if !ok {
+		return "", fmt.Errorf("data referent %s requires an explicit lookup_sources entry", resource.Type)
+	}
+	nameField, ok := source["name_field"].(string)
+	if !ok || strings.TrimSpace(nameField) == "" {
+		return "", fmt.Errorf("data referent %s requires a non-empty lookup_sources name_field", resource.Type)
+	}
+	return nameField, nil
+}
+
 // shouldUnescape ports shouldUnescape (pack manifest unescape_products).
 func shouldUnescape(root metadata.LoadedPackRoot, resourceType string) bool {
 	active := map[string]bool{}
@@ -579,6 +592,44 @@ func RunTransformBatch(options RunTransformBatchOptions) (TransformBatchResult, 
 			variableName := "items"
 			if rootLabel != resourceType {
 				variableName = resourceType + "_items"
+			}
+			if dataReferent, _ := resource.Registry["data_referent"].(bool); dataReferent {
+				nameField, err := dataReferentLookupNameField(options.Root, resource)
+				if err != nil {
+					return err
+				}
+				transformed, err := transform.TransformDataReferentItems(transform.DataReferentTransformOptions{
+					NameField:    nameField,
+					RawItems:     rawItems,
+					ResourceType: resourceType,
+				})
+				if err != nil {
+					return err
+				}
+				if options.BeforeArtifactWrite != nil {
+					if err := options.BeforeArtifactWrite(resourceType); err != nil {
+						return err
+					}
+				}
+				if _, err := tfrender.WriteTransformArtifacts(tfrender.TransformArtifactCompileOptions{
+					ArtifactMode:           tfrender.TransformArtifactModeDataReferent,
+					Deployment:             options.Deployment,
+					LookupNameField:        &nameField,
+					RemoveLookupWhenAbsent: transformHasInferredLookupLifecycle(options.Root, resource),
+					OnDiagnostic:           write,
+					ResourceType:           resourceType,
+					Result: tfrender.PullTransformResult{
+						Items:     transformed.Items,
+						Originals: transformed.Originals,
+						Drops:     transformed.Drops,
+					},
+					Tenant:       options.Tenant,
+					VariableName: variableName,
+				}); err != nil {
+					return err
+				}
+				result.Processed = append(result.Processed, resourceType)
+				return nil
 			}
 			if _, derived := resource.Registry["derive"].(map[string]any); derived {
 				if options.BeforeArtifactWrite != nil {
