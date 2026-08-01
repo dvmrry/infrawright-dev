@@ -125,23 +125,17 @@ Two triggers with different owners:
    apply) over data roots surfaces tenant-side changes when no referrer
    activity would. Visibility only; correctness never depends on it.
 
-**OPEN — mechanism for trigger 1** (deliberately undecided; CI-side
-thinking in progress):
-
-- (a) Engine-emitted ordering: the plan-roots surface exposes each
-  selected root's data-leaf referents machine-readably; CI sequences
-  "apply data leaves, then plan/apply referrers". Keeps plan read-only;
-  CI owns execution order.
-- (b) Engine-orchestrated: `iw plan` over a referrer automatically
-  applies its data-leaf referents first, justified by apply-safety by
-  construction. Simplest CI, but a plan command that writes (data-root)
-  state violates plan-is-read-only expectations.
-- (c) Staleness gate: plan refuses (or loudly warns) when a referenced
-  data root's snapshot differs from a fresh data-root plan. Keeps
-  plan read-only and forces the refresh to be explicit.
-
-Leaning (a), possibly with (c)'s warning as a complement; decision
-deferred to the CI/CD design.
+**Decided posture: the engine provides the means; CI/CD owns the
+refresh.** The engine's whole obligation is to expose each selected
+root's data-leaf referents machine-readably on the plan-roots surface
+(a straight projection of the cross-state topology it already
+maintains), so any CI/CD system can sequence "apply data leaves, then
+plan/apply referrers" without discovery. No engine orchestration, no
+staleness gating, no scheduling: `iw plan` stays read-only, and refresh
+execution, ordering, and cadence are wholly the consuming pipeline's
+concern. A pipeline wanting proactive staleness signals can layer them
+itself from data-root plans (output-only diffs); nothing in the engine
+depends on it doing so.
 
 ## Acceptance criteria (engine)
 
@@ -177,6 +171,8 @@ deferred to the CI/CD design.
   exactly one referent.
 - Migrating predefined URL categories: the natural second consumer and
   genericity check, but its own change.
-- Scheduled refresh cadence and the CI mechanism decision (OPEN above).
+- Any refresh orchestration, gating, or scheduling in the engine: the
+  engine emits the dependency data (Refresh strategy above); everything
+  execution-side belongs to the consuming CI/CD system.
 - Provider-neutral fixture work beyond the synthetic pack the engine
   tests require.
