@@ -10,7 +10,6 @@ type ResourceDescriptor struct {
 	Provider  string
 	BareName  string
 	Generated bool
-	Derived   bool
 }
 
 // ResourceSet is an in-memory resource selection input. It is not persisted,
