@@ -902,6 +902,22 @@ func ExpressionVariables(bindings []ExpressionBinding) map[string]bool {
 	return variables
 }
 
+// pathPartsIsStrictPrefix reports whether shorter names a strict ancestor of
+// longer: every part matches and longer keeps going. Parts are string
+// attribute names or int list indexes (see ExpressionBinding.PathParts), both
+// directly comparable.
+func pathPartsIsStrictPrefix(shorter, longer []any) bool {
+	if len(shorter) >= len(longer) {
+		return false
+	}
+	for i, part := range shorter {
+		if part != longer[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // validateExpressionBindingTargets ports the path-validation half of the
 // original implementation's applyExpressionBindings: every binding must
 // resolve to an existing leaf inside items. The transformed-items result the
@@ -909,10 +925,37 @@ func ExpressionVariables(bindings []ExpressionBinding) map[string]bool {
 // production consumer -- envgen renders binding HCL independently via
 // RenderExpressionBindingsHcl -- so this walk validates in place without
 // cloning or mutating items.
+//
+// Ancestor/descendant pairs within the merged set are refused explicitly
+// before the per-target walk. The mutating walk caught them incidentally --
+// the ancestor's sentinel replaced the value, so the descendant's traversal
+// failed -- and that refusal is load-bearing: it must fire on the COMPLETE
+// merged binding set before state-aware filtering runs, or an absent-state
+// run drops the generated descendant and launders the conflict into a
+// successful render of the surviving binding alone (see
+// filterStatelessBindings's doc comment in environment_generator.go).
 func validateExpressionBindingTargets(items any, bindings []ExpressionBinding) {
 	output, ok := items.(map[string]any)
 	if !ok {
 		bindingsFail("expression binding items must be an object")
+	}
+	for i, binding := range bindings {
+		for _, earlier := range bindings[:i] {
+			if earlier.Key != binding.Key {
+				continue
+			}
+			if pathPartsIsStrictPrefix(earlier.PathParts, binding.PathParts) ||
+				pathPartsIsStrictPrefix(binding.PathParts, earlier.PathParts) {
+				ancestor, descendant := earlier, binding
+				if len(binding.PathParts) < len(earlier.PathParts) {
+					ancestor, descendant = binding, earlier
+				}
+				bindingsFail(
+					"conflicting expression binding %s.%s overlaps %s.%s; bind the whole value or a path inside it, not both",
+					ancestor.Address, ancestor.Path, descendant.Address, descendant.Path,
+				)
+			}
+		}
 	}
 	for _, binding := range bindings {
 		current, ok := output[binding.Key]

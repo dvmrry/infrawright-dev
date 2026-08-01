@@ -259,6 +259,43 @@ func TestBindingPathValidationRejectsUnknownMissingConflicts(t *testing.T) {
 	if _, err := RenderExpressionBindingsHcl(conflicts, RenderExpressionBindingsHclOptions{}); err == nil || !strings.Contains(err.Error(), "conflicting expression binding") {
 		t.Fatalf("conflict error = %v", err)
 	}
+	// Target validation refuses the same ancestor/descendant pair against the
+	// merged set, without needing a render: the walk that used to catch this
+	// by mutation now names the overlap explicitly.
+	if err := ValidateExpressionBindingTargets(map[string]any{
+		"example": map[string]any{"nested": map[string]any{"target": "old"}},
+	}, conflicts); err == nil || !strings.Contains(err.Error(), "conflicting expression binding") {
+		t.Fatalf("target-validation conflict error = %v", err)
+	}
+	listConflicts := mustParse(t, map[string]any{
+		"resources": map[string]any{
+			"sample_resource.example": map[string]any{
+				"nested":           map[string]any{"expression": "var.parent"},
+				"nested[0].target": map[string]any{"expression": "var.child"},
+			},
+		},
+	}, "sample_resource")
+	if err := ValidateExpressionBindingTargets(map[string]any{
+		"example": map[string]any{"nested": []any{map[string]any{"target": "old"}}},
+	}, listConflicts); err == nil || !strings.Contains(err.Error(), "conflicting expression binding") {
+		t.Fatalf("list-index conflict error = %v", err)
+	}
+	siblings := mustParse(t, map[string]any{
+		"resources": map[string]any{
+			"sample_resource.example": map[string]any{
+				"nested[0].target": map[string]any{"expression": "var.first"},
+				"nested[1].target": map[string]any{"expression": "var.second"},
+			},
+		},
+	}, "sample_resource")
+	if err := ValidateExpressionBindingTargets(map[string]any{
+		"example": map[string]any{"nested": []any{
+			map[string]any{"target": "one"},
+			map[string]any{"target": "two"},
+		}},
+	}, siblings); err != nil {
+		t.Fatalf("sibling indexes are not a conflict, got error = %v", err)
+	}
 }
 
 func TestExactNumericListSelectorsPreserveSiblingsAndRenderListEdits(t *testing.T) {

@@ -597,6 +597,77 @@ func TestStateAwareStillRefusesBindingOutsideProviderSchema(t *testing.T) {
 	}
 }
 
+// TestStateAwareStillRefusesOverlappingParentAndChildBindings pins the
+// conflict gate against the state filter. An operator binding over a whole
+// block value and a generated binding into a path inside that same value
+// cannot both hold; the ported mutating walk caught the pair incidentally
+// (the parent's sentinel broke the child's traversal), so the validation-only
+// walk must refuse it explicitly -- BEFORE state filtering, or an absent-state
+// run drops the generated child and launders the conflict into a successful
+// render of the operator parent alone.
+func TestStateAwareStillRefusesOverlappingParentAndChildBindings(t *testing.T) {
+	fixture := newStateAwareFixture(t)
+	config := filepath.Join(fixture.workspace, "config", "tenant")
+	// A committed referent config so zpa_server_group's root materialises the
+	// same way the fixture's zpa_segment_group root does.
+	writeJSONFile(t, filepath.Join(config, "zpa_server_group.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{
+			"group_one": map[string]any{"description": "Group", "enabled": true, "name": "Group One"},
+		},
+	})
+	// Both target paths exist in the items, so each binding validates
+	// independently; only the overlap between them is malformed.
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"app_one": map[string]any{
+			"segment_group_id": "sg-1",
+			"server_groups":    []any{map[string]any{"id": []any{"srv-1"}}},
+		}},
+	})
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"server_groups": map[string]any{"expression": "var.operator_services"},
+			},
+		},
+	})
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.generated.expressions.json"), map[string]any{
+		"resources": map[string]any{
+			"zpa_application_segment.app_one": map[string]any{
+				"server_groups[0].id": map[string]any{
+					"expression": `data.terraform_remote_state.zpa_server_group.outputs.iw_reference_ids.zpa_server_group["group_one"]`,
+				},
+			},
+		},
+	})
+
+	blind := fixture.generateStateBlind(t)
+	if blind == nil || !strings.Contains(blind.Error(), "conflicting expression binding") {
+		t.Fatalf("state-blind generation error = %v, want a conflicting-expression-binding refusal", blind)
+	}
+	if _, err := os.Stat(fixture.referrerFile("main.tf")); !os.IsNotExist(err) {
+		t.Errorf("state-blind refusal left output behind: main.tf stat = %v, want not-exist (conflict must refuse before writes)", err)
+	}
+
+	probeCalls := 0
+	countingAbsentProbe := func(string, string) (StateProbeResult, error) {
+		probeCalls++
+		return StateProbeResult{Usable: false}, nil
+	}
+	aware := fixture.generateWithProbe(t, countingAbsentProbe)
+	if aware == nil {
+		t.Fatalf("state-aware generation error = nil, want the same refusal state-blind generation gives (%v)", blind)
+	}
+	if aware.Error() != blind.Error() {
+		t.Errorf("state-aware refusal = %q, want the state-blind refusal %q", aware.Error(), blind.Error())
+	}
+	if probeCalls != 0 {
+		t.Errorf("state probe consulted %d time(s), want 0: the conflict must refuse before state filtering runs", probeCalls)
+	}
+	if _, err := os.Stat(fixture.referrerFile("main.tf")); !os.IsNotExist(err) {
+		t.Errorf("state-aware refusal left output behind: main.tf stat = %v, want not-exist", err)
+	}
+}
+
 // TestFilterProbesEveryReferenceSoErrorsBeatAbsence pins error precedence in a
 // binding that reaches more than one root. Stopping at the first absent
 // reference means a later reference whose probe fails is never observed, and a
@@ -755,6 +826,19 @@ func TestReferenceIDsPresentAcceptsEmptyPerTypeMap(t *testing.T) {
 	}
 	if !result.Usable {
 		t.Errorf("ReferenceIDsPresent(empty per-type map) usable = false, want true")
+	}
+}
+
+// TestEqualTreesComparesKeySets guards the comparator the byte-identity tests
+// rely on. Comparing only values reachable by the left tree's keys made trees
+// with different file names compare equal, which silently weakened every test
+// built on it.
+func TestEqualTreesComparesKeySets(t *testing.T) {
+	if equalTrees(map[string]string{"left.tf": ""}, map[string]string{"right.tf": ""}) {
+		t.Errorf("equalTrees(different key sets) = true, want false")
+	}
+	if !equalTrees(map[string]string{"main.tf": "body"}, map[string]string{"main.tf": "body"}) {
+		t.Errorf("equalTrees(identical trees) = false, want true")
 	}
 }
 
