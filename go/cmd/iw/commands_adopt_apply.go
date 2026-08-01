@@ -158,10 +158,6 @@ func (loaders *lazyAdoptionLoaders) stateLoader(request adopt.AdoptionStateReque
 	return loaders.state(request)
 }
 
-func adoptCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
-	return executeStandaloneCobra(newAdoptCobraCommand(dependencies), arguments)
-}
-
 func newAdoptCobraCommand(dependencies blockDCommandDependencies) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "adopt", short: "Transform pulled JSON through the import oracle",
@@ -301,10 +297,6 @@ func (adapter *lazyImportStagingTerraform) ListState(request adopt.ImportStaging
 	return loaded.ListState(request)
 }
 
-func stageImportsCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
-	return executeStandaloneCobra(newImportStagingCobraCommand("stage-imports", dependencies), arguments)
-}
-
 func newImportStagingCobraCommand(command string, dependencies blockDCommandDependencies) *cobra.Command {
 	valueFlags := []string{"--tenant", "--resource", "--deployment", "--root", "--profile"}
 	var boolFlags []string
@@ -356,10 +348,6 @@ func stageImportsCommandInput(parsed commandInput, dependencies blockDCommandDep
 		Tenant: options.tenant, Terraform: terraform, Workspace: workspace,
 	})
 	return 0, err
-}
-
-func unstageImportsCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
-	return executeStandaloneCobra(newImportStagingCobraCommand("unstage-imports", dependencies), arguments)
 }
 
 func unstageImportsCommandInput(parsed commandInput, dependencies blockDCommandDependencies) (int, error) {
@@ -509,10 +497,6 @@ func resolveCommandPath(workspace, value string) string {
 		return filepath.Clean(value)
 	}
 	return filepath.Join(workspace, value)
-}
-
-func applyCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
-	return executeStandaloneCobra(newApplyCobraCommand(dependencies), arguments)
 }
 
 func newApplyCobraCommand(dependencies blockDCommandDependencies) *cobra.Command {

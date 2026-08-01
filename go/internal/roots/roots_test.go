@@ -20,27 +20,27 @@ func fixtureResourceSet() metadata.ResourceSet {
 			{
 				Type: "zpa_alpha_one", Product: "zpa", Provider: "zpa",
 				BareName:  "alpha_one",
-				Generated: true, Derived: false,
+				Generated: true,
 			},
 			{
 				Type: "zpa_alpha_two", Product: "zpa", Provider: "zpa",
 				BareName:  "alpha_two",
-				Generated: true, Derived: false,
+				Generated: true,
 			},
 			{
 				Type: "zpa_derived_reorder", Product: "zpa", Provider: "zpa",
 				BareName:  "derived_reorder",
-				Generated: true, Derived: true,
+				Generated: true,
 			},
 			{
 				Type: "zpa_known_only", Product: "zpa", Provider: "zpa",
 				BareName:  "known_only",
-				Generated: false, Derived: false,
+				Generated: false,
 			},
 			{
 				Type: "zpa_alpha_reference", Product: "zpa", Provider: "zpa",
 				BareName:  "alpha_reference",
-				Generated: true, Derived: false,
+				Generated: true,
 			},
 		},
 	}

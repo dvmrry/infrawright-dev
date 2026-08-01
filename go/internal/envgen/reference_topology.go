@@ -116,11 +116,7 @@ func CrossStateDependencyClosure(selectedRoots []string, dependenciesByRoot map[
 // generatedNonDerived ports the local generatedNonDerived helper from
 // the original implementation. Note this uses
 // canonjson.IsJSONRecord (the port of metadata/validation.ts's isObject,
-// which excludes arrays), deliberately distinct from
-// go/internal/roots/roots.go's isJSObjectLike (which treats arrays as
-// object-like too, for a different call site's JS `typeof` quirk) -- the
-// two Node source files import two different helpers for a reason, and
-// this port preserves that distinction rather than consolidating them.
+// which excludes arrays).
 func generatedNonDerived(root metadata.LoadedPackRoot, resourceType string) bool {
 	resource, ok := root.Resources[resourceType]
 	if !ok {
