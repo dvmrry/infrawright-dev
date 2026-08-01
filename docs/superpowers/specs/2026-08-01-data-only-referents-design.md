@@ -152,17 +152,38 @@ depends on it doing so.
   against a synthetic data-only fixture (engine test) and the real pack
   (provider qualification lane, not the engine suite).
 
-## Verification items (before implementation planning)
+## Verification results (all items closed 2026-08-01)
 
-- Confirm the real `zia_location_groups` data-source argument shape
-  (per-name lookup assumed) and its id attribute.
-- Confirm vendored provider schemas include `data_source_schemas`; if
-  absent, add vendoring to the pack workstream.
-- Confirm the fetch endpoint and pagination for location groups.
-- Survey which existing `acknowledged_drops` entries across packs are
-  actually latent data-only referents (predefined URL categories,
-  ZIA time windows, device groups, etc.) to validate the surface
-  generalizes — survey only, no scope expansion.
+- **Data-source shape confirmed** from the vendored provider schema:
+  `zia_location_groups` takes an optional `name` argument (per-name
+  `for_each` works as designed) and exposes `id` as a *number* —
+  consistent with ZIA's numeric-ID reference fields — plus a computed
+  `predefined` flag.
+- **`data_source_schemas` is already vendored** in all four Zscaler
+  packs (zia 115 entries, zpa 71, zcc 15, ztc 20). No vendoring work
+  needed.
+- **Fetch endpoint confirmed** against a real recorded cassette
+  (zscaler-skill vendor, `TestLocationGroup.yaml`: `GET
+  /zia/api/v1/locations/groups`) and the vendored OpenAPI spec
+  (`page`/`pageSize`, max 1000): the registry entry is
+  `{"pagination": "zia", "path": "locations/groups"}` — the engine's
+  existing `PaginationZia` loop matches exactly.
+- **The surface generalizes.** A full sweep of `acknowledged_drops`
+  across all four packs found seven more confirmed latent data-only
+  referents beyond location groups, all with per-name-lookup data
+  sources and no registry type: `zia_firewall_filtering_time_window`,
+  `zia_device_groups`, `zia_devices`, `zia_department_management`,
+  `zia_group_management`, `zia_forwarding_control_proxy_gateway`, and
+  `zpa_extranet_resource_partner` (with `zpa_app_connector_controller`
+  as a shape-adaptation MAYBE). Two candidates
+  (`zia_datacenters`, `zia_file_type_categories`) have list/filter-
+  shaped data sources that do not fit the per-name `for_each` pattern
+  and are explicitly out of scope. The sweep also confirmed
+  `url_categories` is a resource/data-source *split* (custom generated,
+  predefined already typed separately), validating that follow-on as
+  structurally distinct, and surfaced one orthogonal gap — cross-pack
+  references (`zia_ssl_inspection_rules` → `zpa_application_segment`)
+  — which is not a data-only problem and is not addressed here.
 
 ## Out of scope (v1)
 
@@ -176,3 +197,13 @@ depends on it doing so.
   execution-side belongs to the consuming CI/CD system.
 - Provider-neutral fixture work beyond the synthetic pack the engine
   tests require.
+- List/filter-shaped data sources (e.g. `zia_datacenters`,
+  `zia_file_type_categories`): v1's contract is per-name singleton
+  lookup; adapting the module shape for filtered-list data sources is
+  a follow-on.
+- Cross-pack references (`zia_ssl_inspection_rules` →
+  `zpa_application_segment`): a reference-wiring gap orthogonal to
+  data-only referents.
+- Wiring the seven newly surveyed latent referents: v1 lands the
+  mechanism plus `zia_location_groups`; the rest are pack-work
+  follow-ons that validate against the same engine surface.
