@@ -325,6 +325,65 @@ func validateLookupSources(value JsonObject, source string) {
 	}
 }
 
+// validateDataReferentSurfaces cross-checks the two metadata surfaces a
+// data-only module must consume. Structural validation can prove that an
+// individual lookup_sources entry is well shaped when present, but only the
+// loaded registry and provider schema together can prove that every active
+// data referent has both required declarations.
+func validateDataReferentSurfaces(packMetadata PackMetadata, resources map[string]LoadedResourceMetadata) {
+	providerSchemas := make(map[string]ProviderSchema)
+	loadedProviders := make(map[string]bool)
+	for _, resourceType := range sortedMapKeys(resources) {
+		resource := resources[resourceType]
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if !dataReferent {
+			continue
+		}
+
+		manifest := manifestForProvider(packMetadata, resource.Provider)
+		lookupSources, ok := manifest.Data["lookup_sources"].(JsonObject)
+		if !ok {
+			failf(
+				"data referent %s is missing effective lookup_sources.%s.name_field",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+		lookup, ok := lookupSources[resourceType].(JsonObject)
+		if !ok {
+			failf(
+				"data referent %s is missing effective lookup_sources.%s.name_field",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+		if _, ok := lookup["name_field"]; !ok {
+			failf(
+				"data referent %s is missing effective lookup_sources.%s.name_field",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+
+		if !loadedProviders[resource.Provider] {
+			providerSchemas[resource.Provider] = loadProviderSchema(packMetadata, resource.Provider)
+			loadedProviders[resource.Provider] = true
+		}
+		providerSchema := providerSchemas[resource.Provider]
+		dataSourceSchemas, ok := providerSchema.Data["data_source_schemas"].(JsonObject)
+		if !ok {
+			failf(
+				"data referent %s is missing provider data_source_schemas.%s entry",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+		dataSourceSchema, ok := dataSourceSchemas[resourceType].(JsonObject)
+		if !ok || dataSourceSchema == nil {
+			failf(
+				"data referent %s is missing provider data_source_schemas.%s entry",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+	}
+}
+
 func validateReferences(value JsonObject, source string) {
 	for _, resourceType := range sortedKeys(value) {
 		rawFields := value[resourceType]

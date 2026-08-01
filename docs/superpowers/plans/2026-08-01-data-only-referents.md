@@ -157,7 +157,20 @@ output "iw_reference_ids" {
 ```
 
 `variables.tf` declares `var.items` as the same opaque items map shape
-generated modules use. The `name` attribute comes from
+generated modules use.
+
+**Corrections from the Task 3 adversarial-review round (binding):** the
+module's public interface is `output "items"` (the data-source objects
+map), matching generated modules — the module-level `iw_reference_ids`
+output shown above is WRONG; envgen's untouched root wrapper builds the
+canonical root-level `iw_reference_ids` from `module.<type>.items`.
+`lookup_sources.name_field` names BOTH the provider data-source argument
+and the collected item property (`<name_field> = each.value.<name_field>`).
+Generation and default validation share `ActiveModuleResourceTypes` (the
+sorted generated+data union). The fail-closed lookup_sources /
+data_source_schemas checks live in `LoadPackRoot`, with render-time
+checks as defense in depth plus data-source attribute validation
+(name_field exists, is an input, string-typed; `id` readable). The `name` attribute comes from
 `lookup_sources[type].name_field` (load error if absent for a
 data-referent type — fail closed, do not default to "name"). The data
 source must exist in `data_source_schemas` (load error if absent).

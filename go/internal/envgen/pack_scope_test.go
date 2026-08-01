@@ -204,7 +204,10 @@ func syntheticRootWithZpaReferencesAndDataReferent(t *testing.T, zpaReferences m
 		"pin":               "1.0.0",
 		"provider_prefixes": metadata.JsonObject{"zia_": "zia"},
 		"provider_sources":  metadata.JsonObject{"zia": "zscaler/zia"},
-		"references":        ziaReferences,
+		"lookup_sources": metadata.JsonObject{
+			dataReferentType: metadata.JsonObject{"name_field": "name"},
+		},
+		"references": ziaReferences,
 	}, ziaRegistry, ziaSchemas, ziaDataSourceSchemas)
 
 	zccSchemas := metadata.JsonObject{

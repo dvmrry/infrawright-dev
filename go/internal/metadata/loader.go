@@ -275,6 +275,7 @@ func loadPackRoot(options LoadPackRootOptions) LoadedPackRoot {
 	overrides := loadOverrides(metadata, active.Packs)
 	validateUnsupportedProviderScopes(metadata, registry)
 	resources := resourceMap(metadata, registry, overrides)
+	validateDataReferentSurfaces(metadata, resources)
 	return LoadedPackRoot{
 		Root:        metadata.Root,
 		Profile:     profile,
