@@ -926,14 +926,26 @@ func pathPartsIsStrictPrefix(shorter, longer []any) bool {
 // RenderExpressionBindingsHcl -- so this walk validates in place without
 // cloning or mutating items.
 //
-// Ancestor/descendant pairs within the merged set are refused explicitly
-// before the per-target walk. The mutating walk caught them incidentally --
-// the ancestor's sentinel replaced the value, so the descendant's traversal
-// failed -- and that refusal is load-bearing: it must fire on the COMPLETE
+// Ancestor/descendant pairs within the merged set are refused explicitly,
+// inside the sequential walk so validation precedence is preserved: each
+// binding is checked for overlap against the bindings validated before it,
+// then walked, so an earlier binding's own target error still wins exactly
+// as it did under the mutating walk. The mutating walk caught overlaps
+// incidentally -- the ancestor's sentinel replaced the value, so the
+// descendant's traversal failed at that depth, before any deeper error of
+// its own -- and that refusal is load-bearing: it must fire on the COMPLETE
 // merged binding set before state-aware filtering runs, or an absent-state
 // run drops the generated descendant and launders the conflict into a
 // successful render of the surviving binding alone (see
 // filterStatelessBindings's doc comment in environment_generator.go).
+//
+// Two deliberate contract changes from the mutating walk, both refusals of
+// the same malformed evidence: the message names the overlap
+// ("conflicting expression binding ... overlaps ...") instead of the
+// mutation artifact the sentinel happened to produce ("indexes a non-list
+// value"), and the refusal is direction-independent -- the mutating walk
+// only failed when the ancestor was applied first, silently accepting the
+// descendant-first merge order.
 func validateExpressionBindingTargets(items any, bindings []ExpressionBinding) {
 	output, ok := items.(map[string]any)
 	if !ok {
@@ -956,40 +968,19 @@ func validateExpressionBindingTargets(items any, bindings []ExpressionBinding) {
 				)
 			}
 		}
+		validateExpressionBindingTarget(output, binding)
 	}
-	for _, binding := range bindings {
-		current, ok := output[binding.Key]
-		if !ok {
-			bindingsFail("expression binding references unknown resource address %s", binding.Address)
-		}
-		for _, part := range binding.PathParts[:len(binding.PathParts)-1] {
-			if idx, isIndex := part.(int); isIndex {
-				arr, ok := current.([]any)
-				if !ok {
-					bindingsFail("expression binding %s.%s indexes a non-list value", binding.Address, binding.Path)
-				}
-				if idx >= len(arr) {
-					bindingsFail("expression binding %s.%s has out-of-range list index [%d]", binding.Address, binding.Path, idx)
-				}
-				current = arr[idx]
-				continue
-			}
-			name, _ := part.(string)
-			if _, isArray := current.([]any); isArray {
-				bindingsFail(
-					"expression binding %s.%s traverses a list at %s; use an exact numeric list selector",
-					binding.Address, binding.Path, name,
-				)
-			}
-			obj, isObject := current.(map[string]any)
-			childValue, hasChild := obj[name]
-			if !isObject || !hasChild {
-				bindingsFail("expression binding %s.%s has missing parent path", binding.Address, binding.Path)
-			}
-			current = childValue
-		}
-		leaf := binding.PathParts[len(binding.PathParts)-1]
-		if idx, isIndex := leaf.(int); isIndex {
+}
+
+// validateExpressionBindingTarget walks one binding's path through items,
+// failing exactly where the ported mutating walk failed.
+func validateExpressionBindingTarget(output map[string]any, binding ExpressionBinding) {
+	current, ok := output[binding.Key]
+	if !ok {
+		bindingsFail("expression binding references unknown resource address %s", binding.Address)
+	}
+	for _, part := range binding.PathParts[:len(binding.PathParts)-1] {
+		if idx, isIndex := part.(int); isIndex {
 			arr, ok := current.([]any)
 			if !ok {
 				bindingsFail("expression binding %s.%s indexes a non-list value", binding.Address, binding.Path)
@@ -997,9 +988,10 @@ func validateExpressionBindingTargets(items any, bindings []ExpressionBinding) {
 			if idx >= len(arr) {
 				bindingsFail("expression binding %s.%s has out-of-range list index [%d]", binding.Address, binding.Path, idx)
 			}
+			current = arr[idx]
 			continue
 		}
-		name, _ := leaf.(string)
+		name, _ := part.(string)
 		if _, isArray := current.([]any); isArray {
 			bindingsFail(
 				"expression binding %s.%s traverses a list at %s; use an exact numeric list selector",
@@ -1007,12 +999,36 @@ func validateExpressionBindingTargets(items any, bindings []ExpressionBinding) {
 			)
 		}
 		obj, isObject := current.(map[string]any)
-		if !isObject {
-			bindingsFail("expression binding %s.%s parent is not an object", binding.Address, binding.Path)
+		childValue, hasChild := obj[name]
+		if !isObject || !hasChild {
+			bindingsFail("expression binding %s.%s has missing parent path", binding.Address, binding.Path)
 		}
-		if _, hasLeaf := obj[name]; !hasLeaf {
-			bindingsFail("expression binding %s.%s has missing target leaf", binding.Address, binding.Path)
+		current = childValue
+	}
+	leaf := binding.PathParts[len(binding.PathParts)-1]
+	if idx, isIndex := leaf.(int); isIndex {
+		arr, ok := current.([]any)
+		if !ok {
+			bindingsFail("expression binding %s.%s indexes a non-list value", binding.Address, binding.Path)
 		}
+		if idx >= len(arr) {
+			bindingsFail("expression binding %s.%s has out-of-range list index [%d]", binding.Address, binding.Path, idx)
+		}
+		return
+	}
+	name, _ := leaf.(string)
+	if _, isArray := current.([]any); isArray {
+		bindingsFail(
+			"expression binding %s.%s traverses a list at %s; use an exact numeric list selector",
+			binding.Address, binding.Path, name,
+		)
+	}
+	obj, isObject := current.(map[string]any)
+	if !isObject {
+		bindingsFail("expression binding %s.%s parent is not an object", binding.Address, binding.Path)
+	}
+	if _, hasLeaf := obj[name]; !hasLeaf {
+		bindingsFail("expression binding %s.%s has missing target leaf", binding.Address, binding.Path)
 	}
 }
 

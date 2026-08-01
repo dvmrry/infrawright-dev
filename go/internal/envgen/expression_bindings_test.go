@@ -296,6 +296,42 @@ func TestBindingPathValidationRejectsUnknownMissingConflicts(t *testing.T) {
 	}, siblings); err != nil {
 		t.Fatalf("sibling indexes are not a conflict, got error = %v", err)
 	}
+
+	// Sequential precedence is part of the contract: overlap detection runs
+	// inside the walk, per binding against its predecessors, so an earlier
+	// binding's own target error still wins over a later pair's overlap...
+	precedence := mustParse(t, map[string]any{
+		"resources": map[string]any{
+			"sample_resource.example": map[string]any{
+				"aaa":           map[string]any{"expression": "var.earlier"},
+				"nested":        map[string]any{"expression": "var.parent"},
+				"nested.target": map[string]any{"expression": "var.child"},
+			},
+		},
+	}, "sample_resource")
+	err := ValidateExpressionBindingTargets(map[string]any{
+		"example": map[string]any{"nested": map[string]any{"target": "old"}},
+	}, precedence)
+	if err == nil || !strings.Contains(err.Error(), "aaa") || !strings.Contains(err.Error(), "missing target leaf") {
+		t.Fatalf("precedence error = %v, want the earlier binding's missing-target-leaf refusal, not the later overlap", err)
+	}
+	// ...and an earlier pair's overlap still wins over a later binding's own
+	// target error, exactly as the mutating walk's in-order collision did.
+	reversed := mustParse(t, map[string]any{
+		"resources": map[string]any{
+			"sample_resource.example": map[string]any{
+				"nested":        map[string]any{"expression": "var.parent"},
+				"nested.target": map[string]any{"expression": "var.child"},
+				"zzz":           map[string]any{"expression": "var.later"},
+			},
+		},
+	}, "sample_resource")
+	err = ValidateExpressionBindingTargets(map[string]any{
+		"example": map[string]any{"nested": map[string]any{"target": "old"}},
+	}, reversed)
+	if err == nil || !strings.Contains(err.Error(), "conflicting expression binding") {
+		t.Fatalf("reversed precedence error = %v, want the earlier pair's overlap refusal", err)
+	}
 }
 
 func TestExactNumericListSelectorsPreserveSiblingsAndRenderListEdits(t *testing.T) {
