@@ -136,6 +136,123 @@ func TestCrossStateTopologyExplicitFalseFiltersOnlyThatProvider(t *testing.T) {
 	}
 }
 
+func TestCrossStateTopologyAcceptsDataReferent(t *testing.T) {
+	root := syntheticRootWithDataReferent(t)
+	tenant := "tenant"
+	dep := deployment.Deployment{Overlay: "."}
+	topologyResult, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
+		Root: root, Deployment: dep, Tenant: &tenant, Selectors: []string{},
+	})
+	if err != nil {
+		t.Fatalf("LoadedRootTopology(data referent fixture) error = %v, want nil", err)
+	}
+	got, err := ResolveCrossStateReferenceTopology(CrossStateReferenceTopologyOptions{
+		Deployment: dep, Root: root, Topology: topologyResult.Topology,
+	})
+	if err != nil {
+		t.Fatalf("ResolveCrossStateReferenceTopology(data referent fixture) error = %v, want nil", err)
+	}
+
+	want := []CrossStateReferenceEdge{{
+		Field:        "location_groups.id",
+		Referrer:     "zia_url_filtering_rules",
+		ReferrerRoot: "zia_url_filtering_rules",
+		Referent:     "zia_location_groups",
+		ReferentRoot: "zia_location_groups",
+	}}
+	var dataReferentEdges []CrossStateReferenceEdge
+	for _, edge := range got.Edges {
+		if edge.Referent == "zia_location_groups" {
+			dataReferentEdges = append(dataReferentEdges, edge)
+		}
+	}
+	if !reflect.DeepEqual(dataReferentEdges, want) {
+		t.Errorf("ResolveCrossStateReferenceTopology(data referent fixture) edges mismatch:\n got: %#v\nwant: %#v", dataReferentEdges, want)
+	}
+}
+
+func TestCrossStateTopologySkipsDataReferentReferrer(t *testing.T) {
+	root := syntheticRootWithDataReferent(t)
+	dep := deployment.Deployment{Overlay: "."}
+	topologyResult, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
+		Root: root, Deployment: dep, Selectors: []string{},
+	})
+	if err != nil {
+		t.Fatalf("LoadedRootTopology(data referent fixture) error = %v, want nil", err)
+	}
+	got, err := ResolveCrossStateReferenceTopology(CrossStateReferenceTopologyOptions{
+		Deployment: dep, Root: root, Topology: topologyResult.Topology,
+	})
+	if err != nil {
+		t.Fatalf("ResolveCrossStateReferenceTopology(data referent referrer) error = %v, want nil", err)
+	}
+	for _, edge := range got.Edges {
+		if edge.Referrer == "zia_location_groups" {
+			t.Errorf("ResolveCrossStateReferenceTopology(data referent referrer) emitted edge %#v, want no data-referent referrer edges", edge)
+		}
+	}
+}
+
+func TestCrossStateTopologyRejectsNonGeneratedNonDataReferent(t *testing.T) {
+	root := syntheticRootForTopology(t)
+	const unknownReferent = "zia_known_only"
+	root.Resources[unknownReferent] = metadata.LoadedResourceMetadata{
+		Type:     unknownReferent,
+		Product:  "zia",
+		Provider: "zia",
+		Registry: metadata.JsonObject{"product": "zia"},
+	}
+
+	var manifests []metadata.PackManifest
+	for _, manifest := range root.Packs.Manifests {
+		if manifest.Name != "zia" {
+			manifests = append(manifests, manifest)
+			continue
+		}
+		references, _ := manifest.Data["references"].(map[string]any)
+		newReferences := make(map[string]any, len(references))
+		for resourceType, fieldsValue := range references {
+			newReferences[resourceType] = fieldsValue
+		}
+		fields, _ := newReferences["zia_url_filtering_rules"].(map[string]any)
+		newFields := make(map[string]any, len(fields)+1)
+		for field, specification := range fields {
+			newFields[field] = specification
+		}
+		newFields["known_only_id"] = metadata.JsonObject{
+			"name_field": "name",
+			"referent":   unknownReferent,
+		}
+		newReferences["zia_url_filtering_rules"] = newFields
+		newData := make(metadata.JsonObject, len(manifest.Data))
+		for key, value := range manifest.Data {
+			newData[key] = value
+		}
+		newData["references"] = newReferences
+		manifests = append(manifests, metadata.PackManifest{
+			Name: manifest.Name, Directory: manifest.Directory, Path: manifest.Path,
+			Data: newData, ProviderPrefixes: manifest.ProviderPrefixes,
+			ProviderSources: manifest.ProviderSources, RequiresShared: manifest.RequiresShared,
+		})
+	}
+	root.Packs.Manifests = manifests
+
+	dep := deployment.Deployment{Overlay: "."}
+	topologyResult, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
+		Root: root, Deployment: dep, Selectors: []string{},
+	})
+	if err != nil {
+		t.Fatalf("LoadedRootTopology(unknown referent fixture) error = %v, want nil", err)
+	}
+	_, err = ResolveCrossStateReferenceTopology(CrossStateReferenceTopologyOptions{
+		Deployment: dep, Root: root, Topology: topologyResult.Topology,
+	})
+	want := "cross-state reference zia_url_filtering_rules.known_only_id targets zia_known_only, which is not a generated non-derived resource or data referent"
+	if err == nil || err.Error() != want {
+		t.Errorf("ResolveCrossStateReferenceTopology(unknown referent) error = %v, want exact refusal %q", err, want)
+	}
+}
+
 func setKeysSorted(set map[string]bool) []string {
 	var out []string
 	for key := range set {

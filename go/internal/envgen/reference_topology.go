@@ -133,6 +133,15 @@ func generatedNonDerived(root metadata.LoadedPackRoot, resourceType string) bool
 	return !canonjson.IsJSONRecord(resource.Registry["derive"])
 }
 
+func dataReferent(root metadata.LoadedPackRoot, resourceType string) bool {
+	resource, ok := root.Resources[resourceType]
+	if !ok {
+		return false
+	}
+	dataOnly, _ := resource.Registry["data_referent"].(bool)
+	return dataOnly
+}
+
 // addToSet ports the local `add` helper from
 // the original implementation.
 func addToSet(values map[string]map[string]bool, key, value string) {
@@ -244,6 +253,12 @@ func crossStateReferenceTopology(options CrossStateReferenceTopologyOptions) Cro
 			continue
 		}
 		if !generatedNonDerived(options.Root, referrer) {
+			// Data referents are never referrers: a reference declared FROM
+			// one mints no edge and is skipped rather than refused, so a pack
+			// may carry the declaration without breaking generation.
+			if dataReferent(options.Root, referrer) {
+				continue
+			}
 			bindingsFail("cross-state reference referrer %s must be a generated non-derived resource", referrer)
 		}
 		referrerRoot, ok := options.Topology.ResourceRoots[referrer]
@@ -261,9 +276,9 @@ func crossStateReferenceTopology(options CrossStateReferenceTopologyOptions) Cro
 			if !hasReferent || !isString {
 				continue
 			}
-			if !generatedNonDerived(options.Root, referent) {
+			if !generatedNonDerived(options.Root, referent) && !dataReferent(options.Root, referent) {
 				bindingsFail(
-					"cross-state reference %s.%s targets %s, which is not a generated non-derived resource",
+					"cross-state reference %s.%s targets %s, which is not a generated non-derived resource or data referent",
 					referrer, field, referent,
 				)
 			}

@@ -1,6 +1,6 @@
 // Package roots derives singleton-state topology from loaded packs. Every
-// generated resource type is one state unit whose label and only member are
-// the resource type.
+// generated or data-referent resource type is one state unit whose label and
+// only member are the resource type.
 package roots
 
 import (
@@ -77,9 +77,10 @@ func ValidateTenant(tenant string) (err error) {
 // resolver. It is built from the caller's in-memory ResourceSet or directly
 // from the authoritative LoadedPackRoot; it is not a persisted catalog.
 type resourceIndex struct {
-	resources map[string]metadata.ResourceDescriptor
-	generated map[string]struct{}
-	providers map[string]struct{}
+	resources     map[string]metadata.ResourceDescriptor
+	generated     map[string]struct{}
+	dataReferents map[string]struct{}
+	providers     map[string]struct{}
 }
 
 func stringSet(values []string) map[string]struct{} {
@@ -98,16 +99,20 @@ func indexResourceSet(resourceSet metadata.ResourceSet) resourceIndex {
 		resources[resource.Type] = resource
 	}
 	var generated []string
+	var dataReferents []string
 	for _, resource := range resourceSet.Resources {
-		if !resource.Generated {
-			continue
+		if resource.Generated {
+			generated = append(generated, resource.Type)
 		}
-		generated = append(generated, resource.Type)
+		if resource.DataReferent {
+			dataReferents = append(dataReferents, resource.Type)
+		}
 	}
 	return resourceIndex{
-		resources: resources,
-		generated: stringSet(generated),
-		providers: stringSet(resourceSet.DeclaredProviders),
+		resources:     resources,
+		generated:     stringSet(generated),
+		dataReferents: stringSet(dataReferents),
+		providers:     stringSet(resourceSet.DeclaredProviders),
 	}
 }
 
@@ -201,12 +206,15 @@ func indexLoadedPackRoot(root metadata.LoadedPackRoot) resourceIndex {
 	}
 
 	var generated []string
+	var dataReferents []string
 	for _, resourceType := range resourceTypes {
 		resource := resources[resourceType]
-		if !resource.Generated {
-			continue
+		if resource.Generated {
+			generated = append(generated, resourceType)
 		}
-		generated = append(generated, resourceType)
+		if resource.DataReferent {
+			dataReferents = append(dataReferents, resourceType)
+		}
 	}
 
 	providers := make([]string, 0, len(root.Packs.ProviderPrefixes))
@@ -215,9 +223,10 @@ func indexLoadedPackRoot(root metadata.LoadedPackRoot) resourceIndex {
 	}
 
 	return resourceIndex{
-		resources: resources,
-		generated: stringSet(generated),
-		providers: stringSet(providers),
+		resources:     resources,
+		generated:     stringSet(generated),
+		dataReferents: stringSet(dataReferents),
+		providers:     stringSet(providers),
 	}
 }
 
@@ -228,9 +237,9 @@ type resolution struct {
 	typeToLabel     map[string]string
 }
 
-// resolveRoots creates one root for every generated type. Deployment root
-// options no longer influence topology after grouping retirement, but named
-// providers must still belong to the loaded resource set.
+// resolveRoots creates one root for every generated or data-referent type.
+// Deployment root options no longer influence topology after grouping
+// retirement, but named providers must still belong to the loaded resource set.
 func resolveRoots(dep deployment.Deployment, index resourceIndex) resolution {
 	providerNames := make([]string, 0, len(dep.Roots))
 	for provider := range dep.Roots {
@@ -246,11 +255,18 @@ func resolveRoots(dep deployment.Deployment, index resourceIndex) resolution {
 		labelsToMembers: make(map[string][]string),
 		typeToLabel:     make(map[string]string),
 	}
-	generatedTypes := make([]string, 0, len(index.generated))
+	rootTypes := make(map[string]struct{}, len(index.generated)+len(index.dataReferents))
 	for resourceType := range index.generated {
-		generatedTypes = append(generatedTypes, resourceType)
+		rootTypes[resourceType] = struct{}{}
 	}
-	for _, resourceType := range canonjson.SortedStrings(generatedTypes) {
+	for resourceType := range index.dataReferents {
+		rootTypes[resourceType] = struct{}{}
+	}
+	allRootTypes := make([]string, 0, len(rootTypes))
+	for resourceType := range rootTypes {
+		allRootTypes = append(allRootTypes, resourceType)
+	}
+	for _, resourceType := range canonjson.SortedStrings(allRootTypes) {
 		res.labelsToMembers[resourceType] = []string{resourceType}
 		res.typeToLabel[resourceType] = resourceType
 	}

@@ -3,6 +3,7 @@ package roots
 // roots_test.go exercises singleton topology over a compact ResourceSet.
 
 import (
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -44,6 +45,18 @@ func fixtureResourceSet() metadata.ResourceSet {
 			},
 		},
 	}
+}
+
+func fixtureResourceSetWithDataReferent() metadata.ResourceSet {
+	resourceSet := fixtureResourceSet()
+	resourceSet.Resources = append(resourceSet.Resources, metadata.ResourceDescriptor{
+		Type:         "zpa_data_only",
+		Product:      "zpa",
+		Provider:     "zpa",
+		BareName:     "data_only",
+		DataReferent: true,
+	})
+	return resourceSet
 }
 
 func TestSelectionReturnsOnlySingletonRoot(t *testing.T) {
@@ -215,6 +228,159 @@ func TestLoadedResourceShapeSurfacesDataReferent(t *testing.T) {
 	}
 	if got.Generated {
 		t.Errorf("loadedResourceShape(%q).Generated = %t, want false", "sample_groups", got.Generated)
+	}
+}
+
+func TestLoadedRootTopologyIncludesDataReferentButExpansionRemainsGenerated(t *testing.T) {
+	root := metadata.LoadedPackRoot{
+		Packs: metadata.PackMetadata{
+			ProviderPrefixes: map[string]string{"sample_": "sample"},
+		},
+		Resources: map[string]metadata.LoadedResourceMetadata{
+			"sample_groups_data": {
+				Type:     "sample_groups_data",
+				Product:  "sample",
+				Provider: "sample",
+				Registry: metadata.JsonObject{
+					"data_referent": true,
+					"fetch":         metadata.JsonObject{"pagination": "zia", "path": "locations/groups"},
+				},
+			},
+			"sample_rule": {
+				Type:     "sample_rule",
+				Product:  "sample",
+				Provider: "sample",
+				Registry: metadata.JsonObject{"generate": true},
+			},
+		},
+	}
+
+	result, err := LoadedRootTopology(LoadedRootTopologyOptions{
+		Root: root, Deployment: deployment.Deployment{Overlay: "."}, Selectors: []string{},
+	})
+	if err != nil {
+		t.Fatalf("LoadedRootTopology(data referent fixture) error = %v, want nil", err)
+	}
+	wantRoots := []RootTopologyRoot{
+		{Label: "sample_groups_data", Provider: strPtr("sample"), Members: []string{"sample_groups_data"}},
+		{Label: "sample_rule", Provider: strPtr("sample"), Members: []string{"sample_rule"}},
+	}
+	if !reflect.DeepEqual(result.Topology.Roots, wantRoots) {
+		t.Errorf("LoadedRootTopology(data referent fixture) roots mismatch:\n got: %#v\nwant: %#v", result.Topology.Roots, wantRoots)
+	}
+	wantResourceRoots := map[string]string{
+		"sample_groups_data": "sample_groups_data",
+		"sample_rule":        "sample_rule",
+	}
+	if !reflect.DeepEqual(result.Topology.ResourceRoots, wantResourceRoots) {
+		t.Errorf("LoadedRootTopology(data referent fixture) resource roots mismatch:\n got: %#v\nwant: %#v", result.Topology.ResourceRoots, wantResourceRoots)
+	}
+
+	generated, err := ExpandLoadedResources(root, []string{})
+	if err != nil {
+		t.Fatalf("ExpandLoadedResources(data referent fixture) error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(generated, []string{"sample_rule"}) {
+		t.Errorf("ExpandLoadedResources(data referent fixture) mismatch:\n got: %#v\nwant: %#v", generated, []string{"sample_rule"})
+	}
+	_, err = ExpandLoadedResources(root, []string{"sample_groups_data"})
+	pf, ok := asProcessFailure(err)
+	if !ok {
+		t.Fatalf("ExpandLoadedResources(%q) error = %v, want a *procerr.ProcessFailure", "sample_groups_data", err)
+	}
+	if pf.Code != "UNKNOWN_RESOURCE_SELECTOR" {
+		t.Errorf("ExpandLoadedResources(%q) failure code = %q, want %q", "sample_groups_data", pf.Code, "UNKNOWN_RESOURCE_SELECTOR")
+	}
+}
+
+func TestResourceSetRootTopologyIncludesDataReferent(t *testing.T) {
+	result, err := RootTopologyFromResourceSet(RootTopologyOptions{
+		ResourceSet: fixtureResourceSetWithDataReferent(),
+		Deployment:  deployment.Deployment{Overlay: "."},
+		Selectors:   []string{},
+	})
+	if err != nil {
+		t.Fatalf("RootTopologyFromResourceSet(data referent fixture) error = %v, want nil", err)
+	}
+	wantRoot := RootTopologyRoot{
+		Label: "zpa_data_only", Provider: strPtr("zpa"), Members: []string{"zpa_data_only"},
+	}
+	var gotRoot *RootTopologyRoot
+	for i := range result.Topology.Roots {
+		if result.Topology.Roots[i].Label == wantRoot.Label {
+			gotRoot = &result.Topology.Roots[i]
+			break
+		}
+	}
+	if gotRoot == nil {
+		t.Fatalf("RootTopologyFromResourceSet(data referent fixture) roots = %#v, want root %#v", result.Topology.Roots, wantRoot)
+	}
+	if !reflect.DeepEqual(*gotRoot, wantRoot) {
+		t.Errorf("RootTopologyFromResourceSet(data referent fixture) data root = %#v, want %#v", *gotRoot, wantRoot)
+	}
+	if got := result.Topology.ResourceRoots["zpa_data_only"]; got != "zpa_data_only" {
+		t.Errorf("RootTopologyFromResourceSet(data referent fixture) ResourceRoots[%q] = %q, want %q", "zpa_data_only", got, "zpa_data_only")
+	}
+}
+
+func TestChangedPathScopeMapsDataReferentConfigToRoot(t *testing.T) {
+	const changedPath = "config/acme/zpa_data_only.auto.tfvars.json"
+	scope, err := ChangedPathScopeFromResourceSet(ChangedPathScopeOptions{
+		Paths:          []string{changedPath},
+		Workspace:      "/workspace",
+		DeploymentPath: "/workspace/deployment.json",
+		Deployment:     deployment.Deployment{Overlay: "."},
+		ResourceSet:    fixtureResourceSetWithDataReferent(),
+	})
+	if err != nil {
+		t.Fatalf("ChangedPathScopeFromResourceSet(data referent config) error = %v, want nil", err)
+	}
+	wantMatch := ChangedPathMatch{
+		Path: changedPath, Kinds: []ChangedPathKind{ChangedPathKindConfig},
+		Tenants: []string{"acme"}, Resources: []string{"zpa_data_only"}, Roots: []string{"zpa_data_only"},
+	}
+	if !reflect.DeepEqual(scope.PathMatches, []ChangedPathMatch{wantMatch}) {
+		t.Errorf("ChangedPathScopeFromResourceSet(data referent config) PathMatches = %#v, want %#v", scope.PathMatches, []ChangedPathMatch{wantMatch})
+	}
+	wantRoot := AffectedRoot{
+		Label: "zpa_data_only", Provider: strPtr("zpa"), Members: []string{"zpa_data_only"},
+		MatchedResources: []string{"zpa_data_only"}, Paths: []string{changedPath},
+	}
+	if !reflect.DeepEqual(scope.AffectedRoots, []AffectedRoot{wantRoot}) {
+		t.Errorf("ChangedPathScopeFromResourceSet(data referent config) AffectedRoots = %#v, want %#v", scope.AffectedRoots, []AffectedRoot{wantRoot})
+	}
+}
+
+func TestPlanRootsDiscoversDataReferentRoot(t *testing.T) {
+	workspace := t.TempDir()
+	dataRootPath := filepath.Join(workspace, "envs/acme/zpa_data_only")
+	mustMkdirAll(t, dataRootPath)
+	mustWriteFile(t, filepath.Join(dataRootPath, "tfplan"), "data-only-plan")
+
+	result, err := PlanRootsFromResourceSet(PlanRootsOptions{
+		Workspace:   workspace,
+		Deployment:  deployment.Deployment{Overlay: "."},
+		ResourceSet: fixtureResourceSetWithDataReferent(),
+		Selectors:   []string{},
+	})
+	if err != nil {
+		t.Fatalf("PlanRootsFromResourceSet(data referent fixture) error = %v, want nil", err)
+	}
+	if len(result.Result.Roots) != 1 {
+		t.Fatalf("PlanRootsFromResourceSet(data referent fixture) roots = %#v, want one discovered data root", result.Result.Roots)
+	}
+	got := result.Result.Roots[0]
+	if got.Tenant != "acme" || got.Label != "zpa_data_only" {
+		t.Errorf("PlanRootsFromResourceSet(data referent fixture) root identity = %#v, want tenant acme / label zpa_data_only", got)
+	}
+	if !reflect.DeepEqual(got.Members, []string{"zpa_data_only"}) {
+		t.Errorf("PlanRootsFromResourceSet(data referent fixture) Members = %#v, want %#v", got.Members, []string{"zpa_data_only"})
+	}
+	if got.ArtifactState != ArtifactStateIncomplete {
+		t.Errorf("PlanRootsFromResourceSet(data referent fixture) ArtifactState = %q, want %q for tfplan without sources", got.ArtifactState, ArtifactStateIncomplete)
+	}
+	if !got.Artifacts.Tfplan.Exists || got.Artifacts.TfplanSources.Exists {
+		t.Errorf("PlanRootsFromResourceSet(data referent fixture) Artifacts = %#v, want tfplan present and sources absent", got.Artifacts)
 	}
 }
 

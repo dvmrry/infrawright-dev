@@ -34,12 +34,21 @@ func writeSyntheticTopologyPack(
 	manifest metadata.JsonObject,
 	registry metadata.JsonObject,
 	resourceSchemas metadata.JsonObject,
+	dataSourceSchemas ...metadata.JsonObject,
 ) {
 	t.Helper()
+	dataSources := metadata.JsonObject{}
+	if len(dataSourceSchemas) > 1 {
+		t.Fatalf("writeSyntheticTopologyPack(%q) received %d data_source_schemas values, want at most one", name, len(dataSourceSchemas))
+	}
+	if len(dataSourceSchemas) == 1 && dataSourceSchemas[0] != nil {
+		dataSources = dataSourceSchemas[0]
+	}
 	writeJSONFile(t, filepath.Join(root, name, "pack.json"), manifest)
 	writeJSONFile(t, filepath.Join(root, name, "registry.json"), registry)
 	writeJSONFile(t, filepath.Join(root, name, "schemas", "provider", name+".json"), metadata.JsonObject{
-		"resource_schemas": resourceSchemas,
+		"resource_schemas":    resourceSchemas,
+		"data_source_schemas": dataSources,
 	})
 }
 
@@ -69,6 +78,11 @@ func syntheticRootForTopology(t *testing.T) metadata.LoadedPackRoot {
 	return syntheticRootWithZpaReferences(t, defaultSyntheticZpaReferences())
 }
 
+func syntheticRootWithDataReferent(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	return syntheticRootWithZpaReferencesAndDataReferent(t, defaultSyntheticZpaReferences(), true)
+}
+
 // syntheticRootWithZpaReferences is syntheticRootForTopology with the zpa
 // pack's `references` block supplied by the caller, so a test can express a
 // pack VERSION that no longer declares an edge an older transform already
@@ -76,7 +90,13 @@ func syntheticRootForTopology(t *testing.T) metadata.LoadedPackRoot {
 // dropped-edge orphan gate exists to catch.
 func syntheticRootWithZpaReferences(t *testing.T, zpaReferences metadata.JsonObject) metadata.LoadedPackRoot {
 	t.Helper()
+	return syntheticRootWithZpaReferencesAndDataReferent(t, zpaReferences, false)
+}
+
+func syntheticRootWithZpaReferencesAndDataReferent(t *testing.T, zpaReferences metadata.JsonObject, withDataReferent bool) metadata.LoadedPackRoot {
+	t.Helper()
 	packsRoot := t.TempDir()
+	const dataReferentType = "zia_location_groups"
 
 	optionalString := func() metadata.JsonObject { return terraformTestAttribute("string", "optional") }
 	optionalBool := func() metadata.JsonObject { return terraformTestAttribute("bool", "optional") }
@@ -150,16 +170,42 @@ func syntheticRootWithZpaReferences(t *testing.T, zpaReferences metadata.JsonObj
 	for resourceType := range ziaSchemas {
 		ziaRegistry[resourceType] = metadata.JsonObject{"generate": true, "product": "zia"}
 	}
+	ziaDataSourceSchemas := metadata.JsonObject{}
+	if withDataReferent {
+		ziaRegistry[dataReferentType] = metadata.JsonObject{
+			"data_referent": true,
+			"fetch":         metadata.JsonObject{"pagination": "zia", "path": "locations/groups"},
+			"product":       "zia",
+		}
+		ziaDataSourceSchemas[dataReferentType] = terraformTestBlock(metadata.JsonObject{
+			"id":   terraformTestAttribute("number", "computed"),
+			"name": optionalString(),
+		})
+		ziaRuleBlock := ziaSchemas["zia_url_filtering_rules"].(metadata.JsonObject)["block"].(metadata.JsonObject)
+		ziaRuleBlock["block_types"].(metadata.JsonObject)["location_groups"] = terraformTestListBlock(metadata.JsonObject{
+			"id": terraformTestAttribute([]any{"set", "number"}, "required"),
+		})
+	}
+	ziaReferences := metadata.JsonObject{
+		"zia_url_filtering_rules": metadata.JsonObject{
+			"url_categories": metadata.JsonObject{"name_field": "configured_name", "referent": "zia_url_categories"},
+		},
+	}
+	if withDataReferent {
+		ziaReferences["zia_url_filtering_rules"].(metadata.JsonObject)["location_groups.id"] = metadata.JsonObject{
+			"name_field": "name",
+			"referent":   dataReferentType,
+		}
+		ziaReferences[dataReferentType] = metadata.JsonObject{
+			"name": metadata.JsonObject{"name_field": "configured_name", "referent": "zia_url_categories"},
+		}
+	}
 	writeSyntheticTopologyPack(t, packsRoot, "zia", metadata.JsonObject{
 		"pin":               "1.0.0",
 		"provider_prefixes": metadata.JsonObject{"zia_": "zia"},
 		"provider_sources":  metadata.JsonObject{"zia": "zscaler/zia"},
-		"references": metadata.JsonObject{
-			"zia_url_filtering_rules": metadata.JsonObject{
-				"url_categories": metadata.JsonObject{"name_field": "configured_name", "referent": "zia_url_categories"},
-			},
-		},
-	}, ziaRegistry, ziaSchemas)
+		"references":        ziaReferences,
+	}, ziaRegistry, ziaSchemas, ziaDataSourceSchemas)
 
 	zccSchemas := metadata.JsonObject{
 		"zcc_failopen_policy": terraformTestBlock(metadata.JsonObject{"id": computedString(), "name": optionalString()}),
