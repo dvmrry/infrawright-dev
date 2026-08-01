@@ -89,3 +89,47 @@ only — `expression_bindings.go` (conflict gate), `state_aware_test.go`
 conflict cases), `set_block_render_derivation_test.go` (two-member
 golden), and the comment/doc-seam edits in `transform_artifacts.go` /
 `environment_generator.go`.
+
+---
+
+# Recheck 1 verdict and Builder Response 2
+
+Recheck verdict: Request changes — one blocker: the all-pairs overlap
+preflight ran before individual target validation, changing promised
+validation error messages and ordering (an earlier binding's
+missing-target-leaf refusal was displaced by a later pair's overlap;
+even a standalone overlap reported the new conflict message instead of
+the mutating walk's shape-specific one). The recheck confirmed both
+original blockers genuinely closed.
+
+## Response (commit 8c8f55c)
+
+- Finding: accepted.
+- Root cause: the preflight loop evaluated all pairs before any
+  per-target walk, inverting first-failing-binding-wins ordering.
+- Fix: overlap detection moved inside the sequential walk (per binding,
+  against its predecessors, before that binding's own walk). This
+  matches the mutating walk's precedence for the ancestor-first
+  direction exactly: the sentinel collision always fired at
+  ancestor-leaf depth during the descendant's in-order walk, before any
+  deeper error of its own.
+- Regression tests: the earlier-target-error-beats-later-overlap case
+  (the reviewer's `aaa` shape) and the reverse
+  (earlier-overlap-beats-later-target-error), both in
+  TestBindingPathValidationRejectsUnknownMissingConflicts.
+- Verification: the preflight shape was re-applied as a mutation and
+  fails the new precedence case; reverted, the full suite passes.
+
+## Contract deltas awaiting explicit maintainer approval
+
+Two deliberate divergences from the mutating walk remain (documented on
+validateExpressionBindingTargets); both are refusals of the same
+malformed evidence, differing in message or direction only:
+
+1. Message: a standalone overlap reports "conflicting expression binding
+   X overlaps Y" instead of the mutation artifact the sentinel happened
+   to produce ("indexes a non-list value" / "missing parent path").
+2. Direction-independence: the mutating walk refused only when the
+   ancestor was applied before the descendant in merged order, and
+   silently accepted the descendant-first order; the gate now refuses
+   both orders.
