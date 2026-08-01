@@ -105,7 +105,15 @@ root topology as an ordinary singleton root with its own state.
 
 - Applying the data root snapshots the tenant's groups into its state;
   referrers resolve through that snapshot with committed-lookup
-  fallback (existing state-aware machinery, unchanged).
+  fallback.
+- Amendment (Task 5 review round): the "unchanged state-aware
+  machinery" claim was incomplete for tokenized roots — a missing
+  data-root state fails the terraform_remote_state read before any
+  try() evaluates, and tokenized roots skip probing. Ruling: a
+  state-aware run probes DATA referents even when tokens are present;
+  on unusable state the emitted root is plan-safe (no remote-state
+  data block for that referent; lookup-only resolver). State-blind
+  rendering and generated-referent behavior are unchanged.
 - Applying a data root is safe by construction: its plan can never
   create or destroy anything; it can only refresh the snapshot.
 - `terraform plan` on the data root is the drift detector for

@@ -751,7 +751,9 @@ func referenceAssessmentPlan(action string) map[string]any {
 }
 
 func referenceContract() *AssessmentPlanContract {
-	return &AssessmentPlanContract{ReferenceOutputTypes: []string{"zpa_segment_group"}}
+	return &AssessmentPlanContract{ReferenceOutputTypes: []ReferenceOutputType{{
+		Type: "zpa_segment_group", Kind: ReferenceOutputKindManaged,
+	}}}
 }
 
 func TestValidateAssessmentPlanAuthorizesBoundReferenceOutput(t *testing.T) {
@@ -784,14 +786,26 @@ func TestValidateAssessmentPlanRejectsInvalidReferenceContractAndEvidence(t *tes
 		want     string
 	}{
 		{
-			name:     "duplicate_types",
-			contract: &AssessmentPlanContract{ReferenceOutputTypes: []string{"zpa_segment_group", "zpa_segment_group"}},
-			want:     "reference output contract must contain unique Terraform resource types",
+			name: "duplicate_types",
+			contract: &AssessmentPlanContract{ReferenceOutputTypes: []ReferenceOutputType{
+				{Type: "zpa_segment_group", Kind: ReferenceOutputKindManaged},
+				{Type: "zpa_segment_group", Kind: ReferenceOutputKindManaged},
+			}},
+			want: "reference output contract must contain unique Terraform resource types",
 		},
 		{
-			name:     "malformed_type",
-			contract: &AssessmentPlanContract{ReferenceOutputTypes: []string{"bad-type"}},
-			want:     "reference output contract must contain unique Terraform resource types",
+			name: "malformed_type",
+			contract: &AssessmentPlanContract{ReferenceOutputTypes: []ReferenceOutputType{{
+				Type: "bad-type", Kind: ReferenceOutputKindManaged,
+			}}},
+			want: "reference output contract must contain unique Terraform resource types",
+		},
+		{
+			name: "missing_evidence_kind",
+			contract: &AssessmentPlanContract{ReferenceOutputTypes: []ReferenceOutputType{{
+				Type: "zpa_segment_group",
+			}}},
+			want: "reference output contract must declare a managed or data evidence kind",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -961,7 +975,7 @@ func TestValidateAssessmentPlanEmptyReferenceRequiresConfigurationAuthority(t *t
 func TestValidateAssessmentPlanDoesNotMutateContractOrPlan(t *testing.T) {
 	plan := referenceAssessmentPlan("create")
 	contract := referenceContract()
-	beforeTypes := append([]string(nil), contract.ReferenceOutputTypes...)
+	beforeTypes := append([]ReferenceOutputType(nil), contract.ReferenceOutputTypes...)
 	beforePlan := cloneAssessmentValue(plan)
 	requireValidAssessmentPlan(
 		t,

@@ -712,6 +712,65 @@ func TestPlanEnvironmentRootsImportsOnlySkipsDerivedRoot(t *testing.T) {
 	}
 }
 
+// TestPlanEnvironmentRootsDataReferentImportsOnlyPlansOnce is the group (c)
+// acceptance. A data-only root has no derive declaration and no imports
+// artifact, but it is still a real root: imports-only planning must initialize
+// and plan it once, and saved-plan artifacts must be the ordinary pair.
+func TestPlanEnvironmentRootsDataReferentImportsOnlyPlansOnce(t *testing.T) {
+	const resourceType = "zia_location_groups"
+	workspace := t.TempDir()
+	directory := writeLifecycleRoot(t, workspace, "tenant", resourceType, []string{resourceType}, nil, false)
+	config := lifecycleTestConfigPath(workspace, "tenant", resourceType, ".auto.tfvars.json")
+	writeLifecycleText(t, config, `{"items":{}}`+"\n")
+	root := lifecycleTestRoot(map[string]metadata.JsonObject{
+		resourceType: {
+			"data_referent": true,
+			"fetch":         metadata.JsonObject{"pagination": "zia", "path": "locations/groups"},
+			"product":       "zia",
+		},
+	})
+	fake := &lifecycleFakeTerraform{}
+	result, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
+		Deployment:  lifecycleTestDeployment(),
+		ImportsOnly: true,
+		Root:        root,
+		Save:        true,
+		Selectors:   []string{},
+		Tenant:      "tenant",
+		Terraform:   fake,
+		Workspace:   workspace,
+	})
+	if err != nil {
+		t.Fatalf("PlanEnvironmentRoots(data referent, imports-only) error = %v, want nil", err)
+	}
+	if result.Planned != 1 {
+		t.Errorf("PlanEnvironmentRoots(data referent, imports-only).Planned = %d, want 1", result.Planned)
+	}
+	if len(fake.initialized) != 1 {
+		t.Errorf("Initialize calls for data referent = %d, want 1", len(fake.initialized))
+	}
+	if len(fake.planned) != 1 {
+		t.Errorf("Plan calls for data referent = %d, want 1", len(fake.planned))
+	}
+	if len(fake.planned) == 1 && !reflect.DeepEqual(fake.planned[0].VarFiles, []string{config}) {
+		t.Errorf("Plan(data referent).VarFiles = %#v, want [%q] and no imports file", fake.planned[0].VarFiles, config)
+	}
+	importsPath := filepath.Join(workspace, "imports", "tenant", resourceType+"_imports.tf")
+	if _, statErr := os.Stat(importsPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%s) error = %v, want os.ErrNotExist", importsPath, statErr)
+	}
+	if got, readErr := os.ReadFile(filepath.Join(directory, "tfplan")); readErr != nil || string(got) != "opaque-plan" {
+		t.Errorf("tfplan = (%q, %v), want opaque-plan", got, readErr)
+	}
+	sources, readErr := os.ReadFile(filepath.Join(directory, "tfplan.sources"))
+	if readErr != nil {
+		t.Fatalf("ReadFile(tfplan.sources) error = %v, want saved-plan fingerprint", readErr)
+	}
+	if len(sources) == 0 {
+		t.Error("tfplan.sources is empty, want saved-plan fingerprint")
+	}
+}
+
 func TestPlanEnvironmentRootsNonSavePreservesSeededPair(t *testing.T) {
 	workspace := t.TempDir()
 	directory := writeLifecycleRoot(t, workspace, "tenant", lifecycleTestResource, []string{lifecycleTestResource}, nil, false)

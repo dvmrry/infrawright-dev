@@ -437,7 +437,7 @@ func exactApplyContract(root SavedPlanAssessmentRootInput) *plan.AssessmentPlanC
 		return nil
 	}
 	return &plan.AssessmentPlanContract{
-		ReferenceOutputTypes: append([]string(nil), root.ReferenceOutputTypes...),
+		ReferenceOutputTypes: append([]plan.ReferenceOutputType(nil), root.ReferenceOutputTypes...),
 	}
 }
 

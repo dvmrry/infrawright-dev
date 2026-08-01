@@ -5,6 +5,7 @@ package assessment
 // saved-plan assessment and rechecks that root selection has not changed.
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -12,6 +13,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/envgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/plan"
 	"github.com/dvmrry/infrawright-dev/go/internal/posixpath"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
@@ -81,7 +83,7 @@ type SavedPlanAssessmentRootInput struct {
 	SavedPlanPath        string
 	FingerprintPath      string
 	VarFiles             []string
-	ReferenceOutputTypes []string
+	ReferenceOutputTypes []plan.ReferenceOutputType
 }
 
 // SavedPlanAssessmentOptions is the materialized subset of assessment inputs
@@ -301,6 +303,25 @@ func sameStringSequence(left, right []string) bool {
 	return true
 }
 
+func cloneReferenceOutputTypes(values []plan.ReferenceOutputType) []plan.ReferenceOutputType {
+	if values == nil {
+		return nil
+	}
+	return append([]plan.ReferenceOutputType{}, values...)
+}
+
+func sameReferenceOutputTypes(left, right []plan.ReferenceOutputType) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func sameAssessmentRoots(left, right []SavedPlanAssessmentRootInput) bool {
 	if len(left) != len(right) {
 		return false
@@ -314,7 +335,7 @@ func sameAssessmentRoots(left, right []SavedPlanAssessmentRootInput) bool {
 			root.SavedPlanPath != other.SavedPlanPath ||
 			root.FingerprintPath != other.FingerprintPath ||
 			!sameStringSequence(root.VarFiles, other.VarFiles) ||
-			!sameStringSequence(root.ReferenceOutputTypes, other.ReferenceOutputTypes) {
+			!sameReferenceOutputTypes(root.ReferenceOutputTypes, other.ReferenceOutputTypes) {
 			return false
 		}
 	}
@@ -419,7 +440,26 @@ func MaterializeLoadedSavedPlanAssessmentRoots(
 			for outputType := range outputTypes {
 				keys = append(keys, outputType)
 			}
-			rootInput.ReferenceOutputTypes = canonjson.SortedStrings(keys)
+			for _, resourceType := range canonjson.SortedStrings(keys) {
+				resource, ok := context.Root.Resources[resourceType]
+				if !ok {
+					return nil, nil, fmt.Errorf("reference output type %s is missing from loaded resource metadata", resourceType)
+				}
+				kind := plan.ReferenceOutputKindManaged
+				if rawDataReferent, present := resource.Registry["data_referent"]; present {
+					dataReferent, ok := rawDataReferent.(bool)
+					if !ok {
+						return nil, nil, fmt.Errorf("reference output type %s has non-boolean loaded data_referent metadata", resourceType)
+					}
+					if dataReferent {
+						kind = plan.ReferenceOutputKindData
+					}
+				}
+				rootInput.ReferenceOutputTypes = append(rootInput.ReferenceOutputTypes, plan.ReferenceOutputType{
+					Type: resourceType,
+					Kind: kind,
+				})
+			}
 		}
 		result = append(result, rootInput)
 	}

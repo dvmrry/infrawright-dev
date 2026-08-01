@@ -213,6 +213,13 @@ func cloneOptionalStrings(values []string) []string {
 	return append([]string{}, values...)
 }
 
+func cloneOptionalReferenceOutputTypes(values []plan.ReferenceOutputType) []plan.ReferenceOutputType {
+	if values == nil {
+		return nil
+	}
+	return append([]plan.ReferenceOutputType{}, values...)
+}
+
 func cloneAssessmentRoots(values []SavedPlanAssessmentRootInput) []SavedPlanAssessmentRootInput {
 	result := make([]SavedPlanAssessmentRootInput, len(values))
 	for index, root := range values {
@@ -224,7 +231,7 @@ func cloneAssessmentRoots(values []SavedPlanAssessmentRootInput) []SavedPlanAsse
 			SavedPlanPath:        root.SavedPlanPath,
 			FingerprintPath:      root.FingerprintPath,
 			VarFiles:             append([]string{}, root.VarFiles...),
-			ReferenceOutputTypes: cloneOptionalStrings(root.ReferenceOutputTypes),
+			ReferenceOutputTypes: cloneOptionalReferenceOutputTypes(root.ReferenceOutputTypes),
 		}
 	}
 	sort.SliceStable(result, func(left, right int) bool {
@@ -310,6 +317,20 @@ func uniqueStrings(values []string) bool {
 	return true
 }
 
+func uniqueReferenceOutputTypes(values []plan.ReferenceOutputType) bool {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value.Kind != plan.ReferenceOutputKindManaged && value.Kind != plan.ReferenceOutputKindData {
+			return false
+		}
+		if _, exists := seen[value.Type]; exists {
+			return false
+		}
+		seen[value.Type] = struct{}{}
+	}
+	return true
+}
+
 func validateAssessmentRoots(roots []SavedPlanAssessmentRootInput) error {
 	if len(roots) > MaxSavedPlanAssessmentRoots {
 		return assessmentDomainFailure(
@@ -338,15 +359,15 @@ func validateAssessmentRoots(roots []SavedPlanAssessmentRootInput) error {
 		}
 		if root.ReferenceOutputTypes != nil {
 			valid = valid && len(root.ReferenceOutputTypes) > 0 &&
-				uniqueStrings(root.ReferenceOutputTypes)
+				uniqueReferenceOutputTypes(root.ReferenceOutputTypes)
 			memberSet := make(map[string]struct{}, len(root.Members))
 			for _, member := range root.Members {
 				memberSet[member] = struct{}{}
 			}
-			for index, resourceType := range root.ReferenceOutputTypes {
-				_, member := memberSet[resourceType]
-				valid = valid && member && assessmentResourceTypePattern.MatchString(resourceType)
-				if index > 0 && canonjson.ComparePythonStrings(root.ReferenceOutputTypes[index-1], resourceType) >= 0 {
+			for index, outputType := range root.ReferenceOutputTypes {
+				_, member := memberSet[outputType.Type]
+				valid = valid && member && assessmentResourceTypePattern.MatchString(outputType.Type)
+				if index > 0 && canonjson.ComparePythonStrings(root.ReferenceOutputTypes[index-1].Type, outputType.Type) >= 0 {
 					valid = false
 				}
 			}
@@ -1107,7 +1128,7 @@ func runSavedPlanAssessment[T any](
 		contract := (*plan.AssessmentPlanContract)(nil)
 		if root.ReferenceOutputTypes != nil {
 			contract = &plan.AssessmentPlanContract{
-				ReferenceOutputTypes: append([]string{}, root.ReferenceOutputTypes...),
+				ReferenceOutputTypes: append([]plan.ReferenceOutputType{}, root.ReferenceOutputTypes...),
 			}
 		}
 		classification, err := ClassifyPlanWithOptions(

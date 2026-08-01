@@ -519,7 +519,9 @@ func TestApplyExactSavedPlansCleanFlowAndCompleteGate(t *testing.T) {
 
 func TestApplyExactSavedPlansAcceptsDefaultCrossStateReferenceOutput(t *testing.T) {
 	fixture := newExactApplyFixture(t, "zpa_segment_group")
-	wantOutputs := []string{"zpa_segment_group"}
+	wantOutputs := []plan.ReferenceOutputType{{
+		Type: "zpa_segment_group", Kind: plan.ReferenceOutputKindManaged,
+	}}
 	if got := fixture.roots[0].ReferenceOutputTypes; !reflect.DeepEqual(got, wantOutputs) {
 		t.Fatalf(
 			"MaterializeLoadedSavedPlanAssessmentRoots(default ZPA).ReferenceOutputTypes = %#v, want %#v",

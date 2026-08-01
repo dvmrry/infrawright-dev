@@ -1,8 +1,10 @@
 package plan
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -35,11 +37,28 @@ type AssessmentPlanError struct {
 // Error implements error.
 func (e *AssessmentPlanError) Error() string { return e.message }
 
+// ReferenceOutputKind binds a contracted reference-output type to the
+// Terraform resource mode that is authorized to prove its IDs.
+type ReferenceOutputKind string
+
+const (
+	ReferenceOutputKindManaged ReferenceOutputKind = "managed"
+	ReferenceOutputKindData    ReferenceOutputKind = "data"
+)
+
+// ReferenceOutputType is one kinded reference-output contract entry. Keeping
+// the kind beside the type makes every validated assessment input declare
+// which Terraform shape may authorize it; a missing zero kind is rejected.
+type ReferenceOutputType struct {
+	Type string
+	Kind ReferenceOutputKind
+}
+
 // AssessmentPlanContract ports AssessmentPlanContract from
 // the original implementation. ReferenceOutputTypes is not retained or
 // mutated by ValidateAssessmentPlan.
 type AssessmentPlanContract struct {
-	ReferenceOutputTypes []string
+	ReferenceOutputTypes []ReferenceOutputType
 }
 
 func assessmentFail(message string) {
@@ -263,15 +282,18 @@ func validateEmptyArray(plan map[string]any, field string) {
 
 func referenceOutputValue(
 	plan map[string]any,
-	resourceTypes []string,
+	resourceTypes []ReferenceOutputType,
 ) map[string]any {
 	seenTypes := make(map[string]struct{}, len(resourceTypes))
-	for _, resourceType := range resourceTypes {
-		if _, duplicate := seenTypes[resourceType]; duplicate ||
-			!assessmentResourceType.MatchString(resourceType) {
+	for _, outputType := range resourceTypes {
+		if _, duplicate := seenTypes[outputType.Type]; duplicate ||
+			!assessmentResourceType.MatchString(outputType.Type) {
 			assessmentFail("reference output contract must contain unique Terraform resource types")
 		}
-		seenTypes[resourceType] = struct{}{}
+		if outputType.Kind != ReferenceOutputKindManaged && outputType.Kind != ReferenceOutputKindData {
+			assessmentFail("reference output contract must declare a managed or data evidence kind")
+		}
+		seenTypes[outputType.Type] = struct{}{}
 	}
 	if len(resourceTypes) == 0 {
 		assessmentFail("reference output contract must contain unique Terraform resource types")
@@ -294,7 +316,8 @@ func referenceOutputValue(
 	}
 
 	expected := make(map[string]any, len(resourceTypes))
-	for _, resourceType := range resourceTypes {
+	for _, outputType := range resourceTypes {
+		resourceType := outputType.Type
 		address := "module." + resourceType
 		ids := make(map[string]any)
 		matches := make([]map[string]any, 0, 1)
@@ -322,16 +345,48 @@ func referenceOutputValue(
 				if !resourceOK {
 					assessmentFailf("%s.resources entries must be objects", address)
 				}
-				if resource["mode"] != "managed" || resource["type"] != resourceType {
+				if resource["type"] != resourceType {
 					continue
+				}
+				mode := resource["mode"]
+				if mode != string(outputType.Kind) {
+					assessmentFailf("%s contains a reference-output resource instance with unauthorized mode", address)
 				}
 				resourceAddress, addressOK := resource["address"].(string)
 				index, indexOK := resource["index"].(string)
 				values, valuesOK := assessmentObject(resource["values"])
-				id, idOK := values["id"].(string)
-				if !addressOK || !strings.HasPrefix(resourceAddress, address+"."+resourceType+".this[") ||
-					!indexOK || !valuesOK || !idOK {
+				if !addressOK || !indexOK || !valuesOK {
 					assessmentFailf("%s contains an invalid reference-output resource instance", address)
+				}
+				var id any
+				switch outputType.Kind {
+				case ReferenceOutputKindManaged:
+					if !strings.HasPrefix(resourceAddress, address+"."+resourceType+".this[") {
+						assessmentFailf("%s contains an invalid reference-output resource instance", address)
+					}
+					var idOK bool
+					id, idOK = values["id"].(string)
+					if !idOK {
+						assessmentFailf("%s contains an invalid reference-output resource instance", address)
+					}
+				case ReferenceOutputKindData:
+					if resource["name"] != "items" {
+						assessmentFailf("%s contains an invalid reference-output resource instance", address)
+					}
+					expectedAddress := address + ".data." + resourceType + ".items[" + strconv.Quote(index) + "]"
+					if resourceAddress != expectedAddress {
+						assessmentFailf("%s contains an invalid reference-output resource instance", address)
+					}
+					var idOK bool
+					id, idOK = values["id"]
+					if !idOK {
+						assessmentFailf("%s contains an invalid reference-output resource instance", address)
+					}
+					switch id.(type) {
+					case string, json.Number:
+					default:
+						assessmentFailf("%s contains an invalid reference-output resource instance", address)
+					}
 				}
 				if _, duplicate := ids[index]; duplicate {
 					assessmentFailf("%s contains a duplicate reference-output key", address)
@@ -340,7 +395,7 @@ func referenceOutputValue(
 			}
 		}
 		if len(ids) == 0 {
-			validateEmptyReferenceModule(plan, resourceType)
+			validateEmptyReferenceModule(plan, resourceType, outputType.Kind)
 		}
 		expected[resourceType] = ids
 	}
@@ -361,7 +416,7 @@ func referenceOutputValue(
 	return expected
 }
 
-func validateEmptyReferenceModule(plan map[string]any, resourceType string) {
+func validateEmptyReferenceModule(plan map[string]any, resourceType string, expectedKind ReferenceOutputKind) {
 	configuration, ok := assessmentObject(plan["configuration"])
 	if !ok {
 		assessmentFail("empty reference output authorization requires root-module configuration")
@@ -387,25 +442,38 @@ func validateEmptyReferenceModule(plan map[string]any, resourceType string) {
 		assessmentFailf("empty reference output authorization requires module.%s resources", resourceType)
 	}
 	matches := 0
+	oppositeMatches := 0
 	for _, rawResource := range resources {
 		resource, resourceOK := assessmentObject(rawResource)
-		if resourceOK &&
-			resource["address"] == resourceType+".this" &&
-			resource["mode"] == "managed" &&
-			resource["type"] == resourceType &&
-			resource["name"] == "this" {
+		if !resourceOK || resource["type"] != resourceType {
+			continue
+		}
+		managedMatch := resource["mode"] == string(ReferenceOutputKindManaged) &&
+			resource["address"] == resourceType+".this" && resource["name"] == "this"
+		dataMatch := resource["mode"] == string(ReferenceOutputKindData) &&
+			resource["address"] == "data."+resourceType+".items" && resource["name"] == "items"
+		if expectedKind == ReferenceOutputKindManaged && managedMatch ||
+			expectedKind == ReferenceOutputKindData && dataMatch {
 			matches++
 		}
+		if expectedKind == ReferenceOutputKindManaged && dataMatch ||
+			expectedKind == ReferenceOutputKindData && managedMatch {
+			oppositeMatches++
+		}
 	}
-	if matches != 1 {
-		assessmentFailf("empty reference output authorization requires %s.this configuration", resourceType)
+	if matches != 1 || oppositeMatches != 0 {
+		expectedAddress := resourceType + ".this"
+		if expectedKind == ReferenceOutputKindData {
+			expectedAddress = "data." + resourceType + ".items"
+		}
+		assessmentFailf("empty reference output authorization requires %s configuration", expectedAddress)
 	}
 }
 
 func validateReferenceOutputChange(
 	change map[string]any,
 	plan map[string]any,
-	resourceTypes []string,
+	resourceTypes []ReferenceOutputType,
 ) {
 	expected := referenceOutputValue(plan, resourceTypes)
 	actions, ok := change["actions"].([]any)
@@ -450,7 +518,7 @@ func validateReferenceOutputChange(
 }
 
 func validateOutputChanges(plan map[string]any, contract *AssessmentPlanContract) {
-	var resourceTypes []string
+	var resourceTypes []ReferenceOutputType
 	if contract != nil {
 		resourceTypes = contract.ReferenceOutputTypes
 	}
