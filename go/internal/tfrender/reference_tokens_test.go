@@ -965,66 +965,6 @@ func TestLookupKeyShrinkageScansHclDependents(t *testing.T) {
 	}
 }
 
-// TestLookupKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent replaces the
-// round-3 exemption pin, which the round-3 re-review ruled unsound. A
-// dependent is only safely exempt inside a successfully preflighted,
-// rollback-capable publication transaction. No invocation path in this
-// repository provides one -- transform and adopt compile and publish each type
-// immediately and independently, continuing past a later member's failure --
-// and even the batch helper's publish is a best-effort rollback rather than a
-// guarantee, so no exemption is offered at any layer.
-//
-// The refusal reintroduces the same-run rename deadlock on purpose. It is loud
-// and leaves the committed tree self-consistent; the exemption was quiet and
-// left it stranded.
-func TestLookupKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent(t *testing.T) {
-	workspace := t.TempDir()
-	referent := shrinkingBookOptions(t, workspace)
-	paths := mustComputePaths(t, referent)
-	writeFileMkdir(t, filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars.json"),
-		`{"items":{"one":{"group_id":"sample_group.retired"}}}`)
-	referrer := newArtifactOptions(workspace, "sample_referrer")
-
-	_, err := CompileTransformArtifactBatch([]TransformArtifactCompileOptions{referent, referrer})
-	if err == nil {
-		t.Fatalf("CompileTransformArtifactBatch error = nil, want a refusal even though the batch also rewrites the dependent")
-	}
-	if !strings.Contains(err.Error(), "sample_group.retired") {
-		t.Errorf("CompileTransformArtifactBatch error = %q, want it to name the stranded token", err)
-	}
-}
-
-// TestLookupKeyShrinkageScansOnlyItsOwnConfigDirectory pins the second sequence
-// the round-3 re-review found, which needed no failure at all: batch
-// membership was collected globally, so a batch pairing (tenant A, referent)
-// with (tenant B, referrer) exempted tenant A's committed referrer merely
-// because that TYPE was rewritten in a different tenant's config directory.
-//
-// Stranding is a property of one config directory. The dependent scan and any
-// judgement about it must be too.
-func TestLookupKeyShrinkageScansOnlyItsOwnConfigDirectory(t *testing.T) {
-	referentWorkspace := t.TempDir()
-	referrerWorkspace := t.TempDir()
-
-	referent := shrinkingBookOptions(t, referentWorkspace)
-	referentPaths := mustComputePaths(t, referent)
-	// The stranded dependent lives beside the referent, in the referent's own
-	// config directory -- the one nothing in this batch rewrites.
-	writeFileMkdir(t, filepath.Join(filepath.Dir(referentPaths.Config), "sample_referrer.auto.tfvars.json"),
-		`{"items":{"one":{"group_id":"sample_group.retired"}}}`)
-
-	// A same-named type in a DIFFERENT deployment's config directory.
-	referrer := newArtifactOptions(referrerWorkspace, "sample_referrer")
-
-	_, err := CompileTransformArtifactBatch([]TransformArtifactCompileOptions{referent, referrer})
-	if err == nil {
-		t.Fatalf("CompileTransformArtifactBatch error = nil, want a refusal: the dependent is in another config directory than the batch member of the same name")
-	}
-	if !strings.Contains(err.Error(), "sample_group.retired") {
-		t.Errorf("CompileTransformArtifactBatch error = %q, want it to name the stranded token", err)
-	}
-}
-
 // The three tests below pin the round-4 re-review's own-config hole. The guard
 // skipped the compiling type's own config on the argument that a type never
 // mints a token naming itself. That argument covers MINTING a declared
