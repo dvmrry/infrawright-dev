@@ -39,7 +39,9 @@ package envgen
 //     tfrender.RenderHclQuotedString
 //   - LoadedPackRoot/LoadedResourceMetadata -> metadata.LoadedPackRoot/
 //     metadata.LoadedResourceMetadata
-//   - applyExpressionBindings/expressionModuleTargets/
+//   - applyExpressionBindings (its validation half; the transformed-items
+//     result is not ported -- see ValidateExpressionBindingTargets)/
+//     expressionModuleTargets/
 //     expressionRemoteStateReferences/loadExpressionBindings/
 //     mergeExpressionBindingLayers/renderExpressionBindingsHcl/
 //     validateExpressionBindingSchemaPaths -> this package's own

@@ -2,9 +2,10 @@ package tfrender
 
 // transform_artifacts.go ports the original implementation:
 // artifact assembly (tfvars in json/hcl format, imports files, lookup
-// sidecars, generated-bindings sidecars) and the transactional filesystem
-// write path (legacy single-artifact publish plus the batch
-// preflight/publish/rollback machinery). Vectors: the pure-library subset of
+// sidecars) and the sequential single-artifact filesystem write path. The
+// Node source's transactional batch preflight/publish/rollback machinery is
+// not ported: it had no production callers (transform and adopt compile and
+// publish each type sequentially). Vectors: the pure-library subset of
 // the original test corpus, ported in
 // transform_artifacts_test.go -- see that file's doc comment for exactly
 // which of that source's tests are ported here versus skipped as
@@ -212,6 +213,11 @@ type TransformLookupData struct {
 // separate presence flag is threaded alongside it (unlike the TS source's
 // `options.lookupOverrides !== undefined && own(...)` two-part guard,
 // whose two conditions collapse to one Go map access).
+//
+// With the batch compiler (its only production writer) removed,
+// LookupOverrides is a deliberate test seam: tests populate it to compile
+// against injected lookup data without writing sidecars to disk. Production
+// callers leave it nil and resolve lookups from the config directory.
 type TransformArtifactCompileOptions struct {
 	BindingContext         BindingContext
 	Deployment             deployment.Deployment
@@ -1730,9 +1736,9 @@ func tokenKeyDependents(
 // publication transaction, and this repository has no such invocation path:
 // the transform and adopt runners compile and publish each type immediately
 // and independently and continue past a later member that skips or fails
-// (round-3 re-review's deterministic repro), and even the batch helper's
-// rollback is best-effort. A selection-scoped exemption therefore published
-// the new lookup and then simply did not repair the dependent.
+// (round-3 re-review's deterministic repro). A selection-scoped exemption
+// therefore published the new lookup and then simply did not repair the
+// dependent.
 //
 // The compiling type's OWN config is scanned too, on both sides of the write.
 // It was briefly skipped on the argument that a type never mints a token
@@ -2114,10 +2120,9 @@ func lookupKeyMaps(
 
 // LookupKeyMaps exposes lookupKeyMaps to render-time binding derivation
 // (gen-env, once the committed generated-bindings cache became optional).
-// Only the on-disk arm is offered: the override map exists for a compile
-// batch whose members' fresh lookups are authoritative for same-batch
-// references, and no such batch exists at render time -- the renderer reads
-// exactly the lookups that are committed. Keeping this a delegation rather
+// Only the on-disk arm is offered: the override map is a test seam (see
+// TransformArtifactCompileOptions.LookupOverrides), and the renderer must
+// read exactly the lookups that are committed. Keeping this a delegation rather
 // than a second lookup reader is what guarantees the derivation gen-env runs
 // sees byte-identical key maps to the one transform ran, including a
 // referent whose lookup is absent (a nil entry, which the deriver reports as

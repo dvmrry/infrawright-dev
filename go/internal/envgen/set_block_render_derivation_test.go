@@ -87,9 +87,12 @@ func syntheticSetBlockPackRoot(t *testing.T) metadata.LoadedPackRoot {
 
 // setBlockExpectedBindingsTF is the hand-pinned expression_bindings.tf the
 // fixture must render: the lookup-first set-block resolver locals plus the
-// complete-leaf composite expression ("[{ id = [...] }]", the grammar
-// TestCompositeExpressionAllowlist pins) substituted for group_one's whole
-// services value.
+// complete-leaf composite expression ("[{ id = [...] }, { id = [...] }]",
+// the grammar TestCompositeExpressionAllowlist pins) substituted for
+// group_one's whole services value. Two set members on purpose: the ", "
+// member delimiter and member order are part of the pinned bytes, so a
+// join-separator regression in the set-block renderer cannot pass on a
+// single-element fixture.
 const setBlockExpectedBindingsTF = `locals {
   iw_reference_lookup_zia_firewall_filtering_network_service = fileexists("${path.module}/../../../config/tenant/lookups/zia_firewall_filtering_network_service.lookup.json") ? try(jsondecode(file("${path.module}/../../../config/tenant/lookups/zia_firewall_filtering_network_service.lookup.json")).id_by_key, { for id, k in jsondecode(file("${path.module}/../../../config/tenant/lookups/zia_firewall_filtering_network_service.lookup.json")).key_by_id : k => id }) : {}
 }
@@ -100,7 +103,7 @@ const setBlockExpectedBindingsTF = `locals {
 locals {
   iw_expression_bound_items = merge(var.items, {
     "group_one" = merge(var.items["group_one"], {
-          services = [{ id = [try(data.terraform_remote_state.zia_firewall_filtering_network_service.outputs.iw_reference_ids.zia_firewall_filtering_network_service["service_one"], local.iw_reference_lookup_zia_firewall_filtering_network_service["service_one"])] }]
+          services = [{ id = [try(data.terraform_remote_state.zia_firewall_filtering_network_service.outputs.iw_reference_ids.zia_firewall_filtering_network_service["service_one"], local.iw_reference_lookup_zia_firewall_filtering_network_service["service_one"])] }, { id = [try(data.terraform_remote_state.zia_firewall_filtering_network_service.outputs.iw_reference_ids.zia_firewall_filtering_network_service["service_two"], local.iw_reference_lookup_zia_firewall_filtering_network_service["service_two"])] }]
         })
   })
 }
@@ -120,18 +123,22 @@ func TestSetBlockRenderDerivationEmitsCompleteLeafExpression(t *testing.T) {
 
 	config := filepath.Join(workspace, "config", "tenant")
 	writeJSONFile(t, filepath.Join(config, referentType+".auto.tfvars.json"), map[string]any{
-		"items": map[string]any{"service_one": map[string]any{"name": "Service One"}},
+		"items": map[string]any{
+			"service_one": map[string]any{"name": "Service One"},
+			"service_two": map[string]any{"name": "Service Two"},
+		},
 	})
 	writeJSONFile(t, filepath.Join(config, "lookups", referentType+".lookup.json"), map[string]any{
-		"by_id":     map[string]any{"svc-1": "Service One"},
-		"id_by_key": map[string]any{"service_one": "svc-1"},
-		"key_by_id": map[string]any{"svc-1": "service_one"},
+		"by_id":     map[string]any{"svc-1": "Service One", "svc-2": "Service Two"},
+		"id_by_key": map[string]any{"service_one": "svc-1", "service_two": "svc-2"},
+		"key_by_id": map[string]any{"svc-1": "service_one", "svc-2": "service_two"},
 	})
 	writeJSONFile(t, filepath.Join(config, referrerType+".auto.tfvars.json"), map[string]any{
 		"items": map[string]any{"group_one": map[string]any{
 			"name": "IoT Group",
 			"services": []any{
 				map[string]any{"id": []any{referentType + ".service_one"}},
+				map[string]any{"id": []any{referentType + ".service_two"}},
 			},
 		}},
 	})
@@ -151,9 +158,10 @@ func TestSetBlockRenderDerivationEmitsCompleteLeafExpression(t *testing.T) {
 		t.Fatalf("GenerateEnvironmentRoots error = %v, want nil", err)
 	}
 
-	// The derivation accounting proves the run actually derived the binding at
-	// render time (no committed cache exists in this fixture to bridge from).
-	if !containsString(diagnostics, "NOTE bindings: "+referrerType+": 1 bound, 0 skipped") {
+	// The derivation accounting proves the run actually derived the bindings
+	// at render time (no committed cache exists in this fixture to bridge
+	// from); one bound count per set member.
+	if !containsString(diagnostics, "NOTE bindings: "+referrerType+": 2 bound, 0 skipped") {
 		t.Fatalf("diagnostics = %v, want the render-derivation accounting", diagnostics)
 	}
 	derived := snapshotTree(t, filepath.Join(outputRoot, "tenant", referrerType))
