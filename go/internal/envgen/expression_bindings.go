@@ -21,8 +21,8 @@
 // (bindingsError) plus a fail()-style helper, with every exported entry
 // point deferring a recover that converts the panic back into a normal Go
 // error return. This lets the many small, deeply nested validation helpers
-// ported below (parsePath, parseBinding, applyExpressionBindings's tree
-// walk, the schema-cursor traversal) abandon a call from arbitrary depth
+// ported below (parsePath, parseBinding, validateExpressionBindingTargets's
+// tree walk, the schema-cursor traversal) abandon a call from arbitrary depth
 // exactly the way `throw` does in the TS source, without threading an
 // explicit error return through every intermediate call.
 //
@@ -39,7 +39,6 @@
 package envgen
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -126,23 +125,6 @@ type ExpressionBinding struct {
 	Sensitive  bool
 	// Reason is nil for the TS source's `reason: string | null` being null.
 	Reason *string
-}
-
-// HclExpression is the Go analogue of the HclExpression class in
-// the original implementation: a marker value distinguishing an
-// already-validated Terraform expression from an ordinary JSON scalar
-// inside a canonjson.Value tree, used as a *HclExpression sentinel wherever
-// the TS source checks `value instanceof HclExpression`.
-type HclExpression struct {
-	Expression string
-}
-
-// newHclExpression panics (via bindingsFail, through validateExpression) if
-// expression is outside the v1 allowlist; ported from the HclExpression
-// constructor in the original implementation, which likewise
-// throws from `validateExpression(expression, "HclExpression")`.
-func newHclExpression(expression string) *HclExpression {
-	return &HclExpression{Expression: validateExpression(expression, "HclExpression")}
 }
 
 // pythonJSONString ports the local pythonJsonString helper from
@@ -920,39 +902,15 @@ func ExpressionVariables(bindings []ExpressionBinding) map[string]bool {
 	return variables
 }
 
-// cloneJSON ports cloneJson from the original implementation.
-// The TS source's LosslessNumber branch (constructing a fresh
-// `new LosslessNumber(value.toString())`) has no Go analogue to reproduce:
-// json.Number is an immutable string-backed value type, so copying it by
-// assignment (the `default: return value` branch below) already produces an
-// independent, unaliased clone with no shared mutable state -- unlike a JS
-// LosslessNumber, which is a distinguishable object identity elsewhere in
-// this codebase (see HclExpression's own instanceof-style Go analogue) and
-// so is deliberately re-boxed by the TS source's clone.
-func cloneJSON(value any) any {
-	switch v := value.(type) {
-	case []any:
-		out := make([]any, len(v))
-		for i, item := range v {
-			out[i] = cloneJSON(item)
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for key, item := range v {
-			out[key] = cloneJSON(item)
-		}
-		return out
-	default:
-		return value
-	}
-}
-
-// applyExpressionBindings ports the exported applyExpressionBindings from
-// the original implementation: "Validate binding paths against
-// items and replace leaves with expression sentinels."
-func applyExpressionBindings(items any, bindings []ExpressionBinding) map[string]any {
-	output, ok := cloneJSON(items).(map[string]any)
+// validateExpressionBindingTargets ports the path-validation half of the
+// original implementation's applyExpressionBindings: every binding must
+// resolve to an existing leaf inside items. The transformed-items result the
+// TS source also produced (leaves replaced with expression sentinels) had no
+// production consumer -- envgen renders binding HCL independently via
+// RenderExpressionBindingsHcl -- so this walk validates in place without
+// cloning or mutating items.
+func validateExpressionBindingTargets(items any, bindings []ExpressionBinding) {
+	output, ok := items.(map[string]any)
 	if !ok {
 		bindingsFail("expression binding items must be an object")
 	}
@@ -996,7 +954,6 @@ func applyExpressionBindings(items any, bindings []ExpressionBinding) map[string
 			if idx >= len(arr) {
 				bindingsFail("expression binding %s.%s has out-of-range list index [%d]", binding.Address, binding.Path, idx)
 			}
-			arr[idx] = newHclExpression(binding.Expression)
 			continue
 		}
 		name, _ := leaf.(string)
@@ -1013,16 +970,15 @@ func applyExpressionBindings(items any, bindings []ExpressionBinding) map[string
 		if _, hasLeaf := obj[name]; !hasLeaf {
 			bindingsFail("expression binding %s.%s has missing target leaf", binding.Address, binding.Path)
 		}
-		obj[name] = newHclExpression(binding.Expression)
 	}
-	return output
 }
 
-// ApplyExpressionBindings ports applyExpressionBindings from
-// the original implementation.
-func ApplyExpressionBindings(items any, bindings []ExpressionBinding) (result map[string]any, err error) {
+// ValidateExpressionBindingTargets reports whether every binding resolves to
+// an existing leaf inside items; see validateExpressionBindingTargets.
+func ValidateExpressionBindingTargets(items any, bindings []ExpressionBinding) (err error) {
 	defer recoverBindingsError(&err)
-	return applyExpressionBindings(items, bindings), nil
+	validateExpressionBindingTargets(items, bindings)
+	return nil
 }
 
 // bindingSchemaCursorKind is the Go analogue of the BindingSchemaCursor
@@ -1196,99 +1152,6 @@ func ValidateExpressionBindingSchemaPaths(schema metadata.JsonObject, resourceTy
 		}
 	}
 	return nil
-}
-
-// renderExpressionHclValue ports the exported renderExpressionHclValue from
-// the original implementation.
-func renderExpressionHclValue(value any, indent int) string {
-	switch v := value.(type) {
-	case *HclExpression:
-		return v.Expression
-	case string:
-		return pythonJSONString(v)
-	case bool:
-		if v {
-			return "true"
-		}
-		return "false"
-	case nil:
-		return "null"
-	case json.Number:
-		token, err := canonjson.CanonicalNumberToken(string(v))
-		if err != nil {
-			bindingsFail("cannot render %s as HCL", string(v))
-		}
-		return token
-	case float64:
-		if v == float64(int64(v)) && v >= -jsMaxSafeIntegerFloat && v <= jsMaxSafeIntegerFloat {
-			return fmt.Sprintf("%d", int64(v))
-		}
-		token, err := canonjson.FiniteFloatToken(v)
-		if err != nil {
-			bindingsFail("cannot render %v as HCL", v)
-		}
-		return token
-	case []any:
-		parts := make([]string, len(v))
-		for i, item := range v {
-			parts[i] = renderExpressionHclValue(item, indent)
-		}
-		return "[" + strings.Join(parts, ", ") + "]"
-	case map[string]any:
-		pad := strings.Repeat(" ", indent)
-		childPad := strings.Repeat(" ", indent+2)
-		lines := []string{"{"}
-		for _, key := range canonjson.SortedStrings(mapKeys(v)) {
-			lines = append(lines, fmt.Sprintf("%s%s = %s", childPad, hclKey(key), renderExpressionHclValue(v[key], indent+2)))
-		}
-		lines = append(lines, pad+"}")
-		return strings.Join(lines, "\n")
-	default:
-		bindingsFail("cannot render %v as HCL", value)
-		return ""
-	}
-}
-
-// jsMaxSafeIntegerFloat is jsMaxSafeInteger as a float64, for the plain
-// `number` branch of renderExpressionHclValue/toTerraformJsonValue's
-// Number.isSafeInteger checks.
-const jsMaxSafeIntegerFloat = float64(jsMaxSafeInteger)
-
-// RenderExpressionHclValue ports renderExpressionHclValue from
-// the original implementation. indent mirrors the TS source's
-// `indent = 0` default parameter; pass 0 for a top-level call.
-func RenderExpressionHclValue(value any, indent int) (result string, err error) {
-	defer recoverBindingsError(&err)
-	return renderExpressionHclValue(value, indent), nil
-}
-
-// toTerraformJsonValue ports the exported toTerraformJsonValue from
-// the original implementation.
-func toTerraformJsonValue(value any) any {
-	switch v := value.(type) {
-	case *HclExpression:
-		return "${" + v.Expression + "}"
-	case []any:
-		out := make([]any, len(v))
-		for i, item := range v {
-			out[i] = toTerraformJsonValue(item)
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for _, key := range canonjson.SortedStrings(mapKeys(v)) {
-			out[key] = toTerraformJsonValue(v[key])
-		}
-		return out
-	default:
-		return value
-	}
-}
-
-// ToTerraformJsonValue ports toTerraformJsonValue from
-// the original implementation.
-func ToTerraformJsonValue(value any) any {
-	return toTerraformJsonValue(value)
 }
 
 // bindingTreeValueKind distinguishes bindingTree's two child-value shapes:

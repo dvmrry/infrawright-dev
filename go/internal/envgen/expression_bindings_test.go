@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
@@ -80,32 +79,12 @@ func TestBindingParsingNestedApplicationHclAndTerraformJson(t *testing.T) {
 		t.Fatalf("ExpressionVariables = %v", variables)
 	}
 
-	applied, err := ApplyExpressionBindings(map[string]any{
+	if err := ValidateExpressionBindingTargets(map[string]any{
 		"example": map[string]any{
 			"nested": map[string]any{"literal": "unchanged", "target": "old"},
 		},
-	}, parsed)
-	if err != nil {
-		t.Fatalf("ApplyExpressionBindings: %v", err)
-	}
-	nested := applied["example"].(map[string]any)["nested"].(map[string]any)
-	if nested["literal"] != "unchanged" {
-		t.Fatalf("literal = %v", nested["literal"])
-	}
-	if _, ok := nested["target"].(*HclExpression); !ok {
-		t.Fatalf("target is not *HclExpression: %#v", nested["target"])
-	}
-	rendered, err := RenderExpressionHclValue(nested, 0)
-	if err != nil {
-		t.Fatalf("RenderExpressionHclValue: %v", err)
-	}
-	if want := "{\n  literal = \"unchanged\"\n  target = var.client_secret\n}"; rendered != want {
-		t.Fatalf("rendered = %q, want %q", rendered, want)
-	}
-	tfjson := ToTerraformJsonValue(nested)
-	wantJSON := map[string]any{"literal": "unchanged", "target": "${var.client_secret}"}
-	if !reflect.DeepEqual(tfjson, wantJSON) {
-		t.Fatalf("ToTerraformJsonValue = %#v, want %#v", tfjson, wantJSON)
+	}, parsed); err != nil {
+		t.Fatalf("ValidateExpressionBindingTargets: %v", err)
 	}
 
 	hcl, err := RenderExpressionBindingsHcl(parsed, RenderExpressionBindingsHclOptions{})
@@ -257,41 +236,15 @@ func TestMalformedExpressionsPathsAddressesFailClosed(t *testing.T) {
 	}
 }
 
-func TestTerraformJsonConversionPreservesArbitrarySizeNumericScalars(t *testing.T) {
-	converted := ToTerraformJsonValue(map[string]any{
-		"decimal": json.Number("1.2500"),
-		"integer": json.Number("900719925474099312345"),
-		"nested":  []any{json.Number("2"), &HclExpression{Expression: "local.value"}},
-	})
-	rendered, err := canonjson.RenderLosslessArtifactJSON(converted)
-	if err != nil {
-		t.Fatalf("RenderLosslessArtifactJSON: %v", err)
-	}
-	want := strings.Join([]string{
-		"{",
-		`  "decimal": 1.25,`,
-		`  "integer": 900719925474099312345,`,
-		`  "nested": [`,
-		"    2,",
-		`    "${local.value}"`,
-		"  ]",
-		"}",
-		"",
-	}, "\n")
-	if rendered != want {
-		t.Fatalf("rendered = %q, want %q", rendered, want)
-	}
-}
-
 func TestBindingPathValidationRejectsUnknownMissingConflicts(t *testing.T) {
 	parsed := mustParse(t, binding("var.secret", nil), "sample_resource")
-	if _, err := ApplyExpressionBindings(map[string]any{}, parsed); err == nil || !strings.Contains(err.Error(), "unknown resource address") {
+	if err := ValidateExpressionBindingTargets(map[string]any{}, parsed); err == nil || !strings.Contains(err.Error(), "unknown resource address") {
 		t.Fatalf("empty items error = %v", err)
 	}
-	if _, err := ApplyExpressionBindings(map[string]any{"example": map[string]any{}}, parsed); err == nil || !strings.Contains(err.Error(), "missing parent path") {
+	if err := ValidateExpressionBindingTargets(map[string]any{"example": map[string]any{}}, parsed); err == nil || !strings.Contains(err.Error(), "missing parent path") {
 		t.Fatalf("missing parent error = %v", err)
 	}
-	if _, err := ApplyExpressionBindings(map[string]any{"example": map[string]any{"nested": map[string]any{}}}, parsed); err == nil || !strings.Contains(err.Error(), "missing target leaf") {
+	if err := ValidateExpressionBindingTargets(map[string]any{"example": map[string]any{"nested": map[string]any{}}}, parsed); err == nil || !strings.Contains(err.Error(), "missing target leaf") {
 		t.Fatalf("missing leaf error = %v", err)
 	}
 
@@ -316,7 +269,7 @@ func TestExactNumericListSelectorsPreserveSiblingsAndRenderListEdits(t *testing.
 	if parsed[0].Path != "nested[1].target" {
 		t.Fatalf("Path = %q", parsed[0].Path)
 	}
-	applied, err := ApplyExpressionBindings(map[string]any{
+	if err := ValidateExpressionBindingTargets(map[string]any{
 		"example": map[string]any{
 			"nested": []any{
 				map[string]any{"target": "first", "untouched": json.Number("1")},
@@ -324,22 +277,8 @@ func TestExactNumericListSelectorsPreserveSiblingsAndRenderListEdits(t *testing.
 				map[string]any{"target": "third", "untouched": json.Number("3")},
 			},
 		},
-	}, parsed)
-	if err != nil {
-		t.Fatalf("ApplyExpressionBindings: %v", err)
-	}
-	nestedArr := applied["example"].(map[string]any)["nested"].([]any)
-	if got := nestedArr[0].(map[string]any)["target"]; got != "first" {
-		t.Fatalf("nested[0].target = %v", got)
-	}
-	if got := nestedArr[2].(map[string]any)["target"]; got != "third" {
-		t.Fatalf("nested[2].target = %v", got)
-	}
-	if _, ok := nestedArr[1].(map[string]any)["target"].(*HclExpression); !ok {
-		t.Fatalf("nested[1].target is not *HclExpression: %#v", nestedArr[1])
-	}
-	if got := nestedArr[1].(map[string]any)["untouched"]; got != json.Number("2") {
-		t.Fatalf("nested[1].untouched = %v", got)
+	}, parsed); err != nil {
+		t.Fatalf("ValidateExpressionBindingTargets: %v", err)
 	}
 
 	rendered, err := RenderExpressionBindingsHcl(parsed, RenderExpressionBindingsHclOptions{})
@@ -350,21 +289,21 @@ func TestExactNumericListSelectorsPreserveSiblingsAndRenderListEdits(t *testing.
 	mustMatch(t, rendered, `nested\[1\]`)
 	mustMatch(t, rendered, `target = var\.value`)
 
-	if _, err := ApplyExpressionBindings(map[string]any{
+	if err := ValidateExpressionBindingTargets(map[string]any{
 		"example": map[string]any{"nested": []any{map[string]any{"target": "first"}}},
 	}, parsed); err == nil || !strings.Contains(err.Error(), "out-of-range list index [1]") {
 		t.Fatalf("out-of-range error = %v", err)
 	}
 
 	withoutIndex := mustParse(t, bindingAt("nested.target", ""), "sample_resource")
-	if _, err := ApplyExpressionBindings(map[string]any{
+	if err := ValidateExpressionBindingTargets(map[string]any{
 		"example": map[string]any{"nested": []any{map[string]any{"target": "first"}}},
 	}, withoutIndex); err == nil || !regexp.MustCompile(`traverses a list.*exact numeric list selector`).MatchString(err.Error()) {
 		t.Fatalf("traverses-list error = %v", err)
 	}
 
 	indexOnObject := mustParse(t, bindingAt("nested[0].target", ""), "sample_resource")
-	if _, err := ApplyExpressionBindings(map[string]any{
+	if err := ValidateExpressionBindingTargets(map[string]any{
 		"example": map[string]any{"nested": map[string]any{"target": "first"}},
 	}, indexOnObject); err == nil || !regexp.MustCompile(`indexes a non-list`).MatchString(err.Error()) {
 		t.Fatalf("indexes-non-list error = %v", err)
@@ -485,26 +424,6 @@ func TestLayerMergeGeneratedFirstOperatorLastVariableSensitivityOr(t *testing.T)
 	variables := ExpressionVariables(duplicateVariable)
 	if !reflect.DeepEqual(variables, map[string]bool{"shared": true}) {
 		t.Fatalf("ExpressionVariables = %v", variables)
-	}
-}
-
-func TestNativeHclRenderingRetainsLosslessNumericAndNonIdentifierKeys(t *testing.T) {
-	rendered, err := RenderExpressionHclValue(json.Number("900719925474099312345"), 0)
-	if err != nil {
-		t.Fatalf("RenderExpressionHclValue: %v", err)
-	}
-	if rendered != "900719925474099312345" {
-		t.Fatalf("rendered = %q", rendered)
-	}
-	rendered2, err := RenderExpressionHclValue(map[string]any{
-		"not-an-ident": []any{&HclExpression{Expression: "local.value"}, "literal"},
-	}, 0)
-	if err != nil {
-		t.Fatalf("RenderExpressionHclValue: %v", err)
-	}
-	want := "{\n  \"not-an-ident\" = [local.value, \"literal\"]\n}"
-	if rendered2 != want {
-		t.Fatalf("rendered2 = %q, want %q", rendered2, want)
 	}
 }
 

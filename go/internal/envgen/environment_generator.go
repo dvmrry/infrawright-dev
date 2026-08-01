@@ -1325,8 +1325,7 @@ func validateBindingsAgainstConfig(bindings []ExpressionBinding, config string, 
 	if !ok {
 		return fmt.Errorf("%s must contain a %s object", config, variableNameValue)
 	}
-	_, err = ApplyExpressionBindings(itemsObject, bindings)
-	return err
+	return ValidateExpressionBindingTargets(itemsObject, bindings)
 }
 
 // filterGeneratedBindings ports the local filterGeneratedBindings helper
