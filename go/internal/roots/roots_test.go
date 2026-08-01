@@ -194,6 +194,30 @@ func TestUnknownDeploymentRootProviderStillFailsClosed(t *testing.T) {
 	}
 }
 
+func TestLoadedResourceShapeSurfacesDataReferent(t *testing.T) {
+	root := metadata.LoadedPackRoot{
+		Packs: metadata.PackMetadata{
+			ProviderPrefixes: map[string]string{"sample_": "sample"},
+		},
+		Resources: map[string]metadata.LoadedResourceMetadata{
+			"sample_groups": {
+				Type:     "sample_groups",
+				Product:  "sample",
+				Provider: "sample",
+				Registry: metadata.JsonObject{"data_referent": true},
+			},
+		},
+	}
+
+	got := loadedResourceShape(root, "sample_groups")
+	if !got.DataReferent {
+		t.Errorf("loadedResourceShape(%q).DataReferent = %t, want true", "sample_groups", got.DataReferent)
+	}
+	if got.Generated {
+		t.Errorf("loadedResourceShape(%q).Generated = %t, want false", "sample_groups", got.Generated)
+	}
+}
+
 // derefRoots renders a []RootTopologyRoot with its pointer fields
 // dereferenced, purely to make a failing reflect.DeepEqual diff readable
 // in test output.

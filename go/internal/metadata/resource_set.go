@@ -5,12 +5,13 @@ package metadata
 // shape exists only for callers that construct an in-memory test or assessment
 // context.
 type ResourceDescriptor struct {
-	Type      string
-	Product   string
-	Provider  string
-	BareName  string
-	Generated bool
-	Derived   bool
+	Type         string
+	Product      string
+	Provider     string
+	BareName     string
+	Generated    bool
+	DataReferent bool
+	Derived      bool
 }
 
 // ResourceSet is an in-memory resource selection input. It is not persisted,

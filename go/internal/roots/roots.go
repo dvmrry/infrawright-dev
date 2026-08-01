@@ -171,16 +171,18 @@ func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) meta
 	}
 	bareName := resourceType[len(prefix):]
 	generated, _ := resource.Registry["generate"].(bool)
+	dataReferent, _ := resource.Registry["data_referent"].(bool)
 	derive, hasDerive := resource.Registry["derive"]
 	derived := generated && hasDerive && isJSObjectLike(derive)
 
 	return metadata.ResourceDescriptor{
-		Type:      resourceType,
-		Product:   resource.Product,
-		Provider:  resource.Provider,
-		BareName:  bareName,
-		Generated: generated,
-		Derived:   derived,
+		Type:         resourceType,
+		Product:      resource.Product,
+		Provider:     resource.Provider,
+		BareName:     bareName,
+		Generated:    generated,
+		DataReferent: dataReferent,
+		Derived:      derived,
 	}
 }
 
