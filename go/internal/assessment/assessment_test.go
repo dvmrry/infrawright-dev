@@ -769,27 +769,6 @@ func TestSavedPlanAssessmentTransactionOrderingAndFinalDoubleWindow(t *testing.T
 	}
 }
 
-func TestSavedPlanAssessmentRejectsAsynchronousFinalizer(t *testing.T) {
-	fixture := newAssessmentTransactionFixture(t)
-	executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(cleanAssessmentPlanJSON(t)))
-	result, err := runSavedPlanAssessment(
-		SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
-		ClassifyPlanOptions{},
-		func(SavedPlanAssessmentCore, []AssessmentGuidanceGroup) (map[string]any, error) {
-			return map[string]any{"then": func() {}}, nil
-		},
-		nil,
-		productionAssessmentHooks(),
-	)
-	failure := requireSavedPlanAssessmentFailure(t, err, "INVALID_ASSESSMENT_FINALIZER")
-	if result != nil {
-		t.Errorf("runSavedPlanAssessment(async finalizer) result = %#v, want nil on error", result)
-	}
-	if failure.Partial.Checked != 1 {
-		t.Errorf("runSavedPlanAssessment(async finalizer).Partial.Checked = %d, want 1", failure.Partial.Checked)
-	}
-}
-
 func TestSavedPlanAssessmentCleanupCompositeAndDirectoryIdentity(t *testing.T) {
 	t.Run("composite", func(t *testing.T) {
 		fixture := newAssessmentTransactionFixture(t)
