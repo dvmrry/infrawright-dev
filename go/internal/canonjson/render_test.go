@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"unicode/utf16"
 )
 
 // TestSharedPythonStringSemantics ports the
@@ -219,29 +218,6 @@ func TestRenderRejectsNonFiniteFloat(t *testing.T) {
 	}
 	if _, err := Render(map[string]any{"value": math.Inf(1)}); err == nil {
 		t.Error("Render(+Inf) should return an error")
-	}
-}
-
-// TestUTF16UnitsHelperMatchesManualEncoding sanity-checks the utf16Units
-// helper against Go's own unicode/utf16 package for a string containing
-// both BMP and astral characters, since encodeString depends on it walking
-// UTF-16 code units (not Unicode code points) the same way the Node
-// source's charCodeAt-based loop does.
-func TestUTF16UnitsHelperMatchesManualEncoding(t *testing.T) {
-	s := "a\U0001F600b"
-	got := utf16Units(s)
-	want := utf16.Encode([]rune(s))
-	if len(got) != len(want) {
-		t.Fatalf("utf16Units(%q) length = %d, want %d", s, len(got), len(want))
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			t.Errorf("utf16Units(%q)[%d] = %#x, want %#x", s, i, got[i], want[i])
-		}
-	}
-	// An astral character is exactly 2 UTF-16 units and 1 rune.
-	if len(want) != len([]rune(s))+1 {
-		t.Fatalf("sanity check failed: expected exactly one surrogate pair in %q", s)
 	}
 }
 

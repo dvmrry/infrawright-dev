@@ -399,23 +399,17 @@ func TestRenderLosslessArtifactJSONFailsClosedOnUnsupportedValuesAndCycles(t *te
 	})
 }
 
-// TestLosslessArtifactFixturesRoundTrip is the new gate this port adds:
-// every demo/config/demo/*.json fixture is, per gate_test.go's
-// TestRoundTripGate doc comment, actually renderPythonLosslessArtifactJson
-// output (not renderPythonCompatibleJson output) -- written by
+// TestLosslessArtifactFixturesRoundTrip gates every demo/config/demo/*.json
+// fixture: each is renderPythonLosslessArtifactJson output -- written by
 // the original implementation's renderDeploymentTfvars/
 // renderTransformLookup, both of which call renderPythonLosslessArtifactJson
 // after parsing with parseDataJsonLosslessly. This decodes each committed
 // fixture and re-renders it through this file's RenderLosslessArtifactJSON,
 // requiring byte-identical output -- the real round-trip guarantee those
-// fixtures are supposed to uphold, as opposed to TestRoundTripGate's
-// Render (python-compatible.ts), which those fixtures merely happen not to
-// violate today (see TestRoundTripGate's own doc comment on the two known
-// divergences).
+// fixtures are supposed to uphold.
 //
 // repoRoot and reportMismatch are reused, unmodified, from gate_test.go
-// (both are ordinary unexported test helpers visible package-wide); only
-// the demo/config/demo fixture set is gathered independently here.
+// (both are ordinary unexported test helpers visible package-wide).
 func TestLosslessArtifactFixturesRoundTrip(t *testing.T) {
 	root := repoRoot(t)
 	matches, err := filepath.Glob(filepath.Join(root, "demo", "config", "demo", "*.json"))

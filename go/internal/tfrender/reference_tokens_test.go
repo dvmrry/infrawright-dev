@@ -359,18 +359,24 @@ func TestSubstituteReferenceTokensGuards(t *testing.T) {
 
 // TestSubstituteReferenceTokensIdempotent pins re-run stability: a second
 // pass over already-tokenised items changes nothing, so re-running transform
-// or adopt over committed tokens can never flap the artifact.
+// or adopt over committed tokens can never flap the artifact. The lookup
+// deliberately also maps the minted token string itself to a different key:
+// without the token-shaped guard, the second pass would match that entry and
+// re-substitute, so this entry is what makes the guard observable.
 func TestSubstituteReferenceTokensIdempotent(t *testing.T) {
 	items := map[string]map[string]any{"app_one": {"segment_group_id": "sg-1"}}
-	lookupKeys := map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}}
+	lookupKeys := map[string]map[string]string{"zpa_segment_group": {
+		"sg-1":                          "segment_one",
+		"zpa_segment_group.segment_one": "rekeyed_by_second_pass",
+	}}
 	substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment", lookupKeys)
 	first := items["app_one"]["segment_group_id"]
+	if first != "zpa_segment_group.segment_one" {
+		t.Fatalf("token = %#v, want zpa_segment_group.segment_one", first)
+	}
 	substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment", lookupKeys)
 	if got := items["app_one"]["segment_group_id"]; got != first {
 		t.Errorf("second pass changed %#v to %#v", first, got)
-	}
-	if first != "zpa_segment_group.segment_one" {
-		t.Errorf("token = %#v, want zpa_segment_group.segment_one", first)
 	}
 }
 

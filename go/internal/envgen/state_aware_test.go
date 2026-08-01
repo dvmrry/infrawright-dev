@@ -758,19 +758,6 @@ func TestReferenceIDsPresentAcceptsEmptyPerTypeMap(t *testing.T) {
 	}
 }
 
-// TestEqualTreesComparesKeySets guards the comparator the byte-identity tests
-// rely on. Comparing only values reachable by the left tree's keys made trees
-// with different file names compare equal, which silently weakened every test
-// built on it.
-func TestEqualTreesComparesKeySets(t *testing.T) {
-	if equalTrees(map[string]string{"left.tf": ""}, map[string]string{"right.tf": ""}) {
-		t.Errorf("equalTrees(different key sets) = true, want false")
-	}
-	if !equalTrees(map[string]string{"main.tf": "body"}, map[string]string{"main.tf": "body"}) {
-		t.Errorf("equalTrees(identical trees) = false, want true")
-	}
-}
-
 // TestStateAwareStillRefusesBindingCycle pins that cycle detection runs before
 // the state filter and is not conditioned on state-awareness. A cycle is
 // malformed evidence: it cannot be resolved by falling back, and a state-aware

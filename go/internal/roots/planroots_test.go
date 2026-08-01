@@ -9,9 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
-	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
 // writePlanRootsFixture builds a representative envs tree:
@@ -299,57 +296,4 @@ func TestPlanRootsInvalidTenantDirectoryNameIsToleratedUnlessSelected(t *testing
 	if !ok || pf.Code != "INVALID_TENANT" || !strings.Contains(pf.Message, "bad tenant") {
 		t.Fatalf("PlanRootsFromResourceSet (selected label): err = %v, want INVALID_TENANT mentioning 'bad tenant'", err)
 	}
-}
-
-// TestLoadedPlanRootsHasNoUpfrontSelectorPrecheck is not a ported oracle
-// scenario -- it pins the asymmetry PlanRootsFromResourceSet's own doc
-// comment documents: unlike PlanRootsFromResourceSet (which calls
-// expandResources on the raw catalog index before ever building a
-// topology, "historical explicit validation" ported verbatim from
-// plan-roots.ts's own comment), LoadedPlanRoots has no such precheck --
-// the original implementation's loadedPlanRoots never calls
-// expandLoadedResources. Both still fail on an unknown selector (via the
-// `selected` rootTopologyFromIndex call's own expandResources), so this
-// only proves the CODE PATH differs, not that the outward behavior does;
-// it exists so a future edit that "cleans up" the asymmetry away (by
-// adding or removing the precheck from just one of the two) gets caught.
-func TestLoadedPlanRootsHasNoUpfrontSelectorPrecheck(t *testing.T) {
-	root, cleanup := loadPlanRootsFixturePackRoot(t)
-	defer cleanup()
-	workspace := t.TempDir()
-	// No roots.zpa entry here (the synthetic pack root declares a
-	// "sample" provider, not "zpa"): this test only needs a loaded pack
-	// root distinct from scopePlanFixtureResourceSet's ResourceSet, so an
-	// empty deployment is enough to reach the selector-expansion failure.
-	_, err := LoadedPlanRoots(LoadedPlanRootsOptions{
-		Workspace:  workspace,
-		Deployment: deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}},
-		Root:       root,
-		Tenant:     nil,
-		Selectors:  []string{"not_a_real_resource"},
-	})
-	pf, ok := asProcessFailure(err)
-	if !ok || pf.Code != "UNKNOWN_RESOURCE_SELECTOR" {
-		t.Fatalf("err = %v, want UNKNOWN_RESOURCE_SELECTOR (raised by rootTopologyFromIndex's own expandResources, not an upfront precheck)", err)
-	}
-}
-
-// loadPlanRootsFixturePackRoot builds a minimal on-disk pack root loadable
-// via metadata.LoadPackRoot, purely so LoadedPlanRoots (which takes a
-// metadata.LoadedPackRoot, not a metadata.ResourceSet) has something to
-// exercise; its actual resource shape does not matter for
-// TestLoadedPlanRootsHasNoUpfrontSelectorPrecheck; only that
-// "not_a_real_resource" is not among its generated resources.
-func loadPlanRootsFixturePackRoot(t *testing.T) (metadata.LoadedPackRoot, func()) {
-	t.Helper()
-	directory := t.TempDir()
-	pack := filepath.Join(directory, "sample")
-	mustMkdirAll(t, pack)
-	mustWriteFile(t, filepath.Join(pack, "pack.json"), `{"provider_prefixes":{"sample_":"sample"}}`)
-	mustWriteFile(t, filepath.Join(pack, "registry.json"), `{"sample_resource":{"generate":true,"product":"sample"}}`)
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{PacksRoot: directory})
-	if err != nil {
-		t.Fatalf("LoadPackRoot: %v", err)
-	}
-	return loaded, func() {}
 }

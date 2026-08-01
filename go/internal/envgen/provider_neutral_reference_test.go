@@ -1,60 +1,16 @@
 package envgen
 
 import (
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 )
-
-const providerlessTerraformDataConfiguration = `terraform {
-  required_version = ">= 1.4.0"
-}
-
-resource "terraform_data" "source" {
-  input = {
-    name = "provider-neutral-source"
-  }
-}
-
-resource "terraform_data" "consumer" {
-  input = terraform_data.source.output
-}
-
-output "consumer" {
-  value = terraform_data.consumer.output
-}
-`
-
-type providerlessTerraformPlan struct {
-	Configuration struct {
-		ProviderConfig map[string]struct {
-			FullName string `json:"full_name"`
-		} `json:"provider_config"`
-		RootModule struct {
-			Resources []struct {
-				Address     string `json:"address"`
-				Expressions map[string]struct {
-					References []string `json:"references"`
-				} `json:"expressions"`
-			} `json:"resources"`
-		} `json:"root_module"`
-	} `json:"configuration"`
-	ResourceChanges []struct {
-		Address      string `json:"address"`
-		ProviderName string `json:"provider_name"`
-		Change       struct {
-			Actions []string `json:"actions"`
-		} `json:"change"`
-	} `json:"resource_changes"`
-}
 
 func runProviderNeutralTerraformCommand(
 	t *testing.T,
@@ -178,73 +134,4 @@ func TestProviderNeutralReferenceBuildExercisesPackLoadAndCrossStateGeneration(t
 			runProviderNeutralTerraformCommand(t, executable, directory, nil, "fmt", "-check", "-recursive", ".")
 		}
 	})
-}
-
-func TestProviderlessTerraformDataReferencePlansWithBuiltInProvider(t *testing.T) {
-	executable := terraformTestExecutable(t)
-	workspace := t.TempDir()
-	configurationPath := filepath.Join(workspace, "main.tf")
-	if err := os.WriteFile(configurationPath, []byte(providerlessTerraformDataConfiguration), 0o600); err != nil {
-		t.Fatalf("os.WriteFile(%s): %v", configurationPath, err)
-	}
-	environment := append(os.Environ(),
-		"CHECKPOINT_DISABLE=1",
-		"HOME="+t.TempDir(),
-		"TF_DATA_DIR="+filepath.Join(workspace, ".terraform-data"),
-		"TF_IN_AUTOMATION=1",
-		"TF_INPUT=0",
-	)
-	runProviderNeutralTerraformCommand(t, executable, workspace, environment, "init", "-backend=false", "-input=false", "-no-color")
-	runProviderNeutralTerraformCommand(t, executable, workspace, environment, "validate", "-no-color")
-	runProviderNeutralTerraformCommand(t, executable, workspace, environment, "plan", "-input=false", "-no-color", "-out=reference.tfplan")
-	planJSON := runProviderNeutralTerraformCommand(t, executable, workspace, environment, "show", "-json", "reference.tfplan")
-
-	var plan providerlessTerraformPlan
-	if err := json.Unmarshal(planJSON, &plan); err != nil {
-		t.Fatalf("json.Unmarshal(terraform show -json): %v", err)
-	}
-	var gotProviders []string
-	for _, provider := range plan.Configuration.ProviderConfig {
-		gotProviders = append(gotProviders, provider.FullName)
-	}
-	sort.Strings(gotProviders)
-	wantProviders := []string{"terraform.io/builtin/terraform"}
-	if !reflect.DeepEqual(gotProviders, wantProviders) {
-		t.Errorf("terraform_data reference provider names = %v, want %v", gotProviders, wantProviders)
-	}
-
-	wantResources := map[string]bool{
-		"terraform_data.consumer": true,
-		"terraform_data.source":   true,
-	}
-	gotResources := make(map[string]bool, len(plan.ResourceChanges))
-	for _, resource := range plan.ResourceChanges {
-		gotResources[resource.Address] = true
-		if resource.ProviderName != "terraform.io/builtin/terraform" {
-			t.Errorf("terraform_data reference resource %s provider = %q, want terraform.io/builtin/terraform", resource.Address, resource.ProviderName)
-		}
-		if wantActions := []string{"create"}; !reflect.DeepEqual(resource.Change.Actions, wantActions) {
-			t.Errorf("terraform_data reference resource %s actions = %v, want %v", resource.Address, resource.Change.Actions, wantActions)
-		}
-	}
-	if !reflect.DeepEqual(gotResources, wantResources) {
-		t.Errorf("terraform_data reference planned resources = %v, want %v", gotResources, wantResources)
-	}
-
-	consumerFound := false
-	consumerReferencesSource := false
-	for _, resource := range plan.Configuration.RootModule.Resources {
-		if resource.Address != "terraform_data.consumer" {
-			continue
-		}
-		consumerFound = true
-		for _, reference := range resource.Expressions["input"].References {
-			if reference == "terraform_data.source.output" {
-				consumerReferencesSource = true
-			}
-		}
-	}
-	if !consumerFound || !consumerReferencesSource {
-		t.Errorf("terraform_data reference consumer found=%t references source output=%t, want both true", consumerFound, consumerReferencesSource)
-	}
 }

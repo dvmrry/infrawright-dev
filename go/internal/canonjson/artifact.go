@@ -7,11 +7,12 @@
 //
 // This is a deliberately independent sibling of render.go's Render (which
 // ports python-compatible.ts's renderPythonCompatibleJson): the two Node
-// source files do not share an encoder either, and differ in exactly the
-// two ways documented on TestRoundTripGate and
-// TestEncodeStringLeavesDELUnescaped in gate_test.go. Point 1 (DEL
-// escaping) is reproduced here as encodeArtifactStringUnit's `>= 0x7f`
-// threshold, one character earlier than render.go's `>= 0x80`.
+// source files do not share an encoder either. One known divergence, DEL
+// escaping (documented on TestEncodeStringLeavesDELUnescaped in
+// gate_test.go), is reproduced here as encodeArtifactStringUnit's `>= 0x7f`
+// threshold, one character earlier than render.go's `>= 0x80`. The other is
+// number encoding: the sibling renderer special-cases a plain -0 to render
+// as "0", unreachable here because Decode always produces lossless tokens.
 package canonjson
 
 import (
