@@ -9,19 +9,46 @@ fi
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ "${1:-}" = "--recover" ]; then
 	backup_dir=${2:?usage: gen-captures.sh --recover <backup-dir>}
+	all_scenarios='initial_create no_op refresh_id_change rekey_refusal empty_for_each refresh_false refresh_true'
 	if [ ! -f "$backup_dir/TRANSACTION" ]; then
 		printf '%s\n' "recovery refused: $backup_dir carries no TRANSACTION record" >&2
 		exit 1
 	fi
-	for scenario_dir in "$backup_dir"/*/; do
-		scenario=$(basename "$scenario_dir")
+	if ! grep -q '^state=promoting$' "$backup_dir/TRANSACTION"; then
+		printf '%s\n' "recovery refused: TRANSACTION does not record an in-flight promotion (a completed promotion needs no recovery; delete the backup deliberately instead)" >&2
+		exit 1
+	fi
+	# Decide the full-set outcome BEFORE copying anything: every scenario
+	# must carry exactly one previous file or missing marker, or recovery
+	# refuses without altering live files or the backup.
+	for scenario in $all_scenarios; do
+		previous="$backup_dir/$scenario/show.json"
+		missing="$backup_dir/$scenario/missing"
+		if [ -e "$previous" ] && [ -e "$missing" ]; then
+			printf '%s\n' "recovery refused: $scenario carries both a previous file and a missing marker" >&2
+			exit 1
+		fi
+		if [ ! -e "$previous" ] && [ ! -e "$missing" ]; then
+			printf '%s\n' "recovery refused: backup is incomplete ($scenario has neither a previous file nor a missing marker)" >&2
+			exit 1
+		fi
+	done
+	for scenario in $all_scenarios; do
 		target="$script_dir/$scenario/show.json"
-		if [ -e "$scenario_dir/show.json" ]; then
-			cp -p "$scenario_dir/show.json" "$target"
-		elif [ -e "$scenario_dir/missing" ]; then
+		previous="$backup_dir/$scenario/show.json"
+		if [ -e "$previous" ]; then
+			cp -p "$previous" "$target" || { printf '%s\n' "recovery copy failed for $scenario; backup retained in $backup_dir" >&2; exit 1; }
+		else
 			rm -f "$target"
 		fi
 	done
+	# The restored set must validate before the recovery material goes; a
+	# previous-generation set that predates the validator's contract would
+	# refuse here and the backup is retained for manual inspection.
+	if ! python3 "$script_dir/validate_captures.py" "$script_dir"; then
+		printf '%s\n' "recovered set failed validation; backup retained in $backup_dir" >&2
+		exit 1
+	fi
 	rm -rf "$backup_dir"
 	printf '%s\n' 'RECOVERED'
 	exit 0

@@ -57,49 +57,100 @@ func TestCaptureValidatorAcceptsCommittedSetAndRefusesCorruption(t *testing.T) {
 }
 
 func TestCaptureRecoveryRestoresPreviousSet(t *testing.T) {
-	workspace := t.TempDir()
-	tree := filepath.Join(workspace, "captures")
-	copyCaptureTree(t, tree)
-
-	// Fabricate a half-promoted state: the live fixture was overwritten,
-	// the backup preserves the previous bytes plus the TRANSACTION record.
-	backup := filepath.Join(tree, ".capture-backup.test")
-	scenario := "no_op"
-	if err := os.MkdirAll(filepath.Join(backup, scenario), 0o755); err != nil {
-		t.Fatal(err)
+	scenarios := []string{
+		"initial_create", "no_op", "refresh_id_change", "rekey_refusal",
+		"empty_for_each", "refresh_false", "refresh_true",
 	}
-	previous := []byte(`{"previous":"fixture"}`)
-	if err := os.WriteFile(filepath.Join(backup, scenario, "show.json"), previous, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(backup, "TRANSACTION"), []byte("state=promoting\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tree, scenario, "show.json"), []byte(`{"half":"promoted"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	output, err := exec.Command("sh", filepath.Join(tree, "gen-captures.sh"), "--recover", backup).CombinedOutput()
-	if err != nil {
-		t.Fatalf("--recover = %v\n%s", err, output)
-	}
-	restored, err := os.ReadFile(filepath.Join(tree, scenario, "show.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(restored) != string(previous) {
-		t.Errorf("recovered fixture = %q, want the backed-up previous bytes", restored)
-	}
-	if _, err := os.Stat(backup); !os.IsNotExist(err) {
-		t.Errorf("backup directory survives recovery: %v", err)
+	setup := func(t *testing.T) (string, string) {
+		t.Helper()
+		workspace := t.TempDir()
+		tree := filepath.Join(workspace, "captures")
+		copyCaptureTree(t, tree)
+		backup := filepath.Join(tree, ".capture-backup.test")
+		for _, scenario := range scenarios {
+			if err := os.MkdirAll(filepath.Join(backup, scenario), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			previous, err := os.ReadFile(filepath.Join(tree, scenario, "show.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(backup, scenario, "show.json"), previous, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(backup, "TRANSACTION"), []byte("state=promoting\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return tree, backup
 	}
 
-	// A backup without a TRANSACTION record refuses recovery.
-	orphan := filepath.Join(tree, ".capture-backup.orphan")
-	if err := os.MkdirAll(orphan, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if output, err := exec.Command("sh", filepath.Join(tree, "gen-captures.sh"), "--recover", orphan).CombinedOutput(); err == nil {
-		t.Fatalf("--recover accepted a backup without TRANSACTION:\n%s", output)
-	}
+	t.Run("full backup restores and validates", func(t *testing.T) {
+		tree, backup := setup(t)
+		// Fabricate a half-promoted state: one live fixture holds garbage.
+		garbage := filepath.Join(tree, "no_op", "show.json")
+		if err := os.WriteFile(garbage, []byte(`{"half":"promoted"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		output, err := exec.Command("sh", filepath.Join(tree, "gen-captures.sh"), "--recover", backup).CombinedOutput()
+		if err != nil {
+			t.Fatalf("--recover = %v\n%s", err, output)
+		}
+		if !strings.Contains(string(output), "RECOVERED") {
+			t.Errorf("--recover output = %q, want RECOVERED", output)
+		}
+		if _, err := os.Stat(backup); !os.IsNotExist(err) {
+			t.Errorf("backup directory survives successful recovery: %v", err)
+		}
+		validator := filepath.Join(tree, "validate_captures.py")
+		if output, err := exec.Command("python3", validator, tree).CombinedOutput(); err != nil {
+			t.Errorf("recovered set fails validation: %v\n%s", err, output)
+		}
+	})
+
+	t.Run("incomplete backup refuses without touching live files", func(t *testing.T) {
+		tree, backup := setup(t)
+		if err := os.RemoveAll(filepath.Join(backup, "empty_for_each")); err != nil {
+			t.Fatal(err)
+		}
+		sentinel := []byte(`{"live":"untouched"}`)
+		live := filepath.Join(tree, "no_op", "show.json")
+		if err := os.WriteFile(live, sentinel, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		output, err := exec.Command("sh", filepath.Join(tree, "gen-captures.sh"), "--recover", backup).CombinedOutput()
+		if err == nil {
+			t.Fatalf("--recover accepted an incomplete backup:\n%s", output)
+		}
+		if !strings.Contains(string(output), "incomplete") {
+			t.Errorf("refusal output = %q, want it to name the incomplete backup", output)
+		}
+		after, err := os.ReadFile(live)
+		if err != nil || string(after) != string(sentinel) {
+			t.Errorf("live file altered by refused recovery: %q err=%v", after, err)
+		}
+		if _, err := os.Stat(backup); err != nil {
+			t.Errorf("backup deleted by refused recovery: %v", err)
+		}
+	})
+
+	t.Run("missing transaction record refuses", func(t *testing.T) {
+		tree, backup := setup(t)
+		if err := os.Remove(filepath.Join(backup, "TRANSACTION")); err != nil {
+			t.Fatal(err)
+		}
+		if output, err := exec.Command("sh", filepath.Join(tree, "gen-captures.sh"), "--recover", backup).CombinedOutput(); err == nil {
+			t.Fatalf("--recover accepted a backup without TRANSACTION:\n%s", output)
+		}
+	})
+
+	t.Run("completed promotion refuses recovery", func(t *testing.T) {
+		tree, backup := setup(t)
+		if err := os.WriteFile(filepath.Join(backup, "TRANSACTION"), []byte("state=done\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if output, err := exec.Command("sh", filepath.Join(tree, "gen-captures.sh"), "--recover", backup).CombinedOutput(); err == nil {
+			t.Fatalf("--recover accepted a completed-promotion record:\n%s", output)
+		}
+	})
 }
