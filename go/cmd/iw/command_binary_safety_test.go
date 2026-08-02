@@ -45,12 +45,17 @@ func writeCompiledShowTerraform(t *testing.T, fixture blockC4Fixture, showJSON s
 
 func writeCompiledApplyFailureTerraform(t *testing.T, fixture blockC4Fixture, showJSON string) {
 	t.Helper()
+	// The log writes live inside the apply branch: iw's terraform show
+	// invocation runs with an allowlisted environment that strips
+	// FAKE_TF_LOG (and, since the diagnostics change, inherits stderr),
+	// so an unconditional append would leak shell errors into iw's
+	// exact-stderr contract. The assertion only needs the apply argv.
 	writeBlockC4File(t, fixture.terraform, []byte("#!/bin/sh\n"+
-		"printf 'cwd=%s\\n' \"$PWD\" >> \"$FAKE_TF_LOG\"\n"+
-		"printf 'arg=%s\\n' \"$@\" >> \"$FAKE_TF_LOG\"\n"+
 		"if [ \"$2\" = \"show\" ]; then\n"+
 		"  printf '%s' "+assessmentCommandShellLiteral(showJSON)+"\n"+
 		"elif [ \"$1\" = \"apply\" ]; then\n"+
+		"  printf 'cwd=%s\\n' \"$PWD\" >> \"$FAKE_TF_LOG\"\n"+
+		"  printf 'arg=%s\\n' \"$@\" >> \"$FAKE_TF_LOG\"\n"+
 		"  printf '%s\\n' 'fake terraform apply failure' >&2\n"+
 		"  exit 19\n"+
 		"fi\n"+
