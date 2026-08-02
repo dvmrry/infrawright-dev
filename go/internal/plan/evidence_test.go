@@ -373,7 +373,7 @@ func TestSavedPlanEvidenceAttestationIsBoundAndValidated(t *testing.T) {
 			name:       "unqualified_version",
 			content:    `{"format_version":1,"terraform_version":"1.14.9","argv":["plan","-refresh=true"],"refresh":true,"plan_sha256":"` + strings.Repeat("a", 64) + `"}`,
 			wantCode:   "INVALID_PLAN_ATTESTATION",
-			wantErrSub: "qualified 1.15.x",
+			wantErrSub: "not capture-qualified",
 		},
 		{
 			name:       "digest_mismatch",

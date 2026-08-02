@@ -263,8 +263,8 @@ func terraformVersionFromOutput(output []byte) (string, error) {
 		return "", errors.New("Terraform version output does not begin with Terraform v")
 	}
 	version := strings.TrimPrefix(line, "Terraform v")
-	if !qualifiedTerraformVersion.MatchString(version) {
-		return "", fmt.Errorf("Terraform version %q is outside the qualified 1.15.x range", version)
+	if !qualifiedTerraformVersions[version] {
+		return "", fmt.Errorf("Terraform version %q is not capture-qualified (qualified: 1.15.4)", version)
 	}
 	return version, nil
 }

@@ -1,14 +1,19 @@
 #!/bin/sh
 set -eu
 
-if [ "${TF_CLI_ARGS+x}" = x ] || [ "${TF_CLI_ARGS_plan+x}" = x ]; then
-	printf '%s\n' 'capture regeneration refuses inherited TF_CLI_ARGS or TF_CLI_ARGS_plan' >&2
+# Refuse and strip EVERY TF_CLI_ARGS variant: Terraform applies
+# TF_CLI_ARGS_<subcommand> per command, and this script runs apply, plan,
+# init, and show — an inherited TF_CLI_ARGS_apply could alter the state the
+# captures are built from.
+for terraform_args_variable in $(env | sed -n 's/^\(TF_CLI_ARGS[A-Za-z0-9_]*\)=.*/\1/p'); do
+	printf '%s\n' "capture regeneration refuses inherited $terraform_args_variable" >&2
 	exit 1
-fi
+done
 
 export TZ=UTC
 export LANG=C
-unset TF_CLI_ARGS TF_CLI_ARGS_plan TF_CLI_CONFIG_FILE TF_WORKSPACE TF_DATA_DIR TF_LOG TF_LOG_PATH
+export LC_ALL=C
+unset TF_CLI_CONFIG_FILE TF_WORKSPACE TF_DATA_DIR TF_LOG TF_LOG_PATH
 for terraform_variable in $(env | sed -n 's/^\(TF_VAR_[A-Za-z0-9_]*\)=.*/\1/p'); do
 	unset "$terraform_variable"
 done
@@ -24,7 +29,11 @@ stage_dir="$work_dir/captures"
 scenarios='initial_create no_op refresh_id_change rekey_refusal empty_for_each refresh_false refresh_true'
 
 cleanup() {
+	status=$?
 	rm -rf "$work_dir"
+	if [ -n "${backup_dir:-}" ] && [ -d "${backup_dir:-/nonexistent}" ] && [ "$status" -ne 0 ]; then
+		printf '%s\n' "capture promotion may be incomplete; previous fixtures preserved in $backup_dir (see TRANSACTION for state)" >&2
+	fi
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -94,14 +103,36 @@ INFRAWRIGHT_CAPTURE_ID_VERSION=v2 terraform plan -input=false -no-color -refresh
 INFRAWRIGHT_CAPTURE_ID_VERSION=v2 terraform plan -input=false -no-color -refresh=true -out=p.tfplan > p.log 2>&1
 capture_show refresh_true p.tfplan
 
+# Validate the COMPLETE staged set semantically before any tracked fixture
+# changes: JSON-parseable, complete, not errored, the qualified Terraform
+# version, and refresh-pair byte identity modulo the single timestamp.
 for scenario in $scenarios; do
 	if [ ! -s "$stage_dir/$scenario/show.json" ]; then
 		printf '%s\n' "capture regeneration produced an empty $scenario/show.json" >&2
 		exit 1
 	fi
+	python3 - "$stage_dir/$scenario/show.json" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.get("complete") is True, "capture is not complete"
+assert d.get("errored") is False, "capture errored"
+assert d.get("terraform_version") == "1.15.4", "capture terraform_version is not 1.15.4"
+PYEOF
 done
+python3 - "$stage_dir/refresh_false/show.json" "$stage_dir/refresh_true/show.json" <<'PYEOF'
+import json, re, sys
+def norm(p):
+	raw = open(p).read()
+	matches = re.findall(r'"timestamp":"[^"]*"', raw)
+	assert len(matches) == 1, "expected exactly one timestamp"
+	return re.sub(r'"timestamp":"[^"]*"', '"timestamp":"<t>"', raw)
+assert norm(sys.argv[1]) == norm(sys.argv[2]), "refresh pair differs beyond timestamp"
+PYEOF
 
-backup_dir="$work_dir/previous"
+# The backup set and transaction record live OUTSIDE the trap-deleted work
+# directory so an interruption mid-promotion leaves deterministic recovery
+# state instead of a mixed fixture set with no record.
+backup_dir="$capture_dir/.capture-backup.$$"
 mkdir -p "$backup_dir"
 for scenario in $scenarios; do
 	target="$capture_dir/$scenario/show.json"
@@ -115,12 +146,14 @@ for scenario in $scenarios; do
 	fi
 done
 
+printf 'state=promoting\nscenarios=%s\n' "$scenarios" > "$backup_dir/TRANSACTION"
 promote_failed=0
 for scenario in $scenarios; do
 	if ! mv "$stage_dir/$scenario/show.json" "$capture_dir/$scenario/show.json"; then
 		promote_failed=1
 		break
 	fi
+	printf 'promoted=%s\n' "$scenario" >> "$backup_dir/TRANSACTION"
 done
 
 if [ "$promote_failed" -ne 0 ]; then
@@ -138,4 +171,5 @@ if [ "$promote_failed" -ne 0 ]; then
 	exit 1
 fi
 
+rm -rf "$backup_dir"
 printf '%s\n' 'ALL-CAPTURED'

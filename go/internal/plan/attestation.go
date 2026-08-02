@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -26,7 +25,12 @@ const (
 	PlanCreationAttestationSuffix = ".attestation"
 )
 
-var qualifiedTerraformVersion = regexp.MustCompile(`^1\.15\.[0-9]+$`)
+// qualifiedTerraformVersions enumerates the exact Terraform releases the
+// committed capture matrix has been run and promoted under. Widening this
+// set REQUIRES re-running testdata/provider_double_capture/gen-captures.sh
+// and the focused contract suite under the new release first (see that
+// directory's README); patch releases are NOT assumed equivalent.
+var qualifiedTerraformVersions = map[string]bool{"1.15.4": true}
 
 // PlanCreationAttestation records engine-created plan provenance as defense in
 // depth against accidental plan/sidecar drift and version qualification.
@@ -149,8 +153,8 @@ func validatePlanCreationAttestation(attestation PlanCreationAttestation, expect
 	if attestation.FormatVersion != PlanCreationAttestationVersion {
 		return fmt.Errorf("attestation format_version must be %d", PlanCreationAttestationVersion)
 	}
-	if !qualifiedTerraformVersion.MatchString(attestation.TerraformVersion) {
-		return errors.New("attestation terraform_version must be in the qualified 1.15.x range")
+	if !qualifiedTerraformVersions[attestation.TerraformVersion] {
+		return fmt.Errorf("attestation terraform_version %q is not capture-qualified (qualified: 1.15.4)", attestation.TerraformVersion)
 	}
 	if len(attestation.PlanArgv) == 0 || attestation.PlanArgv[0] != "plan" {
 		return errors.New("attestation argv must begin with plan")

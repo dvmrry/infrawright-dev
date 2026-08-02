@@ -204,10 +204,10 @@ func providerDoubleShowCaptureBytes(t *testing.T, scenario string) []byte {
 	fixtureDirectory := filepath.Join("testdata", "provider_double_capture", scenario)
 	raw, err := os.ReadFile(filepath.Join(fixtureDirectory, "show.json"))
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			t.Skipf("CAPTURE-DEPENDENT: coordinator must regenerate %s/show.json", fixtureDirectory)
-		}
-		t.Fatalf("ReadFile(%s/show.json) error = %v, want nil", fixtureDirectory, err)
+		// Committed captures are mandatory promotion evidence: a missing
+		// fixture FAILS (regenerate with gen-captures.sh); it never skips,
+		// so weakening the fixture set cannot pass the focused gate.
+		t.Fatalf("ReadFile(%s/show.json) error = %v, want the committed capture (run testdata/provider_double_capture/gen-captures.sh)", fixtureDirectory, err)
 	}
 	return raw
 }
@@ -260,7 +260,7 @@ func TestValidateAssessmentPlanAcceptsProviderDoubleCaptures(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			show := providerDoubleShowCapture(t, scenario)
 			if scenario == "initial_create" && providerDoubleResourceCount(t, show) != 2 {
-				t.Skip("CAPTURE-DEPENDENT: coordinator must regenerate initial_create with two items")
+				t.Fatal("initial_create capture must carry two items (regenerate with gen-captures.sh)")
 			}
 			requireValidAssessmentPlan(
 				t,
@@ -341,12 +341,135 @@ func TestValidateAssessmentPlanProviderDoubleRefreshFlagIndependenceProof(t *tes
 	if !falseTimestampOK || !trueTimestampOK || refreshFalseTimestamp == "" || refreshTrueTimestamp == "" {
 		t.Fatalf("refresh flag proof timestamps = (%#v, %#v), want non-empty strings", refreshFalse["timestamp"], refreshTrue["timestamp"])
 	}
+	// The byte comparison is only meaningful once BOTH captures pin the full
+	// semantic matrix of the independence claim; otherwise a degenerate pair
+	// (e.g. two empty error documents) would compare equal and prove nothing.
+	assertRefreshPairSemantics(t, "refresh_false", refreshFalse)
+	assertRefreshPairSemantics(t, "refresh_true", refreshTrue)
 	if diff := cmp.Diff(
 		string(providerDoubleCaptureWithoutTimestamp(t, refreshTrueRaw)),
 		string(providerDoubleCaptureWithoutTimestamp(t, refreshFalseRaw)),
 	); diff != "" {
 		t.Errorf("refresh=false and refresh=true capture bytes differ beyond timestamp (-refresh_true +refresh_false):\n%s", diff)
 	}
+}
+
+// providerDoubleRefreshPair pins the deterministic provider-double IDs the
+// refresh pair must observe: v1 was applied, v2 is observed during both
+// plans (the refresh flag does not create a different observation lane).
+const (
+	providerDoubleRefreshPairBeforeID = "8a3fc945636370e1"
+	providerDoubleRefreshPairAfterID  = "018da47922f5094d"
+)
+
+func assertRefreshPairSemantics(t *testing.T, scenario string, show map[string]any) {
+	t.Helper()
+	if got, _ := show["terraform_version"].(string); got != "1.15.4" {
+		t.Errorf("%s terraform_version = %#v, want 1.15.4", scenario, show["terraform_version"])
+	}
+	if got, _ := show["format_version"].(string); !strings.HasPrefix(got, "1.") {
+		t.Errorf("%s format_version = %#v, want a 1.x plan format", scenario, show["format_version"])
+	}
+	if complete, _ := show["complete"].(bool); !complete {
+		t.Errorf("%s complete = %#v, want true", scenario, show["complete"])
+	}
+	if errored, _ := show["errored"].(bool); errored {
+		t.Errorf("%s errored = %#v, want false", scenario, show["errored"])
+	}
+	if failing := failingCheckCount(show); failing != 0 {
+		t.Errorf("%s failing lifecycle checks = %d, want 0", scenario, failing)
+	}
+	outputChanges, _ := show["output_changes"].(map[string]any)
+	change, _ := outputChanges["iw_reference_ids"].(map[string]any)
+	actions, _ := change["actions"].([]any)
+	if len(actions) != 1 || actions[0] != "update" {
+		t.Errorf("%s iw_reference_ids actions = %#v, want [update]", scenario, change["actions"])
+	}
+	wantBefore := map[string]any{"capture_item": map[string]any{"group_one": providerDoubleRefreshPairBeforeID}}
+	wantAfter := map[string]any{"capture_item": map[string]any{"group_one": providerDoubleRefreshPairAfterID}}
+	if diff := cmp.Diff(wantBefore, change["before"]); diff != "" {
+		t.Errorf("%s output before mismatch (-want +got):\n%s", scenario, diff)
+	}
+	if diff := cmp.Diff(wantAfter, change["after"]); diff != "" {
+		t.Errorf("%s output after mismatch (-want +got):\n%s", scenario, diff)
+	}
+	priorIDs := providerDoublePriorStateDataIDs(t, show)
+	wantPrior := map[string]any{
+		`module.capture_item.data.capture_item.items["group_one"]`: providerDoubleRefreshPairAfterID,
+	}
+	if diff := cmp.Diff(wantPrior, priorIDs); diff != "" {
+		t.Errorf("%s prior-state data IDs mismatch (-want +got):\n%s", scenario, diff)
+	}
+	if planned := plannedDataResourceCount(show); planned != 0 {
+		t.Errorf("%s planned data resources = %d, want 0", scenario, planned)
+	}
+	if changes := nonNoOpResourceChangeCount(show); changes != 0 {
+		t.Errorf("%s non-no-op resource changes = %d, want 0", scenario, changes)
+	}
+}
+
+func failingCheckCount(show map[string]any) int {
+	checks, _ := show["checks"].([]any)
+	failing := 0
+	for _, rawCheck := range checks {
+		check, _ := rawCheck.(map[string]any)
+		if status, _ := check["status"].(string); status != "" && status != "pass" {
+			failing++
+		}
+	}
+	return failing
+}
+
+func providerDoublePriorStateDataIDs(t *testing.T, show map[string]any) map[string]any {
+	t.Helper()
+	ids := map[string]any{}
+	priorState, _ := show["prior_state"].(map[string]any)
+	values, _ := priorState["values"].(map[string]any)
+	root, _ := values["root_module"].(map[string]any)
+	children, _ := root["child_modules"].([]any)
+	for _, rawChild := range children {
+		child, _ := rawChild.(map[string]any)
+		resources, _ := child["resources"].([]any)
+		for _, rawResource := range resources {
+			resource, _ := rawResource.(map[string]any)
+			if resource["mode"] != "data" {
+				continue
+			}
+			resourceValues, _ := resource["values"].(map[string]any)
+			address, _ := resource["address"].(string)
+			ids[address] = resourceValues["id"]
+		}
+	}
+	return ids
+}
+
+func plannedDataResourceCount(show map[string]any) int {
+	planned, _ := show["planned_values"].(map[string]any)
+	root, _ := planned["root_module"].(map[string]any)
+	count := 0
+	children, _ := root["child_modules"].([]any)
+	for _, rawChild := range children {
+		child, _ := rawChild.(map[string]any)
+		resources, _ := child["resources"].([]any)
+		count += len(resources)
+	}
+	resources, _ := root["resources"].([]any)
+	return count + len(resources)
+}
+
+func nonNoOpResourceChangeCount(show map[string]any) int {
+	changes, _ := show["resource_changes"].([]any)
+	count := 0
+	for _, rawChange := range changes {
+		change, _ := rawChange.(map[string]any)
+		inner, _ := change["change"].(map[string]any)
+		actions, _ := inner["actions"].([]any)
+		if len(actions) == 1 && actions[0] == "no-op" {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func TestValidateAssessmentPlanDataNoOpDoesNotRequireAuthorization(t *testing.T) {
