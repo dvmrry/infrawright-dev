@@ -11,7 +11,6 @@ type ResourceDescriptor struct {
 	BareName     string
 	Generated    bool
 	DataReferent bool
-	Derived      bool
 }
 
 // ResourceSet is an in-memory resource selection input. It is not persisted,

@@ -161,13 +161,6 @@ func (adapter *lazyRefreshTerraform) Apply(request plan.RefreshApplyRequest) err
 	return adapter.adapter.Apply(request)
 }
 
-func refreshCommandWithDependencies(
-	arguments []string,
-	dependencies refreshCommandDependencies,
-) (int, error) {
-	return executeStandaloneCobra(newRefreshCobraCommand(dependencies), arguments)
-}
-
 func newRefreshCobraCommand(dependencies refreshCommandDependencies) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use:   "refresh",

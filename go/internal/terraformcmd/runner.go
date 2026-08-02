@@ -185,14 +185,17 @@ func RunTerraformCommandContext(parent context.Context, options TerraformCommand
 		stdoutPump = newCommandHostOutputPump(hostOutput.stdout)
 	}
 	var stderrPump *commandHostOutputPump
-	if options.Output == TerraformCommandOutputInherit || options.Output == TerraformCommandOutputInheritStderr {
+	if options.Output == TerraformCommandOutputInherit ||
+		options.Output == TerraformCommandOutputInheritStderr ||
+		options.Output == TerraformCommandOutputCaptureStdoutInheritStderr {
 		stderrPump = newCommandHostOutputPump(hostOutput.stderr)
 	}
 	go func() {
 		streamResults <- readBoundedCommandStream(
 			stdoutReader,
 			limits.MaxStdoutBytes,
-			options.Output == TerraformCommandOutputCapture,
+			options.Output == TerraformCommandOutputCapture ||
+				options.Output == TerraformCommandOutputCaptureStdoutInheritStderr,
 			stdoutPump,
 			true,
 		)
@@ -355,6 +358,7 @@ func RunTerraformCommandContext(parent context.Context, options TerraformCommand
 
 func validOutputMode(output TerraformCommandOutput) bool {
 	return output == TerraformCommandOutputCapture ||
+		output == TerraformCommandOutputCaptureStdoutInheritStderr ||
 		output == TerraformCommandOutputDiscard ||
 		output == TerraformCommandOutputInherit ||
 		output == TerraformCommandOutputInheritStderr

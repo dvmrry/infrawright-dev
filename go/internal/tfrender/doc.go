@@ -9,14 +9,16 @@
 //     file imports it) -- see import_blocks_test.go's doc comment for the
 //     probe-derived vectors used in its place.
 //   - the original implementation: artifact assembly and the
-//     transactional filesystem write path (tfvars in json/hcl format,
-//     imports files, lookup sidecars, and batch publish/rollback
-//     semantics) (transform_artifacts.go). The generated-bindings sidecar
+//     filesystem write path (tfvars in json/hcl format, imports files, and
+//     lookup sidecars) (transform_artifacts.go). The Node source's
+//     transactional batch publish/rollback subsystem is not ported: it had
+//     no production callers (transform and adopt compile and publish each
+//     type sequentially and independently). The generated-bindings sidecar
 //     (.generated.expressions.json) is deliberately NOT part of the write
 //     path as of Task A2 (sidecar minimization, Part A): it is derivable
 //     from committed config, lookups, and schema at render time, so publish
 //     only ever stale-cleans a pre-existing copy, never writes one -- see
-//     PublishCompiledTransformArtifacts and batchArtifactMutations.
+//     PublishCompiledTransformArtifacts.
 //
 // # Local dependency ports (pending integration)
 //

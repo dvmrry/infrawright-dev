@@ -44,10 +44,11 @@ func DefaultTerraformCommandLimits() TerraformCommandLimits {
 type TerraformCommandOutput string
 
 const (
-	TerraformCommandOutputCapture       TerraformCommandOutput = "capture"
-	TerraformCommandOutputDiscard       TerraformCommandOutput = "discard"
-	TerraformCommandOutputInherit       TerraformCommandOutput = "inherit"
-	TerraformCommandOutputInheritStderr TerraformCommandOutput = "inherit-stderr"
+	TerraformCommandOutputCapture                    TerraformCommandOutput = "capture"
+	TerraformCommandOutputCaptureStdoutInheritStderr TerraformCommandOutput = "capture-stdout-inherit-stderr"
+	TerraformCommandOutputDiscard                    TerraformCommandOutput = "discard"
+	TerraformCommandOutputInherit                    TerraformCommandOutput = "inherit"
+	TerraformCommandOutputInheritStderr              TerraformCommandOutput = "inherit-stderr"
 )
 
 // TerraformCommandOptions describes one fixed, trusted, non-shell command.

@@ -39,7 +39,9 @@ package envgen
 //     tfrender.RenderHclQuotedString
 //   - LoadedPackRoot/LoadedResourceMetadata -> metadata.LoadedPackRoot/
 //     metadata.LoadedResourceMetadata
-//   - applyExpressionBindings/expressionModuleTargets/
+//   - applyExpressionBindings (its validation half; the transformed-items
+//     result is not ported -- see ValidateExpressionBindingTargets)/
+//     expressionModuleTargets/
 //     expressionRemoteStateReferences/loadExpressionBindings/
 //     mergeExpressionBindingLayers/renderExpressionBindingsHcl/
 //     validateExpressionBindingSchemaPaths -> this package's own
@@ -1349,8 +1351,7 @@ func validateBindingsAgainstConfig(bindings []ExpressionBinding, config string, 
 	if !ok {
 		return fmt.Errorf("%s must contain a %s object", config, variableNameValue)
 	}
-	_, err = ApplyExpressionBindings(itemsObject, bindings)
-	return err
+	return ValidateExpressionBindingTargets(itemsObject, bindings)
 }
 
 // filterGeneratedBindings ports the local filterGeneratedBindings helper

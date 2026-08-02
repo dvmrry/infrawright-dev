@@ -147,7 +147,7 @@ func (t *importStagingTerraform) Initialize(request ImportStagingTerraformReques
 		Argv:                argv,
 		CWD:                 request.Directory,
 		Environment:         t.environment,
-		Output:              terraformcmd.TerraformCommandOutputDiscard,
+		Output:              terraformcmd.TerraformCommandOutputInheritStderr,
 	})
 	return err
 }
@@ -169,13 +169,9 @@ func (t *importStagingTerraform) ListState(request ImportStagingTerraformRequest
 		Argv:                []string{"state", "list"},
 		CWD:                 request.Directory,
 		Environment:         t.environment,
-		Output:              terraformcmd.TerraformCommandOutputCapture,
+		Output:              terraformcmd.TerraformCommandOutputCaptureStdoutInheritStderr,
 	})
 	if err != nil {
-		var failure *procerr.ProcessFailure
-		if errors.As(err, &failure) && failure.Code == "TERRAFORM_COMMAND_FAILED" {
-			return ImportStagingStateResult{Success: false, Stdout: ""}, nil
-		}
 		return ImportStagingStateResult{}, err
 	}
 	stdout, err := decodeTerraformStateList(result.Stdout)
@@ -580,10 +576,14 @@ func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 					if err != nil {
 						return StageImportsResult{}, err
 					}
-					addresses := []string(nil)
-					if state.Success {
-						addresses = stateAddresses(state.Stdout)
+					if !state.Success {
+						return StageImportsResult{}, stagingFailure(
+							"TERRAFORM_STATE_LIST_FAILED",
+							"terraform state list did not succeed",
+							procerr.CategoryDomain,
+						)
 					}
+					addresses := stateAddresses(state.Stdout)
 					text, sourceMode, err := readPythonTextUTF8WithMode(source, resourceType+" imports")
 					if err != nil {
 						return StageImportsResult{}, err

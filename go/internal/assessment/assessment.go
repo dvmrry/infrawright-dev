@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -821,33 +820,6 @@ func safeCollectAssessmentGuidance(
 	return hook(options)
 }
 
-func asyncAssessmentFinalizerValue(value any) bool {
-	if value == nil {
-		return false
-	}
-	reflected := reflect.ValueOf(value)
-	for reflected.IsValid() && (reflected.Kind() == reflect.Interface || reflected.Kind() == reflect.Pointer) {
-		if reflected.IsNil() {
-			return false
-		}
-		reflected = reflected.Elem()
-	}
-	if !reflected.IsValid() {
-		return false
-	}
-	switch reflected.Kind() {
-	case reflect.Chan:
-		return true
-	case reflect.Map:
-		if reflected.Type().Key().Kind() == reflect.String {
-			return reflected.MapIndex(reflect.ValueOf("then").Convert(reflected.Type().Key())).IsValid()
-		}
-	case reflect.Struct:
-		return reflected.FieldByName("Then").IsValid()
-	}
-	return false
-}
-
 func runSavedPlanAssessment[T any](
 	options SavedPlanAssessmentTransactionOptions,
 	classifyOptions ClassifyPlanOptions,
@@ -1283,13 +1255,6 @@ func runSavedPlanAssessment[T any](
 	}
 	if _, err := assessmentRemainingTime(deadline, hooks.now); err != nil {
 		primaryFailure = safeAssessmentFailure(err)
-		return completed, nil
-	}
-	if asyncAssessmentFinalizerValue(completed) {
-		primaryFailure = assessmentDomainFailure(
-			"INVALID_ASSESSMENT_FINALIZER",
-			"saved-plan assessment finalization must be synchronous",
-		)
 		return completed, nil
 	}
 	hasCompleted = true
