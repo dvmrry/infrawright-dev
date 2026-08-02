@@ -37,7 +37,9 @@ func compiledSafetyMetadataArguments(fixture blockC4Fixture) []string {
 func writeCompiledShowTerraform(t *testing.T, fixture blockC4Fixture, showJSON string) {
 	t.Helper()
 	writeBlockC4File(t, fixture.terraform, []byte("#!/bin/sh\n"+
-		"if [ \"$2\" = \"show\" ]; then\n"+
+		"if [ \"$1\" = \"version\" ]; then\n"+
+		"  printf '%s\\n' 'Terraform v1.15.4'\n"+
+		"elif [ \"$2\" = \"show\" ]; then\n"+
 		"  printf '%s' "+assessmentCommandShellLiteral(showJSON)+"\n"+
 		"fi\n"+
 		"exit 0\n"), 0o700)
@@ -51,7 +53,9 @@ func writeCompiledApplyFailureTerraform(t *testing.T, fixture blockC4Fixture, sh
 	// so an unconditional append would leak shell errors into iw's
 	// exact-stderr contract. The assertion only needs the apply argv.
 	writeBlockC4File(t, fixture.terraform, []byte("#!/bin/sh\n"+
-		"if [ \"$2\" = \"show\" ]; then\n"+
+		"if [ \"$1\" = \"version\" ]; then\n"+
+		"  printf '%s\\n' 'Terraform v1.15.4'\n"+
+		"elif [ \"$2\" = \"show\" ]; then\n"+
 		"  printf '%s' "+assessmentCommandShellLiteral(showJSON)+"\n"+
 		"elif [ \"$1\" = \"apply\" ]; then\n"+
 		"  printf 'cwd=%s\\n' \"$PWD\" >> \"$FAKE_TF_LOG\"\n"+
