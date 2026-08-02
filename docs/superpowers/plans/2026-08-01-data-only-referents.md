@@ -89,6 +89,18 @@ pair. `generate` absent/false plus `data_referent` absent stays valid
 
 ### Task 2: Topology — data-referent types are roots and referents
 
+**Corrections from the final-gate review (binding):** exact-type
+selectors ADMIT data-referent types as root targets (plan-roots,
+gen-env, plan, refresh) — the original "never selectable, fails as
+UNKNOWN_RESOURCE_SELECTOR" contract made the refresh posture unusable
+and is reversed; data referents remain excluded from generated-referrer
+enumeration, adopt, and product/provider/bare expansion. A references
+block declared FROM a data referent refuses at pack load (the interim
+silent-skip ruling is reversed); downstream resolvers refuse
+defensively. plan-roots output is schema_version 2 with data_referents
+required. The default no-selector transform lane processes data
+referents before their referrers.
+
 **Files:**
 - Modify: `go/internal/roots/roots.go` (`indexLoadedPackRoot` /
   `resourceIndex` — the `generated` set gates root membership today)

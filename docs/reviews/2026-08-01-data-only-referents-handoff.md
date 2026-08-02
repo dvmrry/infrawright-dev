@@ -56,10 +56,15 @@ the AGENTS.md adversarial gate.
 - Provider schemas: vendored packs/zia data_source_schemas
   (zia_location_groups shape: optional name argument, numeric id,
   predefined flag).
-- OpenAPI/API contracts: vendored zia.openapi.json GET /locations/groups
-  (page/pageSize, max 1000).
-- Provider source files: none directly; recorded cassette
-  TestLocationGroup.yaml (zscaler-skill vendor) evidences the endpoint.
+- OpenAPI/API contracts: EXTERNAL evidence — zia.openapi.json GET
+  /locations/groups (page/pageSize, max 1000) in the separate
+  zscaler-skill repository's vendor tree, not in this repository.
+- Provider source files: none directly; the recorded cassette
+  TestLocationGroup.yaml is likewise external (zscaler-skill vendor).
+  Residual unverified claims: exact pinned-provider pagination limits
+  and provider-side duplicate/not-found behavior (mitigated: the data
+  lane refuses non-bijective IDs, and a vanished group fails its
+  per-name data-source read loudly).
 - Pack metadata: packs/zia registry/pack.json; full.packset.json.
 - Existing docs or design records: the spec and plan on this branch;
   docs/terraform-expression-bindings.md; state-topology docs.
