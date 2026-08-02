@@ -28,10 +28,12 @@ const (
 
 var qualifiedTerraformVersion = regexp.MustCompile(`^1\.15\.[0-9]+$`)
 
-// PlanCreationAttestation records the trusted creation facts needed before a
-// saved plan can authorize provider-observed data IDs. PlanArgv excludes the
-// Terraform executable path and contains the exact argument vector passed to
-// that executable.
+// PlanCreationAttestation records engine-created plan provenance as defense in
+// depth against accidental plan/sidecar drift and version qualification.
+// It does NOT authenticate against a writer who can forge both plan and sidecar — the same trust class as tfplan.sources.
+// PlanArgv excludes the Terraform executable path and contains the exact
+// argument vector passed to that executable. Refresh records the invocation's
+// refresh flag; it is not a standalone stale-data claim.
 type PlanCreationAttestation struct {
 	FormatVersion    int      `json:"format_version"`
 	TerraformVersion string   `json:"terraform_version"`
@@ -150,23 +152,17 @@ func validatePlanCreationAttestation(attestation PlanCreationAttestation, expect
 	if !qualifiedTerraformVersion.MatchString(attestation.TerraformVersion) {
 		return errors.New("attestation terraform_version must be in the qualified 1.15.x range")
 	}
-	if !attestation.Refresh {
-		return errors.New("attestation refresh must be true")
-	}
 	if len(attestation.PlanArgv) == 0 || attestation.PlanArgv[0] != "plan" {
 		return errors.New("attestation argv must begin with plan")
 	}
-	hasRefreshTrue := false
+	hasRefreshFlag := false
 	for _, argument := range attestation.PlanArgv[1:] {
-		if argument == "-refresh=false" {
-			return errors.New("attestation argv must not contain -refresh=false")
-		}
-		if argument == "-refresh=true" {
-			hasRefreshTrue = true
+		if argument == "-refresh=false" || argument == "-refresh=true" {
+			hasRefreshFlag = true
 		}
 	}
-	if !hasRefreshTrue {
-		return errors.New("attestation argv must contain direct -refresh=true")
+	if !hasRefreshFlag {
+		return errors.New("attestation argv must contain an explicit refresh flag")
 	}
 	if !isLowerSHA256Attestation(attestation.PlanSHA256) {
 		return errors.New("attestation plan_sha256 must be a lowercase SHA-256 digest")

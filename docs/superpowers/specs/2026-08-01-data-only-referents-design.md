@@ -86,6 +86,13 @@ Modulesgen emits a data module instead of a resource module:
 data "zia_location_groups" "items" {
   for_each = var.items
   name     = each.value.name
+
+  lifecycle {
+    postcondition {
+      condition     = self.name == each.value.name
+      error_message = "provider returned name does not exactly match requested name"
+    }
+  }
 }
 
 output "iw_reference_ids" {
@@ -129,19 +136,41 @@ root topology as an ordinary singleton root with its own state.
   value exactly. `planned_values` and `resource_changes` are not data-kind
   evidence sources. Empty refreshed prior-state evidence therefore refuses a
   nonempty `after`, while an empty map is accepted only for the configured
-  empty data module. A changed output key projection may be retained only
-  when its scalar values match the refreshed data IDs one-for-one.
+  empty data module. Output keys are part of the authorization: a changed key
+  projection is refused even when its scalar values match the refreshed data
+  IDs one-for-one.
 - This container rule is grounded in the committed Terraform 1.15.4
-  provider-double captures: all five have zero planned child resources; the
+  provider-double captures: all seven have zero planned child resources; the
   `refresh_id_change` prior state carries the newly observed ID and matches
-  `output_changes.iw_reference_ids.after`; and `no_op`, `output_only_change`,
+  `output_changes.iw_reference_ids.after`; and `no_op`, `rekey_refusal`,
   `initial_create`, and `empty_for_each` exhibit the distinct no-op, output-
   only, nonempty-create, and empty-create shapes respectively.
+- The `refresh_false` and `refresh_true` captures are a refresh-flag-
+  independence proof for Terraform 1.15.4, not a stale-data negative: the
+  known-input data read is provider-observed in both plans, and the captures
+  are byte-identical after removing only their timestamps.
 - Provider name lookup caveat: the pinned ZIA 4.8.0 provider/SDK resolves a
   per-name data-source read case-insensitively and returns the first matching
-  item. This is safe only because the data transform derives keys
-  case-insensitively and refuses case-colliding names before publication;
-  ambiguous names never become a published lookup or configuration.
+  item. The generated data module's postcondition requires the provider's
+  returned name to equal the requested name exactly, so a case-different
+  first-match is a loud plan failure. The data transform still derives keys
+  case-insensitively and refuses names that collide before publication, but a
+  same-case duplicate introduced after publication remains a residual caveat:
+  the exact-name postcondition cannot distinguish two objects with identical
+  names, and the provider may still return whichever matching object it sees
+  first.
+
+### Saved-plan attestation trust boundary
+
+The plan creation attestation is provenance defense-in-depth. It authenticates
+engine-created plans against accidental drift and version qualification.
+It does NOT authenticate against a writer who can forge both plan and sidecar — the same trust class as tfplan.sources.
+Its digest binds the sidecar to the
+exact plan bytes, and its version/argv fields record the qualified lifecycle
+invocation; those checks are consistency checks rather than an authenticated
+receipt from an issuer outside the plan directory owner. A non-no-op data
+output still requires the attestation as this defense-in-depth boundary, while
+no-op or absent-output-change paths make no new reference authorization claim.
 
 ## Refresh strategy
 

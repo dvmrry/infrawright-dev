@@ -5,8 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
@@ -16,6 +19,8 @@ const dataReferenceType = "sample_groups_data"
 const terraformRemoteStateReferenceType = "terraform_remote_state"
 
 const providerDoubleReferenceType = "capture_item"
+
+var providerDoubleCaptureTimestamp = regexp.MustCompile(`"timestamp":"[^"]*"`)
 
 func dataReferenceAssessmentPlan(resources []any, configurationMode string, ids map[string]any) map[string]any {
 	configurationAddress := "data." + dataReferenceType + ".items"
@@ -132,10 +137,14 @@ func validDataReferencePlan(id any) map[string]any {
 }
 
 func testQualifiedPlanAttestation(refresh bool) *PlanCreationAttestation {
+	refreshArgument := "-refresh=true"
+	if !refresh {
+		refreshArgument = "-refresh=false"
+	}
 	return &PlanCreationAttestation{
 		FormatVersion:    PlanCreationAttestationVersion,
 		TerraformVersion: "1.15.4",
-		PlanArgv:         []string{"plan", "-input=false", "-refresh=true", "-out=tfplan"},
+		PlanArgv:         []string{"plan", "-input=false", refreshArgument, "-out=tfplan"},
 		Refresh:          refresh,
 		PlanSHA256:       strings.Repeat("a", 64),
 	}
@@ -190,16 +199,22 @@ func offlineTerraformShowCapture(t *testing.T, scenario string) map[string]any {
 	return show
 }
 
-func providerDoubleShowCapture(t *testing.T, scenario string) map[string]any {
+func providerDoubleShowCaptureBytes(t *testing.T, scenario string) []byte {
 	t.Helper()
 	fixtureDirectory := filepath.Join("testdata", "provider_double_capture", scenario)
 	raw, err := os.ReadFile(filepath.Join(fixtureDirectory, "show.json"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			t.Skipf("capture not generated: %s/show.json", fixtureDirectory)
+			t.Skipf("CAPTURE-DEPENDENT: coordinator must regenerate %s/show.json", fixtureDirectory)
 		}
 		t.Fatalf("ReadFile(%s/show.json) error = %v, want nil", fixtureDirectory, err)
 	}
+	return raw
+}
+
+func parseProviderDoubleShowCapture(t *testing.T, scenario string, raw []byte) map[string]any {
+	t.Helper()
+	fixtureDirectory := filepath.Join("testdata", "provider_double_capture", scenario)
 	showValue, err := canonjson.ParseDataJSONLosslessly(string(raw))
 	if err != nil {
 		t.Fatalf("ParseDataJSONLosslessly(%s/show.json) error = %v, want nil", fixtureDirectory, err)
@@ -209,6 +224,20 @@ func providerDoubleShowCapture(t *testing.T, scenario string) map[string]any {
 		t.Fatalf("ParseDataJSONLosslessly(%s/show.json) = %T, want object", fixtureDirectory, showValue)
 	}
 	return show
+}
+
+func providerDoubleShowCapture(t *testing.T, scenario string) map[string]any {
+	t.Helper()
+	return parseProviderDoubleShowCapture(t, scenario, providerDoubleShowCaptureBytes(t, scenario))
+}
+
+func providerDoubleCaptureWithoutTimestamp(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	matches := providerDoubleCaptureTimestamp.FindAllIndex(raw, -1)
+	if len(matches) != 1 {
+		t.Fatalf("provider-double capture timestamp matches = %d, want exactly one", len(matches))
+	}
+	return providerDoubleCaptureTimestamp.ReplaceAll(raw, []byte(`"timestamp":"<timestamp>"`))
 }
 
 func providerDoubleDataReferenceContract() *AssessmentPlanContract {
@@ -231,7 +260,7 @@ func TestValidateAssessmentPlanAcceptsProviderDoubleCaptures(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			show := providerDoubleShowCapture(t, scenario)
 			if scenario == "initial_create" && providerDoubleResourceCount(t, show) != 2 {
-				t.Skip("capture not generated: initial_create still has the pre-recheck one-item fixture")
+				t.Skip("CAPTURE-DEPENDENT: coordinator must regenerate initial_create with two items")
 			}
 			requireValidAssessmentPlan(
 				t,
@@ -282,23 +311,42 @@ func TestValidateAssessmentPlanRejectsProviderDoubleRekeyCapture(t *testing.T) {
 	)
 }
 
-func TestValidateAssessmentPlanProviderDoubleFreshnessCaptureMatrix(t *testing.T) {
-	t.Run("stale_refresh_false", func(t *testing.T) {
-		stale := providerDoubleShowCapture(t, "stale_refresh_false")
-		staleContract := providerDoubleDataReferenceContract()
-		staleContract.PlanAttestation = testQualifiedPlanAttestation(false)
-		requireAssessmentPlanErrorContaining(t, stale, staleContract, "plan creation attestation")
-	})
+func TestValidateAssessmentPlanProviderDoubleRefreshFlagIndependenceProof(t *testing.T) {
+	refreshFalseRaw := providerDoubleShowCaptureBytes(t, "refresh_false")
+	refreshFalse := parseProviderDoubleShowCapture(t, "refresh_false", refreshFalseRaw)
+	refreshFalseContract := providerDoubleDataReferenceContract()
+	refreshFalseContract.PlanAttestation = testQualifiedPlanAttestation(false)
+	// Terraform 1.15.4 reads known-input data sources during both plans. The
+	// refresh=false capture is therefore accepted as provider-observed evidence;
+	// matching bytes after timestamp normalization are the empirical proof that
+	// the flag does not create a different observation lane here.
+	requireValidAssessmentPlan(
+		t,
+		"ValidateAssessmentPlan(provider-double refresh_false)",
+		refreshFalse,
+		refreshFalseContract,
+	)
 
-	t.Run("fresh_after_stale", func(t *testing.T) {
-		fresh := providerDoubleShowCapture(t, "fresh_after_stale")
-		requireValidAssessmentPlan(
-			t,
-			"ValidateAssessmentPlan(provider-double fresh_after_stale)",
-			fresh,
-			providerDoubleDataReferenceContract(),
-		)
-	})
+	refreshTrueRaw := providerDoubleShowCaptureBytes(t, "refresh_true")
+	refreshTrue := parseProviderDoubleShowCapture(t, "refresh_true", refreshTrueRaw)
+	requireValidAssessmentPlan(
+		t,
+		"ValidateAssessmentPlan(provider-double refresh_true)",
+		refreshTrue,
+		providerDoubleDataReferenceContract(),
+	)
+
+	refreshFalseTimestamp, falseTimestampOK := refreshFalse["timestamp"].(string)
+	refreshTrueTimestamp, trueTimestampOK := refreshTrue["timestamp"].(string)
+	if !falseTimestampOK || !trueTimestampOK || refreshFalseTimestamp == "" || refreshTrueTimestamp == "" {
+		t.Fatalf("refresh flag proof timestamps = (%#v, %#v), want non-empty strings", refreshFalse["timestamp"], refreshTrue["timestamp"])
+	}
+	if diff := cmp.Diff(
+		string(providerDoubleCaptureWithoutTimestamp(t, refreshTrueRaw)),
+		string(providerDoubleCaptureWithoutTimestamp(t, refreshFalseRaw)),
+	); diff != "" {
+		t.Errorf("refresh=false and refresh=true capture bytes differ beyond timestamp (-refresh_true +refresh_false):\n%s", diff)
+	}
 }
 
 func TestValidateAssessmentPlanDataNoOpDoesNotRequireAuthorization(t *testing.T) {
@@ -314,7 +362,7 @@ func TestValidateAssessmentPlanDataNoOpDoesNotRequireAuthorization(t *testing.T)
 	)
 }
 
-func TestValidateAssessmentPlanDataAuthorizationRequiresQualifiedAttestation(t *testing.T) {
+func TestValidateAssessmentPlanDataAuthorizationAttestationBoundary(t *testing.T) {
 	contract := dataReferenceContract()
 	contract.PlanAttestation = nil
 	requireAssessmentPlanErrorContaining(
@@ -326,22 +374,22 @@ func TestValidateAssessmentPlanDataAuthorizationRequiresQualifiedAttestation(t *
 
 	contract = dataReferenceContract()
 	contract.PlanAttestation = testQualifiedPlanAttestation(false)
-	requireAssessmentPlanErrorContaining(
+	requireValidAssessmentPlan(
 		t,
+		"ValidateAssessmentPlan(data reference with refresh=false attestation)",
 		validDataReferencePlan("101"),
 		contract,
-		"plan creation attestation",
 	)
 }
 
 func TestValidateAssessmentPlanManagedAuthorizationChecksPresentAttestation(t *testing.T) {
 	contract := referenceContract()
 	contract.PlanAttestation = testQualifiedPlanAttestation(false)
-	requireAssessmentPlanErrorContaining(
+	requireValidAssessmentPlan(
 		t,
+		"ValidateAssessmentPlan(managed reference with refresh=false attestation)",
 		referenceAssessmentPlan("create"),
 		contract,
-		"plan creation attestation",
 	)
 	requireValidAssessmentPlan(
 		t,

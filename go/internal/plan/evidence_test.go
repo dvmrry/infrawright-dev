@@ -345,6 +345,17 @@ func TestSavedPlanEvidenceAttestationIsBoundAndValidated(t *testing.T) {
 			t.Errorf("CleanupSavedPlanEvidence(attested evidence) error = %v, want nil", err)
 		}
 	})
+	t.Run("refresh_false is recorded and accepted", func(t *testing.T) {
+		fixture := newEvidenceFixture(t)
+		attestation := evidenceAttestation(t, fixture)
+		attestation.Refresh = false
+		attestation.PlanArgv = []string{"plan", "-input=false", "-refresh=false", "-out=tfplan"}
+		writeEvidenceAttestation(t, fixture, attestation)
+		evidence := prepareEvidence(t, fixture)
+		if evidence.PlanAttestation == nil || evidence.PlanAttestation.Refresh {
+			t.Fatalf("SavedPlanEvidence.PlanAttestation = %+v, want accepted refresh=false attestation", evidence.PlanAttestation)
+		}
+	})
 
 	tests := []struct {
 		name       string
@@ -357,12 +368,6 @@ func TestSavedPlanEvidenceAttestationIsBoundAndValidated(t *testing.T) {
 			content:    "{not-json",
 			wantCode:   "INVALID_PLAN_ATTESTATION",
 			wantErrSub: "valid contract JSON",
-		},
-		{
-			name:       "refresh_false",
-			content:    `{"format_version":1,"terraform_version":"1.15.4","argv":["plan","-refresh=false"],"refresh":false,"plan_sha256":"` + strings.Repeat("a", 64) + `"}`,
-			wantCode:   "INVALID_PLAN_ATTESTATION",
-			wantErrSub: "refresh must be true",
 		},
 		{
 			name:       "unqualified_version",

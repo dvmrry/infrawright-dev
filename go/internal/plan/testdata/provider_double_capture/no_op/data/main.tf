@@ -13,6 +13,13 @@ variable "items" {
 data "capture_item" "items" {
   for_each = var.items
   name     = each.value
+
+  lifecycle {
+    postcondition {
+      condition     = self.name == each.value
+      error_message = "provider returned name does not exactly match requested name"
+    }
+  }
 }
 
 output "iw_reference_ids" {

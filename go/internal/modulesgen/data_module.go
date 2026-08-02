@@ -163,9 +163,9 @@ func buildDataModuleContext(root metadata.LoadedPackRoot, resourceType string) (
 
 func renderDataMain(context dataModuleContext) string {
 	return fmt.Sprintf(
-		"%sdata \"%s\" \"items\" {\n  for_each = var.items\n  %s = each.value.%s\n}\n\noutput \"items\" {\n  description = \"All read-only %s data source objects, keyed as in var.items.\"\n  value       = data.%s.items\n}\n",
+		"%sdata \"%s\" \"items\" {\n  for_each = var.items\n  %s = each.value.%s\n\n  lifecycle {\n    postcondition {\n      condition     = self.%s == each.value.%s\n      error_message = \"provider returned name does not exactly match requested name\"\n    }\n  }\n}\n\noutput \"items\" {\n  description = \"All read-only %s data source objects, keyed as in var.items.\"\n  value       = data.%s.items\n}\n",
 		header(context.Provider), context.ResourceType, context.NameField, context.NameField,
-		context.ResourceType, context.ResourceType,
+		context.NameField, context.NameField, context.ResourceType, context.ResourceType,
 	)
 }
 

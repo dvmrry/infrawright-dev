@@ -10,6 +10,9 @@ terraform {
 
 provider "capture" {}
 
+# Terraform 1.15.4 reads known-input data sources during plan even with
+# -refresh=false; this scenario records refresh-flag independence for the
+# provider-observed evidence in this qualified configuration.
 module "capture_item" {
   source = "./data"
   items  = var.items

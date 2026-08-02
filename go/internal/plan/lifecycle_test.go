@@ -247,7 +247,7 @@ func TestCreatePlanTerraformEmitsExactCommands(t *testing.T) {
 	}
 }
 
-func TestPlanTerraformDirectRefreshOverridesInheritedPlanArgs(t *testing.T) {
+func TestPlanTerraformPassesExplicitRefreshFlag(t *testing.T) {
 	directory := t.TempDir()
 	terraformPath := filepath.Join(directory, "fake-terraform")
 	argsLog := filepath.Join(directory, "terraform-args.log")
@@ -269,9 +269,7 @@ esac
 	request := PlanTerraformRequest{
 		Directory: directory,
 		Environment: map[string]string{
-			"TF_CLI_ARGS":      "-refresh=false",
-			"TF_CLI_ARGS_plan": "-refresh=false",
-			"IW_ARGS_LOG":      argsLog,
+			"IW_ARGS_LOG": argsLog,
 		},
 		Save: true,
 	}
@@ -296,7 +294,7 @@ esac
 		t.Fatalf("fake Terraform argv log = %q, want a plan invocation", logBytes)
 	}
 	if !strings.Contains(planLine, "-refresh=true") || strings.Contains(planLine, "-refresh=false") {
-		t.Errorf("fake Terraform received plan argv %q, want direct -refresh=true without -refresh=false", planLine)
+		t.Errorf("fake Terraform received plan argv %q, want explicit -refresh=true", planLine)
 	}
 }
 
