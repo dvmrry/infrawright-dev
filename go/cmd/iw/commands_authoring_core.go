@@ -258,10 +258,6 @@ func authoringPacksRoot(dependencies authoringCoreDependencies) (string, error) 
 	return filepath.Join(repositoryRoot, "packs"), nil
 }
 
-func reconcileCommandWithDependencies(arguments []string, dependencies authoringCoreDependencies) (int, error) {
-	return executeStandaloneCobra(newReconcileCobraCommand(dependencies), arguments)
-}
-
 func newReconcileCobraCommand(dependencies authoringCoreDependencies) *cobra.Command {
 	spec := authoringCobraSpec("reconcile <resource-type>", "Compare API JSON with a Terraform schema",
 		[]string{"--api", "--api-options", "--openapi", "--openapi-read", "--openapi-write", "--out", "--override", "--provider-source", "--schema"},
@@ -381,10 +377,6 @@ func reconcileCommandInput(parsed commandInput, dependencies authoringCoreDepend
 	return 0, nil
 }
 
-func openAPIMapCommandWithDependencies(arguments []string, dependencies authoringCoreDependencies) (int, error) {
-	return executeStandaloneCobra(newOpenAPIMapCobraCommand(dependencies), arguments)
-}
-
 func newOpenAPIMapCobraCommand(dependencies authoringCoreDependencies) *cobra.Command {
 	spec := authoringCobraSpec("openapi-map", "Map provider resources to OpenAPI operations",
 		[]string{"--api-prefix", "--openapi", "--out", "--provider-source", "--registry", "--resource-prefix", "--schema"}, nil, nil, nil)
@@ -444,10 +436,6 @@ func openAPIMapCommandInput(parsed commandInput, dependencies authoringCoreDepen
 	}
 	_, err = dependencies.stdout.Write(rendered)
 	return 0, err
-}
-
-func transformAdoptParityCommandWithDependencies(arguments []string, dependencies authoringCoreDependencies) (status int, err error) {
-	return executeStandaloneCobra(newTransformAdoptParityCobraCommand(dependencies), arguments)
 }
 
 func newTransformAdoptParityCobraCommand(dependencies authoringCoreDependencies) *cobra.Command {

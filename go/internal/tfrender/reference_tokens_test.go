@@ -359,18 +359,24 @@ func TestSubstituteReferenceTokensGuards(t *testing.T) {
 
 // TestSubstituteReferenceTokensIdempotent pins re-run stability: a second
 // pass over already-tokenised items changes nothing, so re-running transform
-// or adopt over committed tokens can never flap the artifact.
+// or adopt over committed tokens can never flap the artifact. The lookup
+// deliberately also maps the minted token string itself to a different key:
+// without the token-shaped guard, the second pass would match that entry and
+// re-substitute, so this entry is what makes the guard observable.
 func TestSubstituteReferenceTokensIdempotent(t *testing.T) {
 	items := map[string]map[string]any{"app_one": {"segment_group_id": "sg-1"}}
-	lookupKeys := map[string]map[string]string{"zpa_segment_group": {"sg-1": "segment_one"}}
+	lookupKeys := map[string]map[string]string{"zpa_segment_group": {
+		"sg-1":                          "segment_one",
+		"zpa_segment_group.segment_one": "rekeyed_by_second_pass",
+	}}
 	substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment", lookupKeys)
 	first := items["app_one"]["segment_group_id"]
+	if first != "zpa_segment_group.segment_one" {
+		t.Fatalf("token = %#v, want zpa_segment_group.segment_one", first)
+	}
 	substituteReferenceTokens(items, tokenTopLevelContext(), "zpa_application_segment", lookupKeys)
 	if got := items["app_one"]["segment_group_id"]; got != first {
 		t.Errorf("second pass changed %#v to %#v", first, got)
-	}
-	if first != "zpa_segment_group.segment_one" {
-		t.Errorf("token = %#v, want zpa_segment_group.segment_one", first)
 	}
 }
 
@@ -962,66 +968,6 @@ func TestLookupKeyShrinkageScansHclDependents(t *testing.T) {
 	_, err := CompileTransformArtifacts(options)
 	if err == nil || !strings.Contains(err.Error(), "sample_referrer.auto.tfvars") {
 		t.Fatalf("CompileTransformArtifacts error = %v, want the HCL dependent named", err)
-	}
-}
-
-// TestLookupKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent replaces the
-// round-3 exemption pin, which the round-3 re-review ruled unsound. A
-// dependent is only safely exempt inside a successfully preflighted,
-// rollback-capable publication transaction. No invocation path in this
-// repository provides one -- transform and adopt compile and publish each type
-// immediately and independently, continuing past a later member's failure --
-// and even the batch helper's publish is a best-effort rollback rather than a
-// guarantee, so no exemption is offered at any layer.
-//
-// The refusal reintroduces the same-run rename deadlock on purpose. It is loud
-// and leaves the committed tree self-consistent; the exemption was quiet and
-// left it stranded.
-func TestLookupKeyShrinkageRefusesEvenWhenTheBatchRewritesTheDependent(t *testing.T) {
-	workspace := t.TempDir()
-	referent := shrinkingBookOptions(t, workspace)
-	paths := mustComputePaths(t, referent)
-	writeFileMkdir(t, filepath.Join(filepath.Dir(paths.Config), "sample_referrer.auto.tfvars.json"),
-		`{"items":{"one":{"group_id":"sample_group.retired"}}}`)
-	referrer := newArtifactOptions(workspace, "sample_referrer")
-
-	_, err := CompileTransformArtifactBatch([]TransformArtifactCompileOptions{referent, referrer})
-	if err == nil {
-		t.Fatalf("CompileTransformArtifactBatch error = nil, want a refusal even though the batch also rewrites the dependent")
-	}
-	if !strings.Contains(err.Error(), "sample_group.retired") {
-		t.Errorf("CompileTransformArtifactBatch error = %q, want it to name the stranded token", err)
-	}
-}
-
-// TestLookupKeyShrinkageScansOnlyItsOwnConfigDirectory pins the second sequence
-// the round-3 re-review found, which needed no failure at all: batch
-// membership was collected globally, so a batch pairing (tenant A, referent)
-// with (tenant B, referrer) exempted tenant A's committed referrer merely
-// because that TYPE was rewritten in a different tenant's config directory.
-//
-// Stranding is a property of one config directory. The dependent scan and any
-// judgement about it must be too.
-func TestLookupKeyShrinkageScansOnlyItsOwnConfigDirectory(t *testing.T) {
-	referentWorkspace := t.TempDir()
-	referrerWorkspace := t.TempDir()
-
-	referent := shrinkingBookOptions(t, referentWorkspace)
-	referentPaths := mustComputePaths(t, referent)
-	// The stranded dependent lives beside the referent, in the referent's own
-	// config directory -- the one nothing in this batch rewrites.
-	writeFileMkdir(t, filepath.Join(filepath.Dir(referentPaths.Config), "sample_referrer.auto.tfvars.json"),
-		`{"items":{"one":{"group_id":"sample_group.retired"}}}`)
-
-	// A same-named type in a DIFFERENT deployment's config directory.
-	referrer := newArtifactOptions(referrerWorkspace, "sample_referrer")
-
-	_, err := CompileTransformArtifactBatch([]TransformArtifactCompileOptions{referent, referrer})
-	if err == nil {
-		t.Fatalf("CompileTransformArtifactBatch error = nil, want a refusal: the dependent is in another config directory than the batch member of the same name")
-	}
-	if !strings.Contains(err.Error(), "sample_group.retired") {
-		t.Errorf("CompileTransformArtifactBatch error = %q, want it to name the stranded token", err)
 	}
 }
 

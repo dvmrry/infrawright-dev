@@ -73,10 +73,6 @@ func defaultAuthoringProbeDependencies() authoringProbeDependencies {
 	}
 }
 
-func providerProbeCommandWithDependencies(arguments []string, dependencies authoringProbeDependencies) (int, error) {
-	return executeStandaloneCobra(newProviderProbeCobraCommand(dependencies), arguments)
-}
-
 func newProviderProbeCobraCommand(dependencies authoringProbeDependencies) *cobra.Command {
 	spec := authoringCobraSpec(
 		"provider-probe <recipe.json>", "Run the provider-readiness probe",

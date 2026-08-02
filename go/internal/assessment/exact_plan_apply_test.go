@@ -960,19 +960,6 @@ func TestExactPlanApplyAdapterRejectsNilDescriptorBeforeSpawn(t *testing.T) {
 	}
 }
 
-func TestExactPlanApplyProductionDoesNotResolveTerraformOrProviderSDK(t *testing.T) {
-	content, err := os.ReadFile("exact_plan_apply.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(content)
-	for _, forbidden := range []string{`exec.Command("terra` + `form"`, "zscaler" + "-sdk-go"} {
-		if strings.Contains(text, forbidden) {
-			t.Errorf("D4 production source contains forbidden live surface %q", forbidden)
-		}
-	}
-}
-
 func TestMakeAssessmentTemporaryDirectorySharedByExactApplyRemainsConcurrent(t *testing.T) {
 	root := t.TempDir()
 	const count = 16

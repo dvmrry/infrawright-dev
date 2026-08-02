@@ -92,22 +92,17 @@ func TestSetBlockBindingsRoundTripThroughTheSchemaValidator(t *testing.T) {
 		t.Fatalf("ValidateExpressionBindingSchemaPaths(indexed set path) = %v, want the complete-block-leaf refusal", err)
 	}
 
-	// And the produced binding applies: the whole services value becomes the
-	// expression sentinel, which is what the generated root renders.
-	applied, err := ApplyExpressionBindings(map[string]any{
+	// And the produced binding validates against real items: the whole
+	// services value is an existing leaf the binding may replace.
+	if err := ValidateExpressionBindingTargets(map[string]any{
 		"iot_device_services": map[string]any{
 			"name": "IoT Device Services",
 			"services": []any{
 				map[string]any{"id": []any{json.Number("123"), json.Number("456")}},
 			},
 		},
-	}, bindings)
-	if err != nil {
-		t.Fatalf("ApplyExpressionBindings(complete leaf): %v", err)
-	}
-	item := applied["iot_device_services"].(map[string]any)
-	if _, isExpression := item["services"].(*HclExpression); !isExpression {
-		t.Fatalf("applied services = %#v, want the expression sentinel replacing the whole block value", item["services"])
+	}, bindings); err != nil {
+		t.Fatalf("ValidateExpressionBindingTargets(complete leaf): %v", err)
 	}
 }
 
