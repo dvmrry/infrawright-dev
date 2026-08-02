@@ -14,25 +14,21 @@ for the requested name. The scenario modules instantiate the data source with
 
 ## Regenerate
 
-From this directory, export the repository-local Go build directories and run:
+From the repository root, with Terraform 1.15.4 on PATH:
 
 ```sh
-export GOCACHE="$PWD/../../../../../.gocache"
-export GOTMPDIR="$PWD/../../../../../.gotmp"
-./gen-captures.sh
+make regen-plan-captures
 ```
 
-The script builds the nested provider module into the local, un-staged
+The target builds the nested provider module into the local, un-staged
 `<worktree>/.provider-double-bin/` directory, verifies that `terraform version`
 is exactly `Terraform v1.15.4`, creates a temporary Terraform CLI development
-override and scenario workspace, and captures every `show.json` into a staging
-directory. It validates that the complete staged set is non-empty, then moves
-the seven results into place only after every scenario succeeds; a promotion
-failure restores the prior set. Terraform/provider logs, temporary state, and
-the staging directory stay under the temporary workspace and are removed on
-exit. The environment is normalized to `TZ=UTC LANG=C`; regeneration refuses
-to run if `TF_CLI_ARGS` or `TF_CLI_ARGS_plan` is already set and clears
-caller-provided Terraform variable/workspace/data-directory inputs.
+override and scenario workspace, and captures every `show.json` in place.
+Terraform/provider logs and temporary state stay under the temporary workspace
+and are removed on exit. The environment is normalized to `TZ=UTC LANG=C` and
+inherited `TF_CLI_ARGS*`/workspace/data-directory variables are cleared. The
+Go plan suite is the gate of record for a regenerated set: if a regeneration
+is wrong, the focused plan-contract regressions fail.
 
 The provider module remains a separate Go module at
 `../provider-double/`; do not move its `go.mod` into the engine module.
@@ -47,7 +43,7 @@ The provider module remains a separate Go module at
 | `no_op` | The output action is `no-op`; the existing output needs no new authorization. |
 | `empty_for_each` | The refreshed data instance set and created output map are both empty. |
 | `refresh_false` | An applied v1 state is planned under provider v2 with `-refresh=false`; Terraform 1.15.4 still reads the known-input data source, so the genuinely provider-observed v2 evidence is accepted. |
-| `refresh_true` | The same applied v1 state is first planned with `-refresh=false`, then replanned with `-refresh=true`; the final v2 evidence is accepted. Its semantic output is identical to `refresh_false` apart from the timestamp. |
+| `refresh_true` | The same applied v1 state is planned with `-refresh=true`; the v2 evidence is accepted. Its semantic output is identical to `refresh_false` apart from the timestamp. |
 
 The two refresh variants are the refresh-flag-independence proof, not a stale
 data threat model. Terraform 1.15.4 reads known-input data sources during both

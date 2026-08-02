@@ -205,9 +205,9 @@ func providerDoubleShowCaptureBytes(t *testing.T, scenario string) []byte {
 	raw, err := os.ReadFile(filepath.Join(fixtureDirectory, "show.json"))
 	if err != nil {
 		// Committed captures are mandatory promotion evidence: a missing
-		// fixture FAILS (regenerate with gen-captures.sh); it never skips,
+		// fixture FAILS (regenerate with make regen-plan-captures); it never skips,
 		// so weakening the fixture set cannot pass the focused gate.
-		t.Fatalf("ReadFile(%s/show.json) error = %v, want the committed capture (run testdata/provider_double_capture/gen-captures.sh)", fixtureDirectory, err)
+		t.Fatalf("ReadFile(%s/show.json) error = %v, want the committed capture (run make regen-plan-captures)", fixtureDirectory, err)
 	}
 	return raw
 }
@@ -260,7 +260,7 @@ func TestValidateAssessmentPlanAcceptsProviderDoubleCaptures(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			show := providerDoubleShowCapture(t, scenario)
 			if scenario == "initial_create" && providerDoubleResourceCount(t, show) != 2 {
-				t.Fatal("initial_create capture must carry two items (regenerate with gen-captures.sh)")
+				t.Fatal("initial_create capture must carry two items (regenerate with make regen-plan-captures)")
 			}
 			requireValidAssessmentPlan(
 				t,

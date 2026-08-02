@@ -27,7 +27,7 @@ const (
 
 // qualifiedTerraformVersions enumerates the exact Terraform releases the
 // committed capture matrix has been run and promoted under. Widening this
-// set REQUIRES re-running testdata/provider_double_capture/gen-captures.sh
+// set REQUIRES re-running make regen-plan-captures
 // and the focused contract suite under the new release first (see that
 // directory's README); patch releases are NOT assumed equivalent.
 var qualifiedTerraformVersions = map[string]bool{"1.15.4": true}
