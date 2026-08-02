@@ -29,7 +29,7 @@ export INFRAWRIGHT_DEPLOYMENT
 # One declaration. The two that were here had drifted -- only the first listed
 # `refresh`, only the second listed `check-config` -- and neither listed
 # `check-schema-parity`, which is a real target.
-.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-schema-parity check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go regen-plan-captures fetch fetch-diag gen-env refresh transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-schema-parity check-distribution check-retired-runtime v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go regen-plan-captures fetch fetch-diag gen-env refresh transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/iw: $(GO_BUILD_INPUTS)
 	@mkdir -p dist
@@ -124,7 +124,10 @@ check-schema-parity: ## Published assessment schema matches the copy the engine 
 
 check-distribution: check-pack-set check-config check-examples check-modules check-tfvars-fmt check-pack check-schema-parity ## Active distribution without selecting its runtime test suite
 
-check: dist/iw check-distribution test-go ## Complete Go distribution and runtime gate
+check-retired-runtime: ## Reject reintroduction of the retired Node/Python runtime surface
+	cd go && $(GO) test -count=1 -run '^TestRetiredRuntime' ./cmd/iw
+
+check: check-retired-runtime dist/iw check-distribution test-go ## Complete Go distribution and runtime gate
 
 check-all: ## Run the active-distribution gate against the complete upstream pack catalog
 	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_PROFILE="$(CURDIR)/packs/full.packset.json" check

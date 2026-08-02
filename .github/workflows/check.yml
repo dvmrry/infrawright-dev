@@ -59,6 +59,18 @@ jobs:
           } | sort | jq -R -s -c 'split("\n") | map(select(length > 0))')"
           echo "profiles=$profiles" >> "$GITHUB_OUTPUT"
 
+  retired-runtime:
+    name: Retired runtime surface stays absent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go/go.sum
+      - name: Verify retired runtime surface stays absent
+        run: make check-retired-runtime
+
   check:
     needs: scope
     if: needs.scope.outputs.runtime == 'true'

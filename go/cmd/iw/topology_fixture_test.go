@@ -62,6 +62,22 @@ func prepareBlockC4Fixture(t *testing.T, workspace string) blockC4Fixture {
 	writeBlockC4JSON(t, filepath.Join(fixture.packs, "sample", "registry.json"), map[string]any{
 		"sample_resource": map[string]any{"generate": true, "product": "sample"},
 	})
+	// assessment.NewPlanSchemaTypes refuses to run plan/apply commands for a
+	// registered resource type whose pack carries no provider schema, so the
+	// fixture needs a minimal one (no set-typed attributes: every array stays
+	// positional, the pre-schema behaviour).
+	writeBlockC4JSON(t, filepath.Join(fixture.packs, "sample", "schemas", "provider", "sample.json"), map[string]any{
+		"provider": map[string]any{"block": map[string]any{}, "version": 0},
+		"resource_schemas": map[string]any{
+			"sample_resource": map[string]any{
+				"block": map[string]any{
+					"attributes": map[string]any{
+						"id": map[string]any{"computed": true, "type": "string"},
+					},
+				},
+			},
+		},
+	})
 	writeBlockC4JSON(t, fixture.profile, map[string]any{
 		"kind": "infrawright.pack-set", "version": 1,
 		"packs": []any{"sample"}, "shared": []any{},
@@ -88,7 +104,9 @@ func prepareBlockC4Fixture(t *testing.T, workspace string) blockC4Fixture {
 		"#!/bin/sh",
 		`printf 'cwd=%s\n' "$PWD" >> "$FAKE_TF_LOG"`,
 		`printf 'arg=%s\n' "$@" >> "$FAKE_TF_LOG"`,
-		`if [ "$1" = "plan" ]; then`,
+		`if [ "$1" = "version" ]; then`,
+		`  printf '%s\n' 'Terraform v1.15.4'`,
+		`elif [ "$1" = "plan" ]; then`,
 		`  for argument in "$@"; do`,
 		`    case "$argument" in -out=*) printf '%s' 'opaque plan bytes' > "${argument#-out=}";; esac`,
 		`  done`,
@@ -101,5 +119,41 @@ func prepareBlockC4Fixture(t *testing.T, workspace string) blockC4Fixture {
 	if err := os.MkdirAll(filepath.Join(workspace, "tmp"), 0o700); err != nil {
 		t.Fatalf("os.MkdirAll(TMPDIR) error: %v", err)
 	}
+	return fixture
+}
+
+func prepareResourceAuthorityFixture(t *testing.T, workspace string) blockC4Fixture {
+	t.Helper()
+	fixture := prepareBlockC4Fixture(t, workspace)
+	writeBlockC4JSON(t, filepath.Join(fixture.packs, "alpha", "pack.json"), map[string]any{
+		"pin":               "1.0.0",
+		"provider_prefixes": map[string]any{"alpha_": "alpha"},
+		"provider_sources":  map[string]any{"alpha": "example/alpha"},
+		"references": map[string]any{
+			"alpha_resource": map[string]any{
+				"sample_id": map[string]any{"name_field": "id", "referent": "sample_resource"},
+			},
+		},
+		"vendor": "alpha",
+	})
+	writeBlockC4JSON(t, filepath.Join(fixture.packs, "alpha", "registry.json"), map[string]any{
+		"alpha_resource": map[string]any{"generate": true, "product": "alpha"},
+	})
+	writeBlockC4JSON(t, filepath.Join(fixture.packs, "alpha", "schemas", "provider", "alpha.json"), map[string]any{
+		"provider": map[string]any{"block": map[string]any{}, "version": 0},
+		"resource_schemas": map[string]any{
+			"alpha_resource": map[string]any{
+				"block": map[string]any{
+					"attributes": map[string]any{
+						"id": map[string]any{"computed": true, "type": "string"},
+					},
+				},
+			},
+		},
+	})
+	writeBlockC4JSON(t, fixture.profile, map[string]any{
+		"kind": "infrawright.pack-set", "version": 1,
+		"packs": []any{"alpha", "sample"}, "shared": []any{},
+	})
 	return fixture
 }
