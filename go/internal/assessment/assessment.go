@@ -1129,6 +1129,7 @@ func runSavedPlanAssessment[T any](
 		if root.ReferenceOutputTypes != nil {
 			contract = &plan.AssessmentPlanContract{
 				ReferenceOutputTypes: append([]plan.ReferenceOutputType{}, root.ReferenceOutputTypes...),
+				PlanAttestation:      capturedEvidence.PlanAttestation,
 			}
 		}
 		classification, err := ClassifyPlanWithOptions(

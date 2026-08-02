@@ -59,6 +59,9 @@ type ReferenceOutputType struct {
 // mutated by ValidateAssessmentPlan.
 type AssessmentPlanContract struct {
 	ReferenceOutputTypes []ReferenceOutputType
+	// PlanAttestation is required for a non-no-op data reference-output claim.
+	// Managed claims retain the pre-attestation behavior when it is absent.
+	PlanAttestation *PlanCreationAttestation
 }
 
 func assessmentFail(message string) {
@@ -282,14 +285,10 @@ func validateEmptyArray(plan map[string]any, field string) {
 
 // referenceOutputValue reconstructs managed authorization from
 // planned_values.root_module and data authorization from the refreshed
-// prior_state.values.root_module. The committed Terraform 1.15.4
-// provider-double captures establish that data reads are never in
-// planned_values (all five captures have zero planned child resources), that
-// prior_state is refresh-fresh (refresh_id_change carries the new provider
-// ID, exactly matching output_changes.iw_reference_ids.after), and that no_op
-// is a no-authorization-needed output shape while
-// initial_create, output_only_change, and empty_for_each carry their data
-// instances in prior_state. resource_changes is never an evidence source.
+// prior_state.values.root_module. Data authorization is deliberately keyed by
+// the resource instance index: the returned map is the exact key-to-ID map
+// that output_changes.after must carry. resource_changes and a prior-state
+// engine-output projection are never evidence sources.
 func referenceOutputValue(
 	plan map[string]any,
 	resourceTypes []ReferenceOutputType,
@@ -404,9 +403,6 @@ func referenceOutputValue(
 				ids[index] = id
 			}
 		}
-		if outputType.Kind == ReferenceOutputKindData {
-			ids = referenceOutputDataIDs(plan, resourceType, ids)
-		}
 		if len(ids) == 0 {
 			validateEmptyReferenceModule(plan, resourceType, outputType.Kind)
 		}
@@ -433,84 +429,6 @@ func referenceOutputValue(
 		}
 	}
 	return expected
-}
-
-func referenceOutputDataIDs(
-	plan map[string]any,
-	resourceType string,
-	ids map[string]any,
-) map[string]any {
-	// A data module may project its for_each keys into different output keys;
-	// output_only_change is the committed capture of that shape. Preserve that
-	// refreshed prior-state key projection only after its scalar values match
-	// the provider-observed IDs reconstructed above one-for-one. The root-module
-	// resource IDs remain the evidence source; this output map only preserves
-	// the already-evaluated key projection needed for exact after comparison.
-	priorValues, present := referenceOutputPriorValues(plan)
-	if !present {
-		return ids
-	}
-	outputsValue, present := priorValues["outputs"]
-	if !present || outputsValue == nil {
-		return ids
-	}
-	outputs, ok := assessmentObject(outputsValue)
-	if !ok {
-		assessmentFail("refreshed prior-state outputs must be an object")
-	}
-	outputValue, present := outputs[infrawrightReferenceOutput]
-	if !present || outputValue == nil {
-		return ids
-	}
-	output, ok := assessmentObject(outputValue)
-	if !ok {
-		assessmentFail("refreshed prior-state reference output must be an object")
-	}
-	value, present := output["value"]
-	if !present || value == nil {
-		return ids
-	}
-	valueObject, ok := assessmentObject(value)
-	if !ok {
-		assessmentFail("refreshed prior-state reference output value must be an object")
-	}
-	typeValue, present := valueObject[resourceType]
-	if !present || typeValue == nil {
-		return ids
-	}
-	outputIDs, ok := assessmentObject(typeValue)
-	if !ok {
-		assessmentFailf("refreshed prior-state reference output %s value must be an object", resourceType)
-	}
-	if len(outputIDs) != len(ids) {
-		assessmentFail("engine reference output does not match provider-observed resource IDs")
-	}
-	remaining := make([]any, 0, len(ids))
-	for _, id := range ids {
-		remaining = append(remaining, id)
-	}
-	for _, id := range outputIDs {
-		switch id.(type) {
-		case string, json.Number:
-		default:
-			assessmentFail("engine reference output does not match provider-observed resource IDs")
-		}
-		matched := -1
-		for index, observedID := range remaining {
-			if canonjson.TerraformJSONEqual(id, observedID) {
-				matched = index
-				break
-			}
-		}
-		if matched < 0 {
-			assessmentFail("engine reference output does not match provider-observed resource IDs")
-		}
-		remaining = append(remaining[:matched], remaining[matched+1:]...)
-	}
-	if len(remaining) != 0 {
-		assessmentFail("engine reference output does not match provider-observed resource IDs")
-	}
-	return outputIDs
 }
 
 func referenceOutputPriorValues(plan map[string]any) (map[string]any, bool) {
@@ -611,7 +529,17 @@ func validateReferenceOutputChange(
 	change map[string]any,
 	plan map[string]any,
 	resourceTypes []ReferenceOutputType,
+	attestation *PlanCreationAttestation,
 ) {
+	for _, resourceType := range resourceTypes {
+		if resourceType.Kind != ReferenceOutputKindData {
+			continue
+		}
+		if attestation == nil {
+			assessmentFail("data reference output authorization requires a plan creation attestation")
+		}
+		break
+	}
 	expected := referenceOutputValue(plan, resourceTypes)
 	actions, ok := change["actions"].([]any)
 	if !ok || len(actions) != 1 {
@@ -654,6 +582,21 @@ func validateReferenceOutputChange(
 	}
 }
 
+func validatePresentPlanAttestation(plan map[string]any, attestation *PlanCreationAttestation) {
+	if attestation == nil {
+		return
+	}
+	if err := validatePlanCreationAttestation(*attestation, ""); err != nil {
+		assessmentFailf("plan creation attestation is invalid: %s", err)
+	}
+	if terraformVersion, present := plan["terraform_version"]; present && terraformVersion != nil {
+		version, ok := terraformVersion.(string)
+		if !ok || version != attestation.TerraformVersion {
+			assessmentFail("plan terraform_version does not match the plan creation attestation")
+		}
+	}
+}
+
 func validateNoOpOutputChange(change map[string]any) {
 	actions, ok := change["actions"].([]any)
 	if !ok || len(actions) != 1 || actions[0] != "no-op" {
@@ -690,8 +633,10 @@ func validateNoOpOutputChange(change map[string]any) {
 
 func validateOutputChanges(plan map[string]any, contract *AssessmentPlanContract) {
 	var resourceTypes []ReferenceOutputType
+	var planAttestation *PlanCreationAttestation
 	if contract != nil {
 		resourceTypes = contract.ReferenceOutputTypes
+		planAttestation = contract.PlanAttestation
 	}
 	value, present := plan["output_changes"]
 	if !present {
@@ -715,7 +660,7 @@ func validateOutputChanges(plan map[string]any, contract *AssessmentPlanContract
 			if actionsOK && len(actions) == 1 && actions[0] == "no-op" {
 				validateNoOpOutputChange(change)
 			} else {
-				validateReferenceOutputChange(change, plan, resourceTypes)
+				validateReferenceOutputChange(change, plan, resourceTypes, planAttestation)
 			}
 			continue
 		}
@@ -797,6 +742,9 @@ func ValidateAssessmentPlan(planValue any, contract *AssessmentPlanContract) (er
 		if _, stringOK := terraformVersion.(string); !stringOK {
 			assessmentFail("plan terraform_version must be a string when present")
 		}
+	}
+	if contract != nil {
+		validatePresentPlanAttestation(plan, contract.PlanAttestation)
 	}
 	if plan["complete"] != true {
 		assessmentFail("plan must be complete before assessment")

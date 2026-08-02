@@ -84,11 +84,59 @@ func TestTransformDataReferentRejectsCaseInsensitiveNames(t *testing.T) {
 		ResourceType: "sample_groups_data",
 	})
 	if err == nil {
-		t.Fatal("TransformDataReferentItems(case-insensitive name collision) error = nil, want derived-key refusal")
+		t.Fatal("TransformDataReferentItems(case-insensitive name collision) error = nil, want case-fold ambiguity refusal")
 	}
-	for _, want := range []string{"duplicate", "location_group", "sample_groups_data"} {
+	for _, want := range []string{"ambiguous", "location group", "sample_groups_data"} {
 		if !strings.Contains(strings.ToLower(err.Error()), want) {
 			t.Errorf("TransformDataReferentItems(case-insensitive name collision) error = %q, want it to contain %q", err, want)
+		}
+	}
+}
+
+func TestTransformDataReferentRejectsUnicodeCaseFoldAmbiguity(t *testing.T) {
+	tests := []struct {
+		name   string
+		first  string
+		second string
+	}{
+		{name: "same non-ASCII name with distinct IDs", first: "東京", second: "東京"},
+		{name: "Latin case fold", first: "Å", second: "å"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := TransformDataReferentItems(DataReferentTransformOptions{
+				NameField: "name",
+				RawItems: []any{
+					map[string]any{"id": json.Number("101"), "name": test.first},
+					map[string]any{"id": json.Number("102"), "name": test.second},
+				},
+				ResourceType: "sample_groups_data",
+			})
+			if err == nil {
+				t.Fatalf("TransformDataReferentItems(%s) error = nil, want Unicode case-fold ambiguity refusal", test.name)
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), "unicode case folding") {
+				t.Errorf("TransformDataReferentItems(%s) error = %q, want Unicode case-fold diagnostic", test.name, err)
+			}
+		})
+	}
+}
+
+func TestTransformDataReferentAllowsDistinctEmptySlugNames(t *testing.T) {
+	result, err := TransformDataReferentItems(DataReferentTransformOptions{
+		NameField: "name",
+		RawItems: []any{
+			map[string]any{"id": json.Number("101"), "name": "東京"},
+			map[string]any{"id": json.Number("102"), "name": "大阪"},
+		},
+		ResourceType: "sample_groups_data",
+	})
+	if err != nil {
+		t.Fatalf("TransformDataReferentItems(distinct empty-slug names) error = %v, want nil", err)
+	}
+	for _, key := range []string{"id_101", "id_102"} {
+		if _, ok := result.Items[key]; !ok {
+			t.Errorf("TransformDataReferentItems(distinct empty-slug names) missing item key %q", key)
 		}
 	}
 }

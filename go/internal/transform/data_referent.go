@@ -25,6 +25,7 @@ func TransformDataReferentItems(options DataReferentTransformOptions) (result Pu
 	items := make(map[string]TransformRecord, len(options.RawItems))
 	originals := make(map[string]TransformRecord, len(options.RawItems))
 	seenIDs := make(map[string]string, len(options.RawItems))
+	seenNames := make([]string, 0, len(options.RawItems))
 	for index, raw := range options.RawItems {
 		normalizedValue := SnakeJSONKeys(raw)
 		normalized, ok := normalizedValue.(map[string]any)
@@ -38,6 +39,15 @@ func TransformDataReferentItems(options DataReferentTransformOptions) (result Pu
 				jsonQuote(options.ResourceType), index, jsonQuote(options.NameField),
 			)
 		}
+		for _, previousName := range seenNames {
+			if strings.EqualFold(previousName, name) {
+				failf(
+					"ambiguous data referent names %s and %s for %s; names must be unique under Unicode case folding",
+					jsonQuote(previousName), jsonQuote(name), jsonQuote(options.ResourceType),
+				)
+			}
+		}
+		seenNames = append(seenNames, name)
 		id, ok := normalized["id"]
 		if !ok || id == nil {
 			failf("data referent %s item %d requires an id field", jsonQuote(options.ResourceType), index)

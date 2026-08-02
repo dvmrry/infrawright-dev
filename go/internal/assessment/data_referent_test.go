@@ -3,6 +3,7 @@ package assessment
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/plan"
@@ -88,7 +89,13 @@ func outputsOnlyDataReferentPlan() map[string]any {
 func TestClassifyPlanAcceptsOutputsOnlyDataReferentPlan(t *testing.T) {
 	contract := &plan.AssessmentPlanContract{ReferenceOutputTypes: []plan.ReferenceOutputType{{
 		Type: "sample_groups_data", Kind: plan.ReferenceOutputKindData,
-	}}}
+	}}, PlanAttestation: &plan.PlanCreationAttestation{
+		FormatVersion:    plan.PlanCreationAttestationVersion,
+		TerraformVersion: "1.15.4",
+		PlanArgv:         []string{"plan", "-input=false", "-refresh=true", "-out=tfplan"},
+		Refresh:          true,
+		PlanSHA256:       strings.Repeat("a", 64),
+	}}
 	got, err := ClassifyPlan(outputsOnlyDataReferentPlan(), nil, contract)
 	if err != nil {
 		t.Fatalf("ClassifyPlan(outputs-only data referent plan) error = %v, want nil", err)

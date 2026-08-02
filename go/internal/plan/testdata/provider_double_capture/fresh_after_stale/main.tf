@@ -19,7 +19,6 @@ variable "items" {
   type = map(string)
   default = {
     group_one = "Location Group"
-    group_two = "Another Location Group"
   }
 }
 

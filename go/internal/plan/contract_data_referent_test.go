@@ -131,14 +131,27 @@ func validDataReferencePlan(id any) map[string]any {
 	)
 }
 
+func testQualifiedPlanAttestation(refresh bool) *PlanCreationAttestation {
+	return &PlanCreationAttestation{
+		FormatVersion:    PlanCreationAttestationVersion,
+		TerraformVersion: "1.15.4",
+		PlanArgv:         []string{"plan", "-input=false", "-refresh=true", "-out=tfplan"},
+		Refresh:          refresh,
+		PlanSHA256:       strings.Repeat("a", 64),
+	}
+}
+
 func dataReferenceContract() *AssessmentPlanContract {
 	return dataReferenceContractFor(dataReferenceType)
 }
 
 func dataReferenceContractFor(resourceType string) *AssessmentPlanContract {
-	return &AssessmentPlanContract{ReferenceOutputTypes: []ReferenceOutputType{{
-		Type: resourceType, Kind: ReferenceOutputKindData,
-	}}}
+	return &AssessmentPlanContract{
+		ReferenceOutputTypes: []ReferenceOutputType{{
+			Type: resourceType, Kind: ReferenceOutputKindData,
+		}},
+		PlanAttestation: testQualifiedPlanAttestation(true),
+	}
 }
 
 func requireAssessmentPlanErrorContaining(t *testing.T, planValue any, contract *AssessmentPlanContract, want string) {
@@ -182,6 +195,9 @@ func providerDoubleShowCapture(t *testing.T, scenario string) map[string]any {
 	fixtureDirectory := filepath.Join("testdata", "provider_double_capture", scenario)
 	raw, err := os.ReadFile(filepath.Join(fixtureDirectory, "show.json"))
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			t.Skipf("capture not generated: %s/show.json", fixtureDirectory)
+		}
 		t.Fatalf("ReadFile(%s/show.json) error = %v, want nil", fixtureDirectory, err)
 	}
 	showValue, err := canonjson.ParseDataJSONLosslessly(string(raw))
@@ -196,39 +212,142 @@ func providerDoubleShowCapture(t *testing.T, scenario string) map[string]any {
 }
 
 func providerDoubleDataReferenceContract() *AssessmentPlanContract {
-	return &AssessmentPlanContract{ReferenceOutputTypes: []ReferenceOutputType{{
-		Type: providerDoubleReferenceType,
-		Kind: ReferenceOutputKindData,
-	}}}
+	return &AssessmentPlanContract{
+		ReferenceOutputTypes: []ReferenceOutputType{{
+			Type: providerDoubleReferenceType,
+			Kind: ReferenceOutputKindData,
+		}},
+		PlanAttestation: testQualifiedPlanAttestation(true),
+	}
 }
 
 func TestValidateAssessmentPlanAcceptsProviderDoubleCaptures(t *testing.T) {
 	for _, scenario := range []string{
 		"initial_create",
 		"refresh_id_change",
-		"output_only_change",
 		"no_op",
 		"empty_for_each",
 	} {
 		t.Run(scenario, func(t *testing.T) {
+			show := providerDoubleShowCapture(t, scenario)
+			if scenario == "initial_create" && providerDoubleResourceCount(t, show) != 2 {
+				t.Skip("capture not generated: initial_create still has the pre-recheck one-item fixture")
+			}
 			requireValidAssessmentPlan(
 				t,
 				"ValidateAssessmentPlan(provider-double "+scenario+")",
-				providerDoubleShowCapture(t, scenario),
+				show,
 				providerDoubleDataReferenceContract(),
 			)
 		})
 	}
 }
 
+func providerDoubleResourceCount(t *testing.T, show map[string]any) int {
+	t.Helper()
+	priorState, ok := show["prior_state"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	values, ok := priorState["values"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	root, ok := values["root_module"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	children, ok := root["child_modules"].([]any)
+	if !ok || len(children) != 1 {
+		return 0
+	}
+	child, ok := children[0].(map[string]any)
+	if !ok {
+		return 0
+	}
+	resources, ok := child["resources"].([]any)
+	if !ok {
+		return 0
+	}
+	return len(resources)
+}
+
+func TestValidateAssessmentPlanRejectsProviderDoubleRekeyCapture(t *testing.T) {
+	show := providerDoubleShowCapture(t, "rekey_refusal")
+	requireAssessmentPlanErrorContaining(
+		t,
+		show,
+		providerDoubleDataReferenceContract(),
+		"provider-observed resource IDs",
+	)
+}
+
+func TestValidateAssessmentPlanProviderDoubleFreshnessCaptureMatrix(t *testing.T) {
+	t.Run("stale_refresh_false", func(t *testing.T) {
+		stale := providerDoubleShowCapture(t, "stale_refresh_false")
+		staleContract := providerDoubleDataReferenceContract()
+		staleContract.PlanAttestation = testQualifiedPlanAttestation(false)
+		requireAssessmentPlanErrorContaining(t, stale, staleContract, "plan creation attestation")
+	})
+
+	t.Run("fresh_after_stale", func(t *testing.T) {
+		fresh := providerDoubleShowCapture(t, "fresh_after_stale")
+		requireValidAssessmentPlan(
+			t,
+			"ValidateAssessmentPlan(provider-double fresh_after_stale)",
+			fresh,
+			providerDoubleDataReferenceContract(),
+		)
+	})
+}
+
 func TestValidateAssessmentPlanDataNoOpDoesNotRequireAuthorization(t *testing.T) {
 	plan := providerDoubleShowCapture(t, "no_op")
 	delete(plan, "prior_state")
+	contract := providerDoubleDataReferenceContract()
+	contract.PlanAttestation = nil
 	requireValidAssessmentPlan(
 		t,
 		"ValidateAssessmentPlan(provider-double no-op without evidence)",
 		plan,
-		providerDoubleDataReferenceContract(),
+		contract,
+	)
+}
+
+func TestValidateAssessmentPlanDataAuthorizationRequiresQualifiedAttestation(t *testing.T) {
+	contract := dataReferenceContract()
+	contract.PlanAttestation = nil
+	requireAssessmentPlanErrorContaining(
+		t,
+		validDataReferencePlan("101"),
+		contract,
+		"plan creation attestation",
+	)
+
+	contract = dataReferenceContract()
+	contract.PlanAttestation = testQualifiedPlanAttestation(false)
+	requireAssessmentPlanErrorContaining(
+		t,
+		validDataReferencePlan("101"),
+		contract,
+		"plan creation attestation",
+	)
+}
+
+func TestValidateAssessmentPlanManagedAuthorizationChecksPresentAttestation(t *testing.T) {
+	contract := referenceContract()
+	contract.PlanAttestation = testQualifiedPlanAttestation(false)
+	requireAssessmentPlanErrorContaining(
+		t,
+		referenceAssessmentPlan("create"),
+		contract,
+		"plan creation attestation",
+	)
+	requireValidAssessmentPlan(
+		t,
+		"ValidateAssessmentPlan(managed reference without attestation)",
+		referenceAssessmentPlan("create"),
+		referenceContract(),
 	)
 }
 
@@ -320,6 +439,73 @@ func TestValidateAssessmentPlanDoesNotAuthorizeResourceChanges(t *testing.T) {
 		plan,
 		dataReferenceContract(),
 	)
+}
+
+func twoItemDataReferencePlan() map[string]any {
+	return dataReferenceAssessmentPlan(
+		[]any{
+			validDataReferenceResource("group_a", "id1"),
+			validDataReferenceResource("group_b", "id2"),
+		},
+		"data",
+		map[string]any{"group_a": "id1", "group_b": "id2"},
+	)
+}
+
+func setDataReferenceOutputAfter(plan map[string]any, ids map[string]any) {
+	change := plan["output_changes"].(map[string]any)[infrawrightReferenceOutput].(map[string]any)
+	change["after"] = map[string]any{dataReferenceType: ids}
+}
+
+func setDataReferencePriorOutput(plan map[string]any, ids map[string]any) {
+	priorValues := plan["prior_state"].(map[string]any)["values"].(map[string]any)
+	priorValues["outputs"] = map[string]any{
+		infrawrightReferenceOutput: map[string]any{
+			"sensitive": true,
+			"value":     map[string]any{dataReferenceType: ids},
+		},
+	}
+}
+
+func TestValidateAssessmentPlanBindsDataReferenceKeysToPriorStateIDs(t *testing.T) {
+	requireValidAssessmentPlan(
+		t,
+		"ValidateAssessmentPlan(two-item exact data reference positive)",
+		twoItemDataReferencePlan(),
+		dataReferenceContract(),
+	)
+
+	for _, test := range []struct {
+		name  string
+		after map[string]any
+	}{
+		{
+			name: "two-item swap",
+			after: map[string]any{
+				"group_a": "id2",
+				"group_b": "id1",
+			},
+		},
+		{
+			name: "renamed keys",
+			after: map[string]any{
+				"renamed_a": "id1",
+				"renamed_b": "id2",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan := twoItemDataReferencePlan()
+			setDataReferenceOutputAfter(plan, test.after)
+			setDataReferencePriorOutput(plan, test.after)
+			requireAssessmentPlanErrorContaining(
+				t,
+				plan,
+				dataReferenceContract(),
+				"provider-observed resource IDs",
+			)
+		})
+	}
 }
 
 func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.T) {

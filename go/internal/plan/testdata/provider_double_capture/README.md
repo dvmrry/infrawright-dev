@@ -1,6 +1,6 @@
 # Provider-double capture fixtures
 
-These five `show.json` files are raw, unmodified `terraform show -json` output
+These seven `show.json` files are raw, unmodified `terraform show -json` output
 from Terraform 1.15.4. They exercise the saved-plan reference-output contract
 against the test-only provider in the sibling `provider-double` Go module.
 
@@ -21,8 +21,9 @@ export GOTMPDIR="$PWD/../../../../../.gotmp"
 ```
 
 The script builds the nested provider module into the local, un-staged
-`<worktree>/.provider-double-bin/` directory, creates a temporary Terraform
-CLI development override and scenario workspace, and writes only the five
+`<worktree>/.provider-double-bin/` directory, verifies that `terraform version`
+is exactly `Terraform v1.15.4`, creates a temporary Terraform
+CLI development override and scenario workspace, and writes only the seven
 `show.json` results back here. Terraform/provider logs and temporary state stay
 under the temporary workspace and are removed on exit.
 
@@ -35,9 +36,11 @@ The provider module remains a separate Go module at
 | --- | --- |
 | `initial_create` | Nonempty refreshed data instances and output creation. |
 | `refresh_id_change` | The provider-observed ID changes from the applied v1 value to a v2 value during plan. |
-| `output_only_change` | Data IDs stay stable while the output key projection changes; there are no resource changes. |
+| `rekey_refusal` | The output key projection changes while data IDs stay stable; this is a committed negative and must be refused because the output key-to-ID binding changed. |
 | `no_op` | The output action is `no-op`; the existing output needs no new authorization. |
 | `empty_for_each` | The refreshed data instance set and created output map are both empty. |
+| `stale_refresh_false` | An applied v1 state is planned under provider v2 with `-refresh=false`; the stale data evidence must be refused. |
+| `fresh_after_stale` | The same applied v1 state is first planned stale, then replanned under provider v2 with `-refresh=true`; the final v2 evidence is accepted. |
 
 The captures document the Terraform 1.15.4 container rule used by the engine:
 data reads during plan appear in `prior_state.values.root_module`, not in
