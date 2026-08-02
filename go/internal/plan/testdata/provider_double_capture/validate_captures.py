@@ -10,6 +10,14 @@ so regeneration changes only the single top-level timestamp per file.
 
 No `assert` statements: every check is an unconditional test with a
 nonzero exit, immune to PYTHONOPTIMIZE.
+
+ROLE BOUNDARY: this validator is a pre-promotion sanity layer for the
+fixture set, not a reimplementation of the assessment authorization
+contract. The authoritative contract is go/internal/plan/contract.go
+and its focused Go regressions (which consume these same fixtures); a
+capture accepted here but refused by the contract tests fails the Go
+suite, which is the promotion gate of record. Extending this file
+toward full contract parity is deliberately out of scope.
 """
 import json
 import re

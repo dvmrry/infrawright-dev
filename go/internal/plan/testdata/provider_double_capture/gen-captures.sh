@@ -15,9 +15,31 @@ if [ "${1:-}" = "--recover" ]; then
 		exit 1
 	fi
 	if ! grep -q '^state=promoting$' "$backup_dir/TRANSACTION"; then
-		printf '%s\n' "recovery refused: TRANSACTION does not record an in-flight promotion (a completed promotion needs no recovery; delete the backup deliberately instead)" >&2
+		printf '%s\n' "recovery refused: TRANSACTION does not record an in-flight promotion" >&2
 		exit 1
 	fi
+	if grep -q '^state=done$' "$backup_dir/TRANSACTION"; then
+		printf '%s\n' "recovery refused: TRANSACTION records a completed promotion (cleanup was interrupted after success); the live set is current — delete the backup deliberately instead" >&2
+		exit 1
+	fi
+	# promoted= lines identify scenarios whose live file already carries the
+	# new generation; recovery restores the PREVIOUS set wholesale, so those
+	# lines are informational here, but a malformed record (a promoted= line
+	# naming an unknown scenario) refuses.
+	while IFS= read -r line; do
+		case "$line" in
+		promoted=*)
+			promoted_scenario=${line#promoted=}
+			case " $all_scenarios " in
+			*" $promoted_scenario "*) ;;
+			*)
+				printf '%s\n' "recovery refused: TRANSACTION names unknown promoted scenario $promoted_scenario" >&2
+				exit 1
+				;;
+			esac
+			;;
+		esac
+	done < "$backup_dir/TRANSACTION"
 	# Decide the full-set outcome BEFORE copying anything: every scenario
 	# must carry exactly one previous file or missing marker, or recovery
 	# refuses without altering live files or the backup.
@@ -208,5 +230,6 @@ if [ "$promote_failed" -ne 0 ]; then
 	exit 1
 fi
 
+printf 'state=done\n' >> "$backup_dir/TRANSACTION"
 rm -rf "$backup_dir"
 printf '%s\n' 'ALL-CAPTURED'

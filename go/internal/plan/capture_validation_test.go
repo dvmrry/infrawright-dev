@@ -146,11 +146,36 @@ func TestCaptureRecoveryRestoresPreviousSet(t *testing.T) {
 
 	t.Run("completed promotion refuses recovery", func(t *testing.T) {
 		tree, backup := setup(t)
-		if err := os.WriteFile(filepath.Join(backup, "TRANSACTION"), []byte("state=done\n"), 0o644); err != nil {
+		// The generator appends state=done after a fully promoted set, so an
+		// interrupted CLEANUP (not promotion) leaves exactly this record.
+		record := "state=promoting\npromoted=initial_create\npromoted=no_op\npromoted=refresh_id_change\npromoted=rekey_refusal\npromoted=empty_for_each\npromoted=refresh_false\npromoted=refresh_true\nstate=done\n"
+		if err := os.WriteFile(filepath.Join(backup, "TRANSACTION"), []byte(record), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if output, err := exec.Command("sh", filepath.Join(tree, "gen-captures.sh"), "--recover", backup).CombinedOutput(); err == nil {
 			t.Fatalf("--recover accepted a completed-promotion record:\n%s", output)
+		}
+	})
+
+	t.Run("mid-promotion record with promoted lines recovers", func(t *testing.T) {
+		tree, backup := setup(t)
+		record := "state=promoting\npromoted=initial_create\npromoted=no_op\n"
+		if err := os.WriteFile(filepath.Join(backup, "TRANSACTION"), []byte(record), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if output, err := exec.Command("sh", filepath.Join(tree, "gen-captures.sh"), "--recover", backup).CombinedOutput(); err != nil {
+			t.Fatalf("--recover(mid-promotion) = %v\n%s", err, output)
+		}
+	})
+
+	t.Run("unknown promoted scenario refuses", func(t *testing.T) {
+		tree, backup := setup(t)
+		record := "state=promoting\npromoted=not_a_scenario\n"
+		if err := os.WriteFile(filepath.Join(backup, "TRANSACTION"), []byte(record), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if output, err := exec.Command("sh", filepath.Join(tree, "gen-captures.sh"), "--recover", backup).CombinedOutput(); err == nil {
+			t.Fatalf("--recover accepted an unknown promoted scenario:\n%s", output)
 		}
 	})
 }

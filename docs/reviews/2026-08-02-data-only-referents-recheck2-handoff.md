@@ -5,10 +5,12 @@ supersedes all earlier versions of this file.
 
 ## Base / Head
 
-- Base: `66d42d10` (fifth-recheck closure, the head your sixth recheck
-  reviewed).
-- Head: the commit carrying this handoff (sixth-recheck closure).
-- Diff command: `git diff 66d42d10..HEAD`.
+- Base: `89f8bc19` (sixth-recheck closure).
+- Head: the commit carrying this handoff (seventh-recheck closure);
+  the pinned hash is recorded in
+  docs/reviews/2026-08-02-data-only-referents-review-record.md, written
+  immediately after this commit.
+- Diff command: `git diff 89f8bc19..HEAD`.
 - Exactly four paths change in this closure:
   1. `go/internal/plan/testdata/provider_double_capture/validate_captures.py`
      — rewritten as the EXACT seven-scenario contract: per-scenario
