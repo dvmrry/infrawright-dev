@@ -21,9 +21,12 @@ const (
 // lookup.
 type Environment = map[string]string
 
-// CollectorContext holds tenant- and product-specific values derived during
-// authentication. An empty field means the value was not supplied; each
-// adapter decides whether that absence selects a fallback or is an error.
+// CollectorContext holds tenant- and product-specific values read from the
+// environment by NewCollectorContext before any authentication call; it is
+// an input to both Acquire and ComposeURL. An empty field means the value
+// was not supplied. NewCollectorContext itself fails closed on a missing
+// ZPA_CUSTOMER_ID when ZPA is among the needed products; every other
+// absence is the consuming adapter's decision (fallback or error).
 type CollectorContext struct {
 	Cloud         string
 	CustomerID    string

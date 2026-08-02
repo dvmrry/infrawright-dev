@@ -9,14 +9,16 @@
 //   - a bounded response body and a bounded, secret-safe redirect policy
 //     (transport.go);
 //   - a cookie jar, because legacy ZIA session authentication
-//     (collectors/zscaler-adapters.go's acquireZiaLegacy) depends on the
+//     (collectors/zscaler_adapters.go's acquireZiaLegacy) depends on the
 //     transport persisting and replaying a Set-Cookie session token; see
 //     transport.go's New doc comment for why net/http/cookiejar's default
 //     (host-only) public-suffix policy is sufficient here;
 //   - secret-safe diagnostics, reusing collectors.MaskCollectorIdentifiers
 //     rather than reimplementing masking (errors.go).
 //
-// The package intentionally relies on standard-library URL parsing, cookie,
-// proxy, TLS-root, redirect, and HTTP framing behavior rather than maintaining
-// a second compatibility transport.
+// The package intentionally relies on standard-library URL parsing, proxy
+// resolution, and HTTP framing behavior rather than maintaining a second
+// compatibility transport; the bullets above are the deliberate exceptions
+// (layered CA trust, a hand-rolled bounded redirect policy driven through
+// RoundTrip, and an explicitly attached cookie jar).
 package httptransport

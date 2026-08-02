@@ -28,12 +28,17 @@
 - Head: the handoff-only commit immediately after the implementation head; the
   exact hash is supplied to the reviewer and contains no implementation change.
 - Diff command: `git diff 9b0b40a84871fd325c25e0c0a92c1348e51664cf..<exact-review-head>`.
-- Current refresh base (2026-07-31, supersedes the coordinates above for any
-  new review): `origin/main` after PR #300 (HTTP default timeout 30s -> 60s);
-  the branch merges that tip, resolving the one genuine conflict in
-  `go/internal/httptransport/transport.go` in main's favor
-  (`DefaultTimeoutMs = 60_000`, now pinned by a regression test). Diff
-  command: `git diff origin/main...<exact-review-head>` against current main.
+- Refresh base (2026-07-31): `origin/main` after PR #300 (HTTP default
+  timeout 30s -> 60s); the branch merged that tip, resolving the one genuine
+  conflict in `go/internal/httptransport/transport.go` in main's favor
+  (`DefaultTimeoutMs = 60_000`, now pinned by a regression test).
+- Current refresh base (2026-08-02, supersedes the coordinates above for any
+  new review): `origin/main` at `a9498345`, which carries PR #301 (test-audit
+  cleanup: tfrender batch subsystem and non-discriminating tests removed) and
+  PR #302 (Terraform diagnostics propagated through terraformcmd). The merge
+  was conflict-free; the timeout pin and its regression test are unchanged.
+  Diff command: `git diff origin/main...<exact-review-head>` against current
+  main.
 
 ## Files Changed
 
@@ -107,7 +112,9 @@
   existing fresh-context adversarial-review process.
 - Runtime boundary: no JavaScript or Python source/runtime files or executable
   invocations were introduced. Collection, fetch command assembly, and the Go
-  HTTP transport contain no Node/Python runtime references after this change.
+  HTTP transport invoke no Node/Python runtime after this change; historical
+  provenance comments naming the retired TS/Node sources remain (see Known
+  Deferrals) and are matched by a text audit for runtime references.
 - Pagination coercion: nil, false, empty strings/lists/maps, and numeric zero
   remain falsy; integer coercion continues to truncate finite fractional values
   toward zero and reject unsupported or non-finite inputs.
