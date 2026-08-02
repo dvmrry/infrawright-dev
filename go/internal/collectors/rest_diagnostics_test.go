@@ -1,14 +1,7 @@
 package collectors
 
-// rest_diagnostics_test.go ports the original implementation's
-// hostUrl validation and probeRestHost/probeRestHosts logic to the depth
-// they are testable against an injected HttpTransport (see
-// rest_diagnostics.go's doc comment for why the real-socket, default-
-// transport-construction part of the original test corpus
-// is out of this port's scope). There is no dedicated
-// the original test corpus in the Node source; these vectors
-// are inferred directly from probeRestHost/probeRestHosts/hostUrl's own
-// behavior in the original implementation.
+// These tests exercise host validation and deterministic probing through an
+// injected transport. Real transport construction belongs to the CLI layer.
 
 import (
 	"errors"
@@ -82,7 +75,8 @@ func TestProbeRestHostsDeduplicatesAndSortsDeterministically(t *testing.T) {
 
 func TestProbeRestHostRequiresAnInjectedTransport(t *testing.T) {
 	_, err := ProbeRestHost("example.test", RestHostProbeOptions{})
-	if err == nil {
-		t.Fatal("expected an error when no transport is injected")
+	want := "ProbeRestHost requires an injected transport"
+	if err == nil || err.Error() != want {
+		t.Fatalf("ProbeRestHost() error = %v, want %q", err, want)
 	}
 }

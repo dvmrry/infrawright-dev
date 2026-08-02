@@ -24,9 +24,8 @@ const (
 	// 30_000; operational experience against slow tenant APIs required
 	// 60s, a deliberate departure from the ported default.
 	DefaultTimeoutMs = 60_000
-	// DefaultResponseLimitBytes bounds a single response body. It is a
-	// DoS guard against an unbounded or compromised peer, not a Node
-	// parity requirement -- see the Go runtime contract §2.
+	// DefaultResponseLimitBytes bounds a single response body as a DoS guard
+	// against an unbounded or compromised peer.
 	DefaultResponseLimitBytes = 64 * 1024 * 1024
 	// DefaultMaxRedirects caps automatic redirect following.
 	DefaultMaxRedirects = 10

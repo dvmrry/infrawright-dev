@@ -35,7 +35,7 @@ func newRecordingTransport(t *testing.T, responses ...HTTPResponse) *recordingTr
 	return &recordingTransport{responses: responses}
 }
 
-func TestCollectorAuthModeMatchesPythonTruthyVocabulary(t *testing.T) {
+func TestCollectorAuthModeMatchesAcceptedTruthyVocabulary(t *testing.T) {
 	for _, value := range []string{"1", "true", "TRUE", " yes ", "on"} {
 		if got := CollectorAuthModeFromEnvironment(Environment{"ZSCALER_USE_LEGACY_CLIENT": value}); got != AuthModeLegacy {
 			t.Errorf("CollectorAuthModeFromEnvironment(%q) = %v, want legacy", value, got)

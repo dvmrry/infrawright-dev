@@ -2,7 +2,7 @@ package main
 
 // This file is the opt-in, hermetic half of the Go runtime contract §5's
 // vertical-slice checkpoint. It treats the built Go CLI as a black box and
-// deliberately gives it a PATH containing Terraform but no Node runtime.
+// deliberately gives it a PATH containing only Terraform.
 
 import (
 	"bytes"
@@ -363,7 +363,7 @@ func v2IsolatedPath(t *testing.T, terraform string) string {
 		t.Fatalf("os.Symlink(%q, %q) error = %v, want nil", terraform, terraformLink, err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "node")); !os.IsNotExist(err) {
-		t.Fatalf("os.Stat(%q) error = %v, want not-exist (Node must be absent from checkpoint PATH)", filepath.Join(directory, "node"), err)
+		t.Fatalf("os.Stat(%q) error = %v, want not-exist (retired runtime must be absent from checkpoint PATH)", filepath.Join(directory, "node"), err)
 	}
 	return directory
 }

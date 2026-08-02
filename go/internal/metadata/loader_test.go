@@ -214,15 +214,13 @@ func TestPackOwnershipAndSharedComponentsHardFailures(t *testing.T) {
 	}
 }
 
-// TestPackAuthoringIgnoresRetainedPythonCollectorFilenames ports "Node
-// pack authoring ignores retained Python collector filenames".
-func TestPackAuthoringIgnoresRetainedPythonCollectorFilenames(t *testing.T) {
+func TestPackAuthoringIgnoresUnrelatedFiles(t *testing.T) {
 	directory := t.TempDir()
 	writeJSONFile(t, filepath.Join(directory, "bad-name", "pack.json"), JsonObject{
 		"provider_prefixes": map[string]string{"sample_": "sample"},
 		"provider_sources":  map[string]string{"sample": "example/sample"},
 	})
-	writeRawFile(t, filepath.Join(directory, "bad-name", "collector.py"), "raise RuntimeError('must not be imported')\n")
+	writeRawFile(t, filepath.Join(directory, "bad-name", "notes.txt"), "ignored by pack authoring\n")
 	pack := "bad-name"
 	result, err := ValidatePackAuthoring(ValidatePackAuthoringOptions{Pack: &pack, Root: directory})
 	if err != nil {

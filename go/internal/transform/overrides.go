@@ -117,7 +117,7 @@ func escapeHtmlFields(item map[string]any, resource *runtimeTransformResource, h
 			continue
 		}
 		if htmlUnescape == nil {
-			failf("%s HTML escaping requires a Python-compatible HTML decoder", resource.Type)
+			failf("%s HTML escaping requires an HTML decoder", resource.Type)
 		}
 		item[field] = goHtmlEscape(htmlUnescape(htmlUnescape(value)))
 	}
@@ -130,7 +130,7 @@ func unescapeDisplayFields(item map[string]any, resource *runtimeTransformResour
 		return
 	}
 	if htmlUnescape == nil {
-		failf("%s requires Python-compatible HTML unescape metadata", resource.Type)
+		failf("%s display-field unescaping requires an HTML decoder", resource.Type)
 	}
 	for _, field := range [...]string{"name", "description"} {
 		if s, ok := item[field].(string); ok {

@@ -28,6 +28,12 @@ Attack these surfaces especially hard:
 - Source precedence, provenance, and ambiguity handling.
 - Adapter-specific provider edge cases.
 - Any path that can silently drop, overclaim, remap, or weaken evidence.
+- Identity-key derivation or identity-to-state-address mapping.
+- Import-ID derivation or import-ID-to-state-address mapping.
+- `import {}` generation, filtering, staging, preservation, reconciliation, or removal.
+- `moved {}` generation, preservation, suppression, reconciliation, or removal.
+- Saved-plan classification, including policy-tolerance decisions.
+- Apply guardrails, saved-plan authority checks, or destructive-action controls.
 
 Review steps:
 

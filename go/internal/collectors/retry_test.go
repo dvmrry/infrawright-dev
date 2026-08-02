@@ -26,7 +26,7 @@ func TestRetryDelayMsRetryAfterParsing(t *testing.T) {
 		{"0.25", 250},
 		{"999", 30_000},
 		{"", 1_000},
-		{"0x10", 1_000}, // not a Python float lexeme -> falls back to exponential backoff
+		{"0x10", 1_000}, // not an accepted number -> exponential backoff
 		{"NaN", 0},
 		{"Infinity", 30_000},
 		{"-Infinity", 0},

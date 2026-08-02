@@ -1,12 +1,9 @@
 package collectors
 
-// zscaler_generic_fetch_test.go ports
-// the original test corpus's "generic Fetch collects real
-// ZCC and ZTC registries from a Python-free external root" test: an
-// end-to-end run of the real committed zcc/ztc pack registries (copied
-// into a scratch root, with any Python artifact stripped) through
-// ResolveCollectorAdapters + FetchResources against the built-in Zscaler
-// adapters and a fake transport, in OneAPI mode.
+// zscaler_generic_fetch_test.go exercises the committed ZCC and ZTC pack
+// registries from a copied pack root through ResolveCollectorAdapters and
+// FetchResources, using the built-in Zscaler adapters and a fake transport in
+// OneAPI mode.
 
 import (
 	"encoding/json"
@@ -61,7 +58,7 @@ func jsonResponseNoT(value any) (HTTPResponse, error) {
 	return HTTPResponse{Status: 200, Headers: map[string][]string{}, Body: rendered}, nil
 }
 
-func TestGenericFetchCollectsRealZccAndZtcRegistriesFromPythonFreeRoot(t *testing.T) {
+func TestGenericFetchCollectsRealZccAndZtcRegistriesFromCopiedRoot(t *testing.T) {
 	requireCollectorPackSelection(t, metadata.PackSelection{
 		Packs: []string{"zcc", "ztc"}, Shared: []string{"zscaler"},
 	})

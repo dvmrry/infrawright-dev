@@ -562,18 +562,9 @@ func newZscalerAdapter(product zscalerProduct) CollectorAdapter {
 	}
 }
 
-// CreateZscalerCollectorAdapters ports createZscalerCollectorAdapters from
-// the original implementation: built-in product adapters;
-// resource selection remains registry-driven.
-//
-// The TS source returns a Map, whose `.keys()` iterates in insertion
-// order ("zia", "zpa", "zcc", "ztc"); a Go map has no iteration order at
-// all, and nothing in this package ever iterates this particular map to
-// produce observable output (fetchResourcesBatch always walks
-// FetchProducts's already-canonjson.SortedStrings-ordered product list,
-// never this map directly), so that ordering is a Node-test-only
-// artifact, not a behavioral contract -- see rest reviewer-attention
-// notes.
+// CreateZscalerCollectorAdapters returns the built-in product adapters.
+// Resource selection remains registry-driven, and observable product ordering
+// is established separately by FetchResources.
 func CreateZscalerCollectorAdapters() map[string]CollectorAdapter {
 	return map[string]CollectorAdapter{
 		"zia": newZscalerAdapter(productZIA),

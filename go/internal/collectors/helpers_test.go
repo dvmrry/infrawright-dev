@@ -109,20 +109,11 @@ func installedCollectorRoot(t *testing.T) metadata.LoadedPackRoot {
 	return loaded
 }
 
-// copyDir recursively copies src to dst, excluding Python cache artifacts.
+// copyDir recursively copies src to dst.
 func copyDir(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if entry.Name() == "__pycache__" {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !entry.IsDir() && (filepath.Ext(path) == ".py" || filepath.Ext(path) == ".pyc") {
-			return nil
 		}
 		relative, relErr := filepath.Rel(src, path)
 		if relErr != nil {
@@ -285,11 +276,8 @@ func (q *queueTransport) requestPaths() []string {
 	defer q.mu.Unlock()
 	out := make([]string, len(q.requests))
 	for i, request := range q.requests {
-		// EscapedPath, not Path: Path is net/url's *decoded* path (e.g. "A
-		// B"), but the Node test compares WHATWG URL.pathname, which is
-		// the *encoded* path ("A%20B") -- matching what expandedPaths in
-		// rest.go already percent-encoded into the URL before this
-		// package's own composeUrl/url.Parse ever saw it.
+		// EscapedPath preserves the encoded path emitted by expandedPaths;
+		// URL.Path would decode values such as "A%20B".
 		out[i] = request.URL.EscapedPath()
 	}
 	return out

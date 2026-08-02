@@ -143,21 +143,13 @@ func mergeQuery(base []queryPair, additions ...queryPair) []queryPair {
 	return merged
 }
 
-// messageOf ports messageOf from the original implementation. Every error
-// this package constructs or receives from the HttpTransport seam already
-// satisfies Go's error interface, so this is a thin, always-successful
-// pass-through kept only so call sites read the same as the Node source's
-// `messageOf(error)` calls.
+// messageOf returns the message carried by a transport or collector error.
 func messageOf(err error) string {
 	return err.Error()
 }
 
-// queryScalar ports queryScalar from the original implementation: it
-// renders one fetch query value the way Python's own str()/urlencode would
-// -- None/True/False for the JSON scalars with no literal string form,
-// the lossless canonical number token for a registry-sourced json.Number,
-// and String(value)-equivalent decimal digits for a plain (synthetically
-// constructed, e.g. a page number) int/float64.
+// queryScalar renders a fetch query scalar. Nil and booleans use the existing
+// None/True/False wire vocabulary; numbers use lossless canonical tokens.
 func queryScalar(value any) (string, error) {
 	switch v := value.(type) {
 	case nil:
@@ -191,12 +183,8 @@ func queryScalar(value any) (string, error) {
 	}
 }
 
-// percentEncode ports percentEncode from the original implementation: RFC
-// 3986 unreserved-character percent-encoding over value's UTF-8 bytes
-// (Go strings already are UTF-8 bytes, matching the Node source's own
-// `new TextEncoder().encode(value)` step), with an explicit spaceAsPlus
-// switch for the two contexts the Node source distinguishes (query
-// components use "+", path expansion segments use "%20").
+// percentEncode applies RFC 3986 unreserved-character encoding over UTF-8
+// bytes. Query components encode spaces as "+"; path segments use "%20".
 func percentEncode(value string, spaceAsPlus bool) (string, error) {
 	if !utf8.ValidString(value) {
 		return "", errors.New("fetch URL components must be valid Unicode strings")
@@ -217,13 +205,7 @@ func percentEncode(value string, spaceAsPlus bool) (string, error) {
 	return sb.String(), nil
 }
 
-// withQuery ports withQuery from the original implementation, folded
-// together with the base/additions merge its two call sites
-// (requestPage's pre-merge, then its own delegation to getJson with an
-// empty additions map) perform in two steps in the Node source; merging
-// once here is behaviorally identical (merge(merge(a, b), {}) ==
-// merge(a, b)) and lets every caller in this file hand mergeQuery's
-// already-additions-applied pairs straight through with none.
+// withQuery returns a URL with the supplied ordered query pairs.
 func withQuery(base *url.URL, pairs []queryPair) (*url.URL, error) {
 	cloned := *base
 	if len(pairs) == 0 {
@@ -332,8 +314,8 @@ func itemList(value any, message string) ([]any, error) {
 	return items, nil
 }
 
-// pythonTruthy ports pythonTruthy from the original implementation.
-func pythonTruthy(value any) bool {
+// collectorTruthy applies the collector response coercion used by pagination.
+func collectorTruthy(value any) bool {
 	switch v := value.(type) {
 	case nil:
 		return false
@@ -415,12 +397,11 @@ func paginateZia(ctx pageFetchContext) ([]any, error) {
 	}
 }
 
-// integerToken ports the regexp `/^[+-]?\d+$/` from pythonInt in
-// the original implementation.
+// integerToken matches a signed decimal integer.
 var integerToken = regexp.MustCompile(`^[+-]?\d+$`)
 
-// pythonInt ports pythonInt from the original implementation.
-func pythonInt(value any) (int, error) {
+// collectorInt coerces supported collector response values to an integer.
+func collectorInt(value any) (int, error) {
 	invalid := errors.New("invalid totalPages")
 	switch v := value.(type) {
 	case json.Number:
@@ -480,7 +461,7 @@ func paginateZpa(ctx pageFetchContext) ([]any, error) {
 		}
 		rawList := obj["list"]
 		var batch []any
-		if pythonTruthy(rawList) {
+		if collectorTruthy(rawList) {
 			batch, err = itemList(rawList, fmt.Sprintf("ZPA %s list did not contain a list page", masked))
 			if err != nil {
 				return nil, err
@@ -488,8 +469,8 @@ func paginateZpa(ctx pageFetchContext) ([]any, error) {
 		}
 		items = append(items, batch...)
 		total := 1
-		if rawTotal, ok := obj["totalPages"]; ok && pythonTruthy(rawTotal) {
-			total, err = pythonInt(rawTotal)
+		if rawTotal, ok := obj["totalPages"]; ok && collectorTruthy(rawTotal) {
+			total, err = collectorInt(rawTotal)
 			if err != nil {
 				return nil, err
 			}
@@ -522,14 +503,8 @@ func paginateSingle(ctx pageFetchContext) ([]any, error) {
 	return []any{payload}, nil
 }
 
-// zccNumeric ports the numeric() helper from the original implementation.
-// It distinguishes obj[key] being absent (returns fallback, matching the
-// TS `value === undefined` branch) from obj[key] being an explicit JSON
-// null (falls through to the default "must be numeric" error, since
-// `typeof null === "object"`, not "number", in the Node source) --
-// exactly the absent-vs-null distinction this port's dynamic-tree design
-// exists to preserve, so the lookup below uses Go's two-result map form
-// rather than treating a missing key and an explicit null the same way.
+// zccNumeric distinguishes an absent key, which returns fallback, from an
+// explicit JSON null, which is not numeric.
 func zccNumeric(obj map[string]any, key string, fallback float64) (float64, error) {
 	value, ok := obj[key]
 	if !ok {
@@ -573,7 +548,7 @@ func paginateZccV2(ctx pageFetchContext) ([]any, error) {
 			return nil, fmt.Errorf("ZCC v2 %s did not return an object page", masked)
 		}
 		var batch []any
-		if rawItems, has := obj["items"]; has && pythonTruthy(rawItems) {
+		if rawItems, has := obj["items"]; has && collectorTruthy(rawItems) {
 			batch, err = itemList(rawItems, fmt.Sprintf("ZCC v2 %s items did not contain a list page", masked))
 			if err != nil {
 				return nil, err
@@ -774,9 +749,7 @@ func fetchEntry(root metadata.LoadedPackRoot, resourceType string) (FetchEntry, 
 	}, nil
 }
 
-// FailureHints ports failureHints from the original implementation:
-// render the same cause-specific remediation hints as the Python
-// collector, verbatim.
+// FailureHints returns cause-specific collector remediation hints.
 func FailureHints(reasons []string, scoped bool, httpStatuses []int) []string {
 	blob := strings.Join(reasons, " ")
 	statuses := make(map[int]struct{}, len(httpStatuses))
@@ -902,8 +875,7 @@ func newFetchFailureReason(err error) fetchFailureReason {
 	return fetchFailureReason{httpStatus: status, hasStatus: ok, message: messageOf(err)}
 }
 
-// runFetchWorkers ports runFetchWorkers from the original implementation:
-// run through one global bound while rotating products fairly. A shared
+// runFetchWorkers applies one global bound while rotating products fairly. A shared
 // OneAPI authority is never multiplied by independent product pools, and a
 // large product queue cannot consume every worker indefinitely.
 //
@@ -912,10 +884,7 @@ func newFetchFailureReason(err error) fetchFailureReason {
 // original index, never returned as a Go error from this function itself
 // -- execute's own contract (see fetchResourcesBatch) never returns a
 // non-nil error for an ordinary fetch/write failure, only for a genuinely
-// unexpected panic, matching the Node source's own two-tier error handling
-// (execute's internal try/catch turns every ordinary failure into an
-// outcome value; the worker loop's own try/catch is a defensive backstop
-// for anything execute did not itself catch). Concurrency therefore never
+// unexpected panic. Concurrency therefore never
 // influences which outcome kind an item receives or its recorded
 // duration/page count; it can only influence *when*, in wall-clock time,
 // each execute call happens to run relative to the others. The caller
@@ -999,12 +968,7 @@ func runFetchWorkers(
 		}()
 	}
 	wg.Wait()
-	_ = stopped // stopped is reserved for a future fatal-short-circuit; the
-	// Node source never sets it early either -- take() only ever
-	// stops handing out new work once fatal is set by a genuinely
-	// unexpected panic (see this function's doc comment), which this
-	// Go port surfaces via execute's own recover, not by mutating
-	// stopped from a worker goroutine.
+	_ = stopped // reserved for a future fatal short-circuit
 	return outcomes
 }
 
@@ -1058,9 +1022,7 @@ func fetchDestination(outputDirectory, resourceType string) (string, error) {
 	return destination, nil
 }
 
-// fetchResourcesBatch ports the unexported fetchResourcesBatch from
-// the original implementation: execute the complete registry-driven fetch
-// batch without invoking Python.
+// fetchResourcesBatch executes the complete registry-driven fetch batch.
 func fetchResourcesBatch(options FetchResourcesOptions, concurrency int) (FetchRunResult, error) {
 	write := options.OnDiagnostic
 	if write == nil {
@@ -1434,14 +1396,8 @@ func perfNowOrStarted(performance PerformanceRecorder, startedMs float64) float6
 	return performance.Now()
 }
 
-// outcomeDurationMs mirrors the TS ternary
-// `options.performance === undefined ? 0 : endedMs - startedMs` used to
-// compute FetchOutcome.durationMs in the original implementation's
-// execute() closure: a plain subtraction of the endedMs this same call
-// already captured (via perfNowOrStarted), never a second clock read --
-// unlike the auth-span duration below, which does call
-// PerformanceRecorder.DurationSince (matching options.performance
-// .durationSince(authStarted) in the Node source's own auth block).
+// outcomeDurationMs uses the already captured end time so recording an outcome
+// does not read the clock again.
 func outcomeDurationMs(performance PerformanceRecorder, startedMs, endedMs float64) float64 {
 	if performance == nil {
 		return 0
@@ -1458,9 +1414,7 @@ func sortedMapKeysOf(m map[string]string) []string {
 	return canonjson.SortedStrings(keys)
 }
 
-// FetchResources ports fetchResources from the original implementation:
-// execute the complete registry-driven fetch batch without invoking
-// Python.
+// FetchResources executes the complete registry-driven fetch batch.
 func FetchResources(options FetchResourcesOptions) (FetchRunResult, error) {
 	started := perfNow(options.Performance)
 	concurrency, err := fetchConcurrency(options.Concurrency)

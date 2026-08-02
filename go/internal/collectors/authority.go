@@ -7,30 +7,24 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-// authority.go ports the original implementation: resolving selected
-// resource adapters through pack-owned provider sources. The pack root
-// declares its provider source, while the caller chooses the concrete
-// source-to-adapter bindings it is willing to execute. The adapter still
-// owns authentication and URL composition; registry metadata can select
-// only paths under that adapter's fixed provider host.
+// The pack root declares provider sources, while the caller chooses the
+// concrete source-to-adapter bindings it is willing to execute. Adapters own
+// authentication and URL composition; registry metadata can select only paths
+// under an adapter's fixed provider host.
 
-// CollectorAdapterAuthorities ports the CollectorAdapterAuthorities
-// interface from the original implementation.
+// CollectorAdapterAuthorities contains the compiled adapters a caller permits.
 type CollectorAdapterAuthorities struct {
 	ByProviderSource map[string]CollectorAdapter
 }
 
-// ResolveCollectorAdaptersOptions ports the options bag
-// resolveCollectorAdapters accepts in the original implementation.
+// ResolveCollectorAdaptersOptions configures provider-source resolution.
 type ResolveCollectorAdaptersOptions struct {
 	Authorities   CollectorAdapterAuthorities
 	ResourceTypes []string
 	Root          metadata.LoadedPackRoot
 }
 
-// manifestNamed returns the manifest named name from manifests, ported
-// from the `manifest.find((item) => item.name === owner)` lookup in
-// the original implementation.
+// manifestNamed returns the manifest named name from manifests.
 func manifestNamed(manifests []metadata.PackManifest, name string) (metadata.PackManifest, bool) {
 	for _, manifest := range manifests {
 		if manifest.Name == name {
@@ -40,8 +34,8 @@ func manifestNamed(manifests []metadata.PackManifest, name string) (metadata.Pac
 	return metadata.PackManifest{}, false
 }
 
-// ResolveCollectorAdapters ports resolveCollectorAdapters from
-// the original implementation.
+// ResolveCollectorAdapters binds selected resources to caller-approved
+// compiled adapters through pack-owned provider sources.
 func ResolveCollectorAdapters(options ResolveCollectorAdaptersOptions) (map[string]CollectorAdapter, error) {
 	selected := make(map[string]CollectorAdapter)
 	sourcesByProduct := make(map[string]string)
@@ -75,7 +69,7 @@ func ResolveCollectorAdapters(options ResolveCollectorAdaptersOptions) (map[stri
 		adapter, ok := options.Authorities.ByProviderSource[providerSource]
 		if !ok {
 			return nil, fmt.Errorf(
-				"selected fetch resource %s uses provider source %s and product %s, but a matching collector adapter is not available; use a caller with a matching injected Node adapter",
+				"selected fetch resource %s uses provider source %s and product %s, but a matching collector adapter is not available; use a caller that injects a matching collector adapter",
 				jsonQuote(resourceType), jsonQuote(providerSource), jsonQuote(product),
 			)
 		}

@@ -66,14 +66,9 @@ const (
 	failureConnection  failureKind = "connection"
 )
 
-// classifyFailure buckets a transport error into certificate/timeout/
-// connection so connectionFailure can attach an actionable hint and the
-// right retryability. Unlike the retired resthttp transport (which also
-// matched undici's synthetic error-code strings, e.g. "UND_ERR_CONNECT_
-// TIMEOUT"), this only recognizes the real Go stdlib error shapes a
-// net/http-backed transport actually produces -- Node/undici error-code
-// text is explicitly not a product requirement (the Go runtime contract
-// §2's "allowed to change" column).
+// classifyFailure buckets a transport error into certificate, timeout, or
+// connection so connectionFailure can attach an actionable hint and the right
+// retryability. It recognizes the concrete errors produced by net/http.
 func classifyFailure(err error) failureKind {
 	var unknownAuthority x509.UnknownAuthorityError
 	var hostname x509.HostnameError

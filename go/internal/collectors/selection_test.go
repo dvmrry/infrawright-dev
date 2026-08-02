@@ -1,9 +1,6 @@
 package collectors
 
-// selection_test.go ports the "selectors use original active registry
-// metadata and derived resources fetch their source" test from
-// the original test corpus, against the same committed
-// packs/full.packset.json root the Node test loads.
+// These tests exercise selector behavior against the committed pack root.
 
 import (
 	"path/filepath"

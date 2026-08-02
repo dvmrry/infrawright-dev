@@ -42,6 +42,12 @@ Treat these changes as review-required:
 - Source precedence, provenance, or ambiguity classification.
 - Adapter-specific provider edge cases.
 - Code that can silently drop, overclaim, remap, or weaken evidence.
+- Identity-key derivation or identity-to-state-address mapping.
+- Import-ID derivation or import-ID-to-state-address mapping.
+- `import {}` generation, filtering, staging, preservation, reconciliation, or removal.
+- `moved {}` generation, preservation, suppression, reconciliation, or removal.
+- Saved-plan classification, including policy-tolerance decisions.
+- Apply guardrails, saved-plan authority checks, or destructive-action controls.
 
 Routine docs-only edits, typo fixes, or narrow README updates do not need the
 full workflow unless they alter process, claims, generated-output
