@@ -46,5 +46,16 @@ freshness claims are empirically proven by committed captures.
    duplicate names introduced tenant-side post-publication remain a
    provider-source residual.
 
-Per docs/adversarial-review.md, final acceptance is the maintainer's
-verdict after the review/fix loop; this record requests it.
+## Maintainer verdict (Dave, 2026-08-02): ACCEPTED, with strip
+
+Both decision items accepted. Additionally, the maintainer directed
+stripping the fixture-tooling escalation accumulated over rechecks 5-7:
+validate_captures.py, the TRANSACTION/--recover machinery, and
+capture_validation_test.go are deleted; gen-captures.sh is a plain
+regeneration script with environment sanitation, a version gate, and a
+JSON/version sanity check. The Go plan-contract regressions (which
+consume the fixtures and fail on any bad regeneration) are the gate of
+record — this supersedes the tooling claims in the recheck handoffs.
+Standing roster guidance recorded from this: match reviewer effort to
+surface criticality; max-effort review of low-stakes tooling
+manufactures disproportionate safeguards.
