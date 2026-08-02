@@ -59,3 +59,12 @@ record — this supersedes the tooling claims in the recheck handoffs.
 Standing roster guidance recorded from this: match reviewer effort to
 surface criticality; max-effort review of low-stakes tooling
 manufactures disproportionate safeguards.
+
+## Strip review (Sol medium, 2026-08-02)
+
+One finding: the simplified script drops a vestigial -refresh=false plan
+invocation the old refresh_true recipe ran before its captured plan.
+Accepted by the builder: the invocation produced an unused plan file,
+plans do not mutate state, and the regenerated pair still proves
+byte-identity with the full plan suite green. Deletion clean otherwise;
+no production or Go-side hardening touched.
