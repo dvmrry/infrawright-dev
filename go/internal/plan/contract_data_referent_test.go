@@ -13,6 +13,8 @@ import (
 
 const dataReferenceType = "sample_groups_data"
 
+const terraformRemoteStateReferenceType = "terraform_remote_state"
+
 func dataReferenceAssessmentPlan(resources []any, configurationMode string, ids map[string]any) map[string]any {
 	configurationAddress := "data." + dataReferenceType + ".items"
 	configurationResource := map[string]any{
@@ -109,8 +111,12 @@ func validDataReferencePlan(id any) map[string]any {
 }
 
 func dataReferenceContract() *AssessmentPlanContract {
+	return dataReferenceContractFor(dataReferenceType, "")
+}
+
+func dataReferenceContractFor(resourceType, dataIDPath string) *AssessmentPlanContract {
 	return &AssessmentPlanContract{ReferenceOutputTypes: []ReferenceOutputType{{
-		Type: dataReferenceType, Kind: ReferenceOutputKindData,
+		Type: resourceType, Kind: ReferenceOutputKindData, DataIDPath: dataIDPath,
 	}}}
 }
 
@@ -129,54 +135,25 @@ func requireAssessmentPlanErrorContaining(t *testing.T, planValue any, contract 
 	}
 }
 
-func offlineTerraformShowDataReferencePlan(t *testing.T) map[string]any {
+func offlineTerraformShowCapture(t *testing.T, scenario string) map[string]any {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("testdata", "offline_remote_state_capture", "show.json"))
+	fixtureDirectory := filepath.Join("testdata", "offline_remote_state_capture")
+	if scenario != "" {
+		fixtureDirectory = filepath.Join(fixtureDirectory, scenario)
+	}
+	raw, err := os.ReadFile(filepath.Join(fixtureDirectory, "show.json"))
 	if err != nil {
-		t.Fatalf("ReadFile(offline terraform show capture) error = %v, want nil", err)
+		t.Fatalf("ReadFile(%s/show.json) error = %v, want nil", fixtureDirectory, err)
 	}
 	showValue, err := canonjson.ParseDataJSONLosslessly(string(raw))
 	if err != nil {
-		t.Fatalf("ParseDataJSONLosslessly(offline terraform show capture) error = %v, want nil", err)
+		t.Fatalf("ParseDataJSONLosslessly(%s/show.json) error = %v, want nil", fixtureDirectory, err)
 	}
-	show := showValue.(map[string]any)
-	priorState := show["prior_state"].(map[string]any)
-	priorValues := priorState["values"].(map[string]any)
-	priorRoot := priorValues["root_module"].(map[string]any)
-	priorChild := priorRoot["child_modules"].([]any)[0].(map[string]any)
-	resource := cloneAssessmentValue(priorChild["resources"].([]any)[0]).(map[string]any)
-	resource["address"] = `module.sample_groups_data.data.sample_groups_data.items["group_one"]`
-	resource["type"] = dataReferenceType
-	remoteValues := resource["values"].(map[string]any)
-	resource["values"] = map[string]any{
-		"id": remoteValues["outputs"].(map[string]any)["id"],
+	show, ok := showValue.(map[string]any)
+	if !ok {
+		t.Fatalf("ParseDataJSONLosslessly(%s/show.json) = %T, want object", fixtureDirectory, showValue)
 	}
-
-	plannedValues := cloneAssessmentValue(show["planned_values"]).(map[string]any)
-	plannedValues["root_module"].(map[string]any)["child_modules"] = []any{
-		map[string]any{
-			"address":   "module.sample_groups_data",
-			"resources": []any{resource},
-		},
-	}
-	configuration := cloneAssessmentValue(show["configuration"]).(map[string]any)
-	moduleCall := configuration["root_module"].(map[string]any)["module_calls"].(map[string]any)[dataReferenceType].(map[string]any)
-	module := moduleCall["module"].(map[string]any)
-	configurationResource := module["resources"].([]any)[0].(map[string]any)
-	configurationResource["address"] = "data." + dataReferenceType + ".items"
-	configurationResource["type"] = dataReferenceType
-
-	outputChanges := cloneAssessmentValue(show["output_changes"])
-	return map[string]any{
-		"format_version":    show["format_version"],
-		"terraform_version": show["terraform_version"],
-		"planned_values":    plannedValues,
-		"configuration":     configuration,
-		"resource_changes":  []any{},
-		"output_changes":    outputChanges,
-		"complete":          show["complete"],
-		"errored":           show["errored"],
-	}
+	return show
 }
 
 func TestValidateAssessmentPlanReferenceOutputModeAuthorization(t *testing.T) {
@@ -245,6 +222,28 @@ func TestValidateAssessmentPlanReferenceOutputModeAuthorization(t *testing.T) {
 
 	requireValidAssessmentPlan(t, "ValidateAssessmentPlan(valid managed reference)", referenceAssessmentPlan("create"), referenceContract())
 	requireValidAssessmentPlan(t, "ValidateAssessmentPlan(valid data reference)", validDataReferencePlan(json.Number("101")), dataReferenceContract())
+}
+
+func TestValidateAssessmentPlanDoesNotAuthorizeResourceChanges(t *testing.T) {
+	plan := dataReferenceAssessmentPlan([]any{}, "data", map[string]any{})
+	resource := validDataReferenceResource("group_one", json.Number("101"))
+	plan["resource_changes"] = []any{
+		map[string]any{
+			"address": resource["address"],
+			"type":    dataReferenceType,
+			"change": map[string]any{
+				"actions": []any{"read"},
+				"before":  nil,
+				"after":   resource["values"],
+			},
+		},
+	}
+	requireValidAssessmentPlan(
+		t,
+		"ValidateAssessmentPlan(resource_changes-only data evidence)",
+		plan,
+		dataReferenceContract(),
+	)
 }
 
 func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.T) {
@@ -355,18 +354,58 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 	requireAssessmentPlanErrorContaining(t, duplicate, dataReferenceContract(), "duplicate reference-output key")
 }
 
-// TestValidateAssessmentPlanAcceptsOfflineTerraformShowDataShape pins the
-// positive data contract to a real Terraform 1.15.4 `show -json` capture. The
-// capture uses only the builtin terraform_remote_state data source and a local
-// state file; the test adapts its provider-specific resource type and
-// outputs.id field to the engine's provider-neutral referent shape while
-// preserving Terraform-emitted address, mode, name, index, and sensitivity
-// fields.
-func TestValidateAssessmentPlanAcceptsOfflineTerraformShowDataShape(t *testing.T) {
+// TestValidateAssessmentPlanAcceptsOfflineTerraformInitialCreate pins the
+// positive data contract to an unmodified Terraform 1.15.4 `show -json`
+// capture from a fresh root directory with no prior root state. The builtin
+// terraform_remote_state read is deliberately deferred by the initial create,
+// so its known defaults.id scalar is declared by the contract as the planned
+// identity path. No JSON resource, address, mode, or output field is
+// transplanted or renamed by this test.
+func TestValidateAssessmentPlanAcceptsOfflineTerraformInitialCreate(t *testing.T) {
 	requireValidAssessmentPlan(
 		t,
-		"ValidateAssessmentPlan(real offline terraform show data shape)",
-		offlineTerraformShowDataReferencePlan(t),
-		dataReferenceContract(),
+		"ValidateAssessmentPlan(real offline terraform initial-create data shape)",
+		offlineTerraformShowCapture(t, "initial_create"),
+		dataReferenceContractFor(terraformRemoteStateReferenceType, "defaults.id"),
+	)
+}
+
+func TestValidateAssessmentPlanDoesNotAuthorizeOfflineTerraformPriorState(t *testing.T) {
+	plan := offlineTerraformShowCapture(t, "")
+	plannedValues := plan["planned_values"].(map[string]any)
+	plannedRoot := plannedValues["root_module"].(map[string]any)
+	if len(plannedRoot) != 0 {
+		t.Fatalf("offline refreshed/no-op planned_values.root_module = %#v, want empty authoritative container", plannedRoot)
+	}
+	priorState := plan["prior_state"].(map[string]any)
+	priorValues := priorState["values"].(map[string]any)
+	priorRoot := priorValues["root_module"].(map[string]any)
+	priorChildren := priorRoot["child_modules"].([]any)
+	if len(priorChildren) != 1 {
+		t.Fatalf("offline refreshed/no-op prior_state child_modules = %#v, want one data child", priorRoot["child_modules"])
+	}
+	priorChild := priorChildren[0].(map[string]any)
+	priorResources := priorChild["resources"].([]any)
+	if len(priorResources) != 1 {
+		t.Fatalf("offline refreshed/no-op prior_state resources = %#v, want one data resource", priorChild["resources"])
+	}
+	priorResource := priorResources[0].(map[string]any)
+	if priorResource["mode"] != "data" || priorResource["type"] != terraformRemoteStateReferenceType {
+		t.Fatalf("offline refreshed/no-op prior_state resource = %#v, want builtin data resource", priorResource)
+	}
+	requireAssessmentPlanErrorContaining(
+		t,
+		plan,
+		dataReferenceContractFor(terraformRemoteStateReferenceType, ""),
+		"planned engine reference output does not match provider-observed resource IDs",
+	)
+}
+
+func TestValidateAssessmentPlanAcceptsOfflineTerraformEmptyForEach(t *testing.T) {
+	requireValidAssessmentPlan(
+		t,
+		"ValidateAssessmentPlan(real offline terraform empty for_each data shape)",
+		offlineTerraformShowCapture(t, "empty_for_each"),
+		dataReferenceContractFor(terraformRemoteStateReferenceType, ""),
 	)
 }

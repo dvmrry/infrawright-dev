@@ -1,0 +1,14 @@
+{
+  "version": 4,
+  "terraform_version": "1.15.4",
+  "serial": 1,
+  "lineage": "offline-data-referent-empty-for-each-fixture",
+  "outputs": {
+    "id": {
+      "value": 101,
+      "type": "number",
+      "sensitive": false
+    }
+  },
+  "resources": []
+}

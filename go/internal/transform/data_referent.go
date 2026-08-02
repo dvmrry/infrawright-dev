@@ -24,6 +24,7 @@ func TransformDataReferentItems(options DataReferentTransformOptions) (result Pu
 	}
 	items := make(map[string]TransformRecord, len(options.RawItems))
 	originals := make(map[string]TransformRecord, len(options.RawItems))
+	seenIDs := make(map[string]string, len(options.RawItems))
 	for index, raw := range options.RawItems {
 		normalizedValue := SnakeJSONKeys(raw)
 		normalized, ok := normalizedValue.(map[string]any)
@@ -51,6 +52,14 @@ func TransformDataReferentItems(options DataReferentTransformOptions) (result Pu
 				jsonQuote(key), jsonQuote(options.ResourceType),
 			)
 		}
+		idToken := identityComponent(id)
+		if previousKey, exists := seenIDs[idToken]; exists {
+			failf(
+				"duplicate data referent canonical ID %s for keys %s and %s in %s; IDs must be unique",
+				jsonQuote(idToken), jsonQuote(previousKey), jsonQuote(key), jsonQuote(options.ResourceType),
+			)
+		}
+		seenIDs[idToken] = key
 		items[key] = TransformRecord{options.NameField: name}
 		originals[key] = TransformRecord{"id": id, options.NameField: name}
 	}

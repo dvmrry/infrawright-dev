@@ -3,6 +3,7 @@ package tfrender
 // These tests exercise artifact compilation and publication with explicit
 // current inputs and expected outputs.
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path"
@@ -220,6 +221,58 @@ func TestRenderTransformLookup(t *testing.T) {
 		"}\n"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRenderTransformLookupNestedRejectsDuplicateCanonicalIDs(t *testing.T) {
+	_, err := RenderTransformLookupWithShape(
+		map[string]map[string]any{
+			"alpha": {"name": "Alpha"},
+			"beta":  {"name": "Beta"},
+		},
+		map[string]map[string]any{
+			"alpha": {"id": json.Number("101"), "name": "Alpha"},
+			"beta":  {"id": "101", "name": "Beta"},
+		},
+		"name",
+		TransformLookupShapeNested,
+	)
+	if err == nil {
+		t.Fatal("RenderTransformLookupWithShape(nested duplicate IDs) error = nil, want refusal before data-lane publication")
+	}
+	for _, want := range []string{"101", "alpha", "beta"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("RenderTransformLookupWithShape(nested duplicate IDs) error = %q, want it to name %s", err, want)
+		}
+	}
+}
+
+func TestCompileDataReferentRejectsDuplicateIDsBeforePublication(t *testing.T) {
+	options := newArtifactOptions(t.TempDir(), "sample_groups_data")
+	options.ArtifactMode = TransformArtifactModeDataReferent
+	options.Result = PullTransformResult{
+		Items: map[string]map[string]any{
+			"alpha": {"name": "Alpha"},
+			"beta":  {"name": "Beta"},
+		},
+		Originals: map[string]map[string]any{
+			"alpha": {"id": json.Number("101"), "name": "Alpha"},
+			"beta":  {"id": "101", "name": "Beta"},
+		},
+		Drops: []string{},
+	}
+	paths := mustComputePaths(t, options)
+	if _, err := CompileTransformArtifacts(options); err == nil {
+		t.Fatal("CompileTransformArtifacts(data duplicate IDs) error = nil, want refusal before publication")
+	} else {
+		for _, want := range []string{"101", "alpha", "beta"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("CompileTransformArtifacts(data duplicate IDs) error = %q, want it to name %s", err, want)
+			}
+		}
+	}
+	if fileExists(t, paths.Config) || fileExists(t, paths.Lookup) {
+		t.Fatalf("CompileTransformArtifacts(data duplicate IDs) published config or lookup: config=%q lookup=%q", paths.Config, paths.Lookup)
 	}
 }
 

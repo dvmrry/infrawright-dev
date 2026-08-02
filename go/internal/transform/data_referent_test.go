@@ -71,3 +71,35 @@ func TestTransformDataReferentRejectsDuplicateDerivedKeys(t *testing.T) {
 		t.Errorf("TransformDataReferentItems(collision pair) error = %q, want a loud duplicate a_b failure", err)
 	}
 }
+
+func TestTransformDataReferentRejectsDuplicateCanonicalIDs(t *testing.T) {
+	tests := []struct {
+		name     string
+		firstID  any
+		secondID any
+		wantID   string
+	}{
+		{name: "same numeric ID", firstID: json.Number("101"), secondID: json.Number("101"), wantID: "101"},
+		{name: "string and number canonicalize together", firstID: "101", secondID: json.Number("101"), wantID: "101"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := TransformDataReferentItems(DataReferentTransformOptions{
+				NameField: "name",
+				RawItems: []any{
+					map[string]any{"id": test.firstID, "name": "Alpha"},
+					map[string]any{"id": test.secondID, "name": "Beta"},
+				},
+				ResourceType: "sample_groups_data",
+			})
+			if err == nil {
+				t.Fatalf("TransformDataReferentItems(%s) error = nil, want duplicate canonical-ID refusal", test.name)
+			}
+			for _, want := range []string{"alpha", "beta", test.wantID} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("TransformDataReferentItems(%s) error = %q, want it to name %s", test.name, err, want)
+				}
+			}
+		})
+	}
+}

@@ -4,11 +4,7 @@ terraform {
 
 module "terraform_remote_state" {
   source = "./data"
-  items = {
-    group_one = {
-      state_path = "${path.module}/referent_state.json"
-    }
-  }
+  items  = {}
 }
 
 output "iw_reference_ids" {

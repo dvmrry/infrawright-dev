@@ -26,6 +26,7 @@ const MaxAssessmentChangeRecords = 100_000
 var (
 	assessmentFormatVersion = regexp.MustCompile(`^1\.[0-9]+$`)
 	assessmentResourceType  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	assessmentDataIDPath    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$`)
 )
 
 // AssessmentPlanError reports a plan-contract validation failure. It ports
@@ -49,9 +50,15 @@ const (
 // ReferenceOutputType is one kinded reference-output contract entry. Keeping
 // the kind beside the type makes every validated assessment input declare
 // which Terraform shape may authorize it; a missing zero kind is rejected.
+// DataIDPath is an optional dotted path under a planned data resource's
+// values. It defaults to "id", which is the provider data-source shape used
+// by the engine. A source whose planned JSON exposes its authorized scalar
+// under another field must declare that path in the contract; validation
+// never infers it from prior_state or resource_changes.
 type ReferenceOutputType struct {
-	Type string
-	Kind ReferenceOutputKind
+	Type       string
+	Kind       ReferenceOutputKind
+	DataIDPath string
 }
 
 // AssessmentPlanContract ports AssessmentPlanContract from
@@ -280,6 +287,11 @@ func validateEmptyArray(plan map[string]any, field string) {
 	}
 }
 
+// referenceOutputValue reconstructs authorization exclusively from
+// planned_values.root_module. Terraform show -json may also carry refreshed
+// data resources under prior_state, and may list reads in resource_changes,
+// but neither container authorizes the engine reference output. In particular,
+// a data resource present only in prior_state contributes no IDs here.
 func referenceOutputValue(
 	plan map[string]any,
 	resourceTypes []ReferenceOutputType,
@@ -292,6 +304,12 @@ func referenceOutputValue(
 		}
 		if outputType.Kind != ReferenceOutputKindManaged && outputType.Kind != ReferenceOutputKindData {
 			assessmentFail("reference output contract must declare a managed or data evidence kind")
+		}
+		if outputType.Kind == ReferenceOutputKindManaged && outputType.DataIDPath != "" {
+			assessmentFail("managed reference output contracts must not declare a data ID path")
+		}
+		if outputType.DataIDPath != "" && !assessmentDataIDPath.MatchString(outputType.DataIDPath) {
+			assessmentFail("data reference output ID path must be a dotted Terraform attribute path")
 		}
 		seenTypes[outputType.Type] = struct{}{}
 	}
@@ -359,12 +377,12 @@ func referenceOutputValue(
 					assessmentFailf("%s contains an invalid reference-output resource instance", address)
 				}
 				var id any
+				var idOK bool
 				switch outputType.Kind {
 				case ReferenceOutputKindManaged:
 					if !strings.HasPrefix(resourceAddress, address+"."+resourceType+".this[") {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
 					}
-					var idOK bool
 					id, idOK = values["id"].(string)
 					if !idOK {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
@@ -377,8 +395,7 @@ func referenceOutputValue(
 					if resourceAddress != expectedAddress {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
 					}
-					var idOK bool
-					id, idOK = values["id"]
+					id, idOK = referenceDataID(values, outputType.DataIDPath)
 					if !idOK {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
 					}
@@ -414,6 +431,24 @@ func referenceOutputValue(
 		assessmentFail("planned engine reference output does not match provider-observed resource IDs")
 	}
 	return expected
+}
+
+func referenceDataID(values map[string]any, path string) (any, bool) {
+	if path == "" {
+		path = "id"
+	}
+	var current any = values
+	for _, segment := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = object[segment]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
 }
 
 func validateEmptyReferenceModule(plan map[string]any, resourceType string, expectedKind ReferenceOutputKind) {

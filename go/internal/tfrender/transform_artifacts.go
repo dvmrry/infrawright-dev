@@ -570,6 +570,7 @@ func RenderTransformLookupWithShape(
 	byID := map[string]any{}
 	idByKey := map[string]any{}
 	keyByID := map[string]any{}
+	seenDataIDs := map[string]string{}
 	for _, key := range canonjson.SortedStrings(mapKeys(items)) {
 		projected, ok := items[key]
 		if !ok {
@@ -588,6 +589,17 @@ func RenderTransformLookupWithShape(
 		}
 		if ident == nil {
 			continue
+		}
+		// Nested shape is the data-referent lane. Keep the legacy flat
+		// renderer's last-key-wins behavior unchanged.
+		if shape == TransformLookupShapeNested {
+			if previousKey, exists := seenDataIDs[*ident]; exists {
+				return "", fmt.Errorf(
+					"duplicate data referent canonical ID %s for keys %s and %s; IDs must be unique",
+					jsonQuote(*ident), jsonQuote(previousKey), jsonQuote(key),
+				)
+			}
+			seenDataIDs[*ident] = key
 		}
 		display, isString := merged[nameField].(string)
 		text := "<unknown>"
