@@ -437,7 +437,7 @@ func exactApplyContract(root SavedPlanAssessmentRootInput) *plan.AssessmentPlanC
 		return nil
 	}
 	return &plan.AssessmentPlanContract{
-		ReferenceOutputTypes: append([]string(nil), root.ReferenceOutputTypes...),
+		ReferenceOutputTypes: append([]plan.ReferenceOutputType(nil), root.ReferenceOutputTypes...),
 	}
 }
 
@@ -567,10 +567,14 @@ func applyExactPlanRoot(
 	// The same schema types the assert gate classified under. Apply refusing a
 	// plan assert-clean passed, or the reverse, would make the two gates
 	// disagree about the same saved plan for no reason a reader could see.
+	contract := exactApplyContract(root)
+	if contract != nil {
+		contract.PlanAttestation = evidence.PlanAttestation
+	}
 	classification, err := ClassifyPlanWithOptions(
 		shownPlan.Raw,
 		policy.Policy,
-		exactApplyContract(root),
+		contract,
 		ClassifyPlanOptions{SchemaTypes: schemaTypes},
 	)
 	if err != nil {

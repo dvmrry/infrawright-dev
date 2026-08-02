@@ -219,8 +219,9 @@ func v2FullSurfaceResourceTypes(t *testing.T, repositoryRoot string) []string {
 	resourceTypes := make([]string, 0, len(root.Resources))
 	for resourceType, resource := range root.Resources {
 		generated, _ := resource.Registry["generate"].(bool)
-		if !generated {
-			t.Fatalf("full-profile resource %s is not generated", resourceType)
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if !generated && !dataReferent {
+			t.Fatalf("full-profile resource %s is neither generated nor a data referent", resourceType)
 		}
 		resourceTypes = append(resourceTypes, resourceType)
 	}

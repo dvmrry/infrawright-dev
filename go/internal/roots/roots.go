@@ -1,6 +1,6 @@
 // Package roots derives singleton-state topology from loaded packs. Every
-// generated resource type is one state unit whose label and only member are
-// the resource type.
+// generated or data-referent resource type is one state unit whose label and
+// only member are the resource type.
 package roots
 
 import (
@@ -77,9 +77,10 @@ func ValidateTenant(tenant string) (err error) {
 // resolver. It is built from the caller's in-memory ResourceSet or directly
 // from the authoritative LoadedPackRoot; it is not a persisted catalog.
 type resourceIndex struct {
-	resources map[string]metadata.ResourceDescriptor
-	generated map[string]struct{}
-	providers map[string]struct{}
+	resources     map[string]metadata.ResourceDescriptor
+	generated     map[string]struct{}
+	dataReferents map[string]struct{}
+	providers     map[string]struct{}
 }
 
 func stringSet(values []string) map[string]struct{} {
@@ -98,16 +99,20 @@ func indexResourceSet(resourceSet metadata.ResourceSet) resourceIndex {
 		resources[resource.Type] = resource
 	}
 	var generated []string
+	var dataReferents []string
 	for _, resource := range resourceSet.Resources {
-		if !resource.Generated {
-			continue
+		if resource.Generated {
+			generated = append(generated, resource.Type)
 		}
-		generated = append(generated, resource.Type)
+		if resource.DataReferent {
+			dataReferents = append(dataReferents, resource.Type)
+		}
 	}
 	return resourceIndex{
-		resources: resources,
-		generated: stringSet(generated),
-		providers: stringSet(resourceSet.DeclaredProviders),
+		resources:     resources,
+		generated:     stringSet(generated),
+		dataReferents: stringSet(dataReferents),
+		providers:     stringSet(resourceSet.DeclaredProviders),
 	}
 }
 
@@ -150,13 +155,15 @@ func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) meta
 	}
 	bareName := resourceType[len(prefix):]
 	generated, _ := resource.Registry["generate"].(bool)
+	dataReferent, _ := resource.Registry["data_referent"].(bool)
 
 	return metadata.ResourceDescriptor{
-		Type:      resourceType,
-		Product:   resource.Product,
-		Provider:  resource.Provider,
-		BareName:  bareName,
-		Generated: generated,
+		Type:         resourceType,
+		Product:      resource.Product,
+		Provider:     resource.Provider,
+		BareName:     bareName,
+		Generated:    generated,
+		DataReferent: dataReferent,
 	}
 }
 
@@ -175,12 +182,15 @@ func indexLoadedPackRoot(root metadata.LoadedPackRoot) resourceIndex {
 	}
 
 	var generated []string
+	var dataReferents []string
 	for _, resourceType := range resourceTypes {
 		resource := resources[resourceType]
-		if !resource.Generated {
-			continue
+		if resource.Generated {
+			generated = append(generated, resourceType)
 		}
-		generated = append(generated, resourceType)
+		if resource.DataReferent {
+			dataReferents = append(dataReferents, resourceType)
+		}
 	}
 
 	providers := make([]string, 0, len(root.Packs.ProviderPrefixes))
@@ -189,9 +199,10 @@ func indexLoadedPackRoot(root metadata.LoadedPackRoot) resourceIndex {
 	}
 
 	return resourceIndex{
-		resources: resources,
-		generated: stringSet(generated),
-		providers: stringSet(providers),
+		resources:     resources,
+		generated:     stringSet(generated),
+		dataReferents: stringSet(dataReferents),
+		providers:     stringSet(providers),
 	}
 }
 
@@ -202,9 +213,9 @@ type resolution struct {
 	typeToLabel     map[string]string
 }
 
-// resolveRoots creates one root for every generated type. Deployment root
-// options no longer influence topology after grouping retirement, but named
-// providers must still belong to the loaded resource set.
+// resolveRoots creates one root for every generated or data-referent type.
+// Deployment root options no longer influence topology after grouping
+// retirement, but named providers must still belong to the loaded resource set.
 func resolveRoots(dep deployment.Deployment, index resourceIndex) resolution {
 	providerNames := make([]string, 0, len(dep.Roots))
 	for provider := range dep.Roots {
@@ -220,19 +231,97 @@ func resolveRoots(dep deployment.Deployment, index resourceIndex) resolution {
 		labelsToMembers: make(map[string][]string),
 		typeToLabel:     make(map[string]string),
 	}
-	generatedTypes := make([]string, 0, len(index.generated))
+	rootTypes := make(map[string]struct{}, len(index.generated)+len(index.dataReferents))
 	for resourceType := range index.generated {
-		generatedTypes = append(generatedTypes, resourceType)
+		rootTypes[resourceType] = struct{}{}
 	}
-	for _, resourceType := range canonjson.SortedStrings(generatedTypes) {
+	for resourceType := range index.dataReferents {
+		rootTypes[resourceType] = struct{}{}
+	}
+	allRootTypes := make([]string, 0, len(rootTypes))
+	for resourceType := range rootTypes {
+		allRootTypes = append(allRootTypes, resourceType)
+	}
+	for _, resourceType := range canonjson.SortedStrings(allRootTypes) {
 		res.labelsToMembers[resourceType] = []string{resourceType}
 		res.typeToLabel[resourceType] = resourceType
 	}
 	return res
 }
 
-// expandResources resolves type and product selectors to generated resources.
-func expandResources(selectors []string, index resourceIndex) []string {
+// expandRootTargets resolves selectors to deployment-root-bearing resources.
+// Exact data-referent selectors are valid root targets, while product and
+// provider/bare selectors remain generated-only enumeration selectors.
+func expandRootTargets(selectors []string, index resourceIndex) []string {
+	if len(selectors) == 0 {
+		generatedTypes := make([]string, 0, len(index.generated))
+		for resourceType := range index.generated {
+			generatedTypes = append(generatedTypes, resourceType)
+		}
+		return canonjson.SortedStrings(generatedTypes)
+	}
+	selected := make(map[string]struct{})
+	var unknown []string
+	for _, selector := range selectors {
+		if _, ok := index.generated[selector]; ok {
+			selected[selector] = struct{}{}
+			continue
+		}
+		if _, ok := index.dataReferents[selector]; ok {
+			selected[selector] = struct{}{}
+			continue
+		}
+		if _, ok := index.resources[selector]; ok {
+			unknown = append(unknown, selector)
+			continue
+		}
+		var productMatches []string
+		for _, resource := range index.resources {
+			if resource.Generated && resource.Product == selector {
+				productMatches = append(productMatches, resource.Type)
+			}
+		}
+		if len(productMatches) > 0 {
+			for _, match := range productMatches {
+				selected[match] = struct{}{}
+			}
+			continue
+		}
+		if slash := strings.IndexByte(selector, '/'); slash >= 0 {
+			provider := selector[:slash]
+			bare := selector[slash+1:]
+			var pathMatches []string
+			for _, resource := range index.resources {
+				if resource.Generated && resource.Provider == provider && resource.BareName == bare {
+					pathMatches = append(pathMatches, resource.Type)
+				}
+			}
+			if len(pathMatches) > 0 {
+				for _, match := range pathMatches {
+					selected[match] = struct{}{}
+				}
+				continue
+			}
+		}
+		unknown = append(unknown, selector)
+	}
+	if len(unknown) > 0 {
+		domainErrorCode(
+			"unknown or non-generated resource selector(s): "+strings.Join(canonjson.SortedStrings(unknown), ", "),
+			"UNKNOWN_RESOURCE_SELECTOR",
+		)
+	}
+	selectedList := make([]string, 0, len(selected))
+	for resourceType := range selected {
+		selectedList = append(selectedList, resourceType)
+	}
+	return canonjson.SortedStrings(selectedList)
+}
+
+// expandGeneratedResources resolves selectors for generated-resource
+// enumeration. It deliberately does not admit exact data referents: callers
+// using this lane must not classify a data root as a generated resource.
+func expandGeneratedResources(selectors []string, index resourceIndex) []string {
 	if len(selectors) == 0 {
 		generatedTypes := make([]string, 0, len(index.generated))
 		for resourceType := range index.generated {
@@ -294,12 +383,20 @@ func expandResources(selectors []string, index resourceIndex) []string {
 	return canonjson.SortedStrings(selectedList)
 }
 
-// ExpandLoadedResources ports expandLoadedResources from
-// the original implementation: "Expand transform selectors without
-// constructing or persisting a root catalog."
+// ExpandLoadedRootTargets expands lifecycle/root-target selectors without
+// constructing or persisting a root catalog. It admits exact data roots.
+func ExpandLoadedRootTargets(root metadata.LoadedPackRoot, selectors []string) (types []string, err error) {
+	defer recoverProcessFailure(&err)
+	return expandRootTargets(selectors, indexLoadedPackRoot(root)), nil
+}
+
+// ExpandLoadedResources expands the generated-resource enumeration surface
+// without constructing or persisting a root catalog. Exact data referents are
+// intentionally refused here; lifecycle callers should use
+// ExpandLoadedRootTargets instead.
 func ExpandLoadedResources(root metadata.LoadedPackRoot, selectors []string) (types []string, err error) {
 	defer recoverProcessFailure(&err)
-	return expandResources(selectors, indexLoadedPackRoot(root)), nil
+	return expandGeneratedResources(selectors, indexLoadedPackRoot(root)), nil
 }
 
 // RootTopologyRoot ports the RootTopologyRoot interface from
@@ -385,7 +482,7 @@ func rootTopologyFromIndex(options rootTopologyFromIndexOptions) RootTopologyRes
 	}
 	index := options.index
 	res := resolveRoots(options.dep, index)
-	selectedResources := expandResources(options.selectors, index)
+	selectedResources := expandRootTargets(options.selectors, index)
 	selected := stringSet(selectedResources)
 
 	var labels []string
@@ -401,7 +498,7 @@ func rootTopologyFromIndex(options rootTopologyFromIndexOptions) RootTopologyRes
 		for _, resourceType := range selectedResources {
 			label, ok := res.typeToLabel[resourceType]
 			if !ok {
-				domainError("unknown generated resource type '" + resourceType + "'")
+				domainError("unknown root-target resource type '" + resourceType + "'")
 			}
 			if _, seen := labelSet[label]; !seen {
 				labelSet[label] = struct{}{}

@@ -16,7 +16,7 @@ import (
 )
 
 var registryResourceKeys = stringSet(
-	"adopt", "derive", "fetch", "fetch_skip_reason", "generate", "product",
+	"adopt", "data_referent", "derive", "fetch", "fetch_skip_reason", "generate", "product",
 )
 
 var canonicalResourceType = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -528,6 +528,31 @@ func validateRegistry(value any, source string) JsonObject {
 		if generate, ok := entry["generate"]; ok {
 			if _, isBool := generate.(bool); !isBool {
 				failf("%s.generate must be a boolean", label)
+			}
+		}
+		if dataReferent, ok := entry["data_referent"]; ok {
+			isDataReferent, isBool := dataReferent.(bool)
+			if !isBool {
+				failf("%s.data_referent must be a boolean", label)
+			}
+			if isDataReferent {
+				// A fetch OBJECT is required, not mere key presence: the
+				// registry deliberately permits `"fetch": false` +
+				// fetch_skip_reason for declared-unfetchable types, and a
+				// data referent whose objects cannot be fetched can never
+				// mint its lookup or items.
+				if _, hasFetch := entry["fetch"].(JsonObject); !hasFetch {
+					failf("%s.data_referent=true requires %s.fetch", label, label)
+				}
+				if generated, hasGenerate := entry["generate"].(bool); hasGenerate && generated {
+					failf("%s.data_referent=true forbids %s.generate=true", label, label)
+				}
+				if _, hasAdopt := entry["adopt"]; hasAdopt {
+					failf("%s.data_referent=true forbids %s.adopt", label, label)
+				}
+				if _, hasDerive := entry["derive"]; hasDerive {
+					failf("%s.data_referent=true forbids %s.derive", label, label)
+				}
 			}
 		}
 		validateFetchDeclaration(entry, label)

@@ -39,6 +39,7 @@ type SavedPlanEvidence struct {
 	FingerprintInput  PlanFingerprintInput
 	FingerprintPath   string
 	FingerprintFile   SavedPlanFingerprintFile
+	PlanAttestation   *PlanCreationAttestation
 	OriginalPlan      BoundFileDigest
 	SnapshotDirectory string
 	Snapshot          artifacts.StableFileSnapshot
@@ -69,6 +70,8 @@ type savedPlanEvidenceState struct {
 	fingerprintInput  PlanFingerprintInput
 	fingerprintPath   string
 	fingerprintFile   SavedPlanFingerprintFile
+	attestationPath   string
+	attestationFile   *SavedPlanAttestationFile
 	originalPlan      BoundFileDigest
 	snapshotDirectory string
 	snapshot          artifacts.StableFileSnapshot
@@ -245,6 +248,46 @@ func samePlanFingerprint(left, right PlanFingerprintV2) bool {
 	return left.Version == right.Version && left.SHA256 == right.SHA256
 }
 
+func sameSavedPlanAttestationFile(
+	left, right *SavedPlanAttestationFile,
+) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Path == right.Path &&
+		sameEvidenceDigest(left.StableFileDigest, right.StableFileDigest) &&
+		samePlanCreationAttestation(left.Attestation, right.Attestation)
+}
+
+func attestationFileValue(file *SavedPlanAttestationFile) *PlanCreationAttestation {
+	if file == nil {
+		return nil
+	}
+	return &file.Attestation
+}
+
+func readOptionalSavedPlanAttestation(
+	path string,
+	budget *artifacts.ReadBudget,
+	expectedPlanSHA256 string,
+) (*SavedPlanAttestationFile, error) {
+	_, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, evidenceDomainFailure(
+			"INVALID_PLAN_ATTESTATION",
+			"unable to inspect the saved-plan attestation",
+		)
+	}
+	attestation, err := ReadSavedPlanAttestation(path, budget, expectedPlanSHA256)
+	if err != nil {
+		return nil, err
+	}
+	return &attestation, nil
+}
+
 func requireAbsoluteEvidencePath(value string) error {
 	if filepath.IsAbs(value) {
 		return nil
@@ -290,6 +333,11 @@ func cloneFingerprintInput(input PlanFingerprintInput) PlanFingerprintInput {
 
 func cloneEvidenceState(state savedPlanEvidenceState) savedPlanEvidenceState {
 	state.fingerprintInput = cloneFingerprintInput(state.fingerprintInput)
+	if state.attestationFile != nil {
+		cloned := *state.attestationFile
+		cloned.Attestation.PlanArgv = append([]string(nil), state.attestationFile.Attestation.PlanArgv...)
+		state.attestationFile = &cloned
+	}
 	return state
 }
 
@@ -598,6 +646,16 @@ func prepareSavedPlanEvidence(
 		return nil, err
 	}
 
+	attestationPath := SavedPlanAttestationPath(options.SavedPlanPath)
+	attestationFile, err := readOptionalSavedPlanAttestation(
+		attestationPath,
+		options.SavedPlanBudget,
+		snapshot.StableFileDigest.SHA256,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	declaredAfter, err := ReadSavedPlanFingerprint(options.FingerprintPath, options.FingerprintBudget)
 	if err != nil {
 		return nil, err
@@ -649,6 +707,20 @@ func prepareSavedPlanEvidence(
 	); err != nil {
 		return nil, err
 	}
+	attestationAfter, err := readOptionalSavedPlanAttestation(
+		attestationPath,
+		options.SavedPlanBudget,
+		snapshot.StableFileDigest.SHA256,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !sameSavedPlanAttestationFile(attestationFile, attestationAfter) {
+		return nil, evidenceDomainFailure(
+			"PLAN_ATTESTATION_CHANGED",
+			"saved-plan attestation changed while evidence was prepared",
+		)
+	}
 	if _, err := snapshotFileIdentity(snapshot.Path, &snapshotIdentity); err != nil {
 		return nil, err
 	}
@@ -657,6 +729,8 @@ func prepareSavedPlanEvidence(
 		fingerprintInput: cloneFingerprintInput(fingerprintInput),
 		fingerprintPath:  options.FingerprintPath,
 		fingerprintFile:  declaredBefore,
+		attestationPath:  attestationPath,
+		attestationFile:  attestationFile,
 		originalPlan: BoundFileDigest{
 			Path:             options.SavedPlanPath,
 			StableFileDigest: snapshot.StableFileDigest,
@@ -668,6 +742,7 @@ func prepareSavedPlanEvidence(
 		FingerprintInput:  cloneFingerprintInput(state.fingerprintInput),
 		FingerprintPath:   state.fingerprintPath,
 		FingerprintFile:   state.fingerprintFile,
+		PlanAttestation:   clonePlanCreationAttestation(attestationFileValue(attestationFile)),
 		OriginalPlan:      state.originalPlan,
 		SnapshotDirectory: state.snapshotDirectory,
 		Snapshot:          state.snapshot,
@@ -703,6 +778,20 @@ func RecheckSavedPlanEvidence(options RecheckSavedPlanEvidenceOptions) error {
 
 	if _, err := snapshotFileIdentity(state.snapshot.Path, &binding.file); err != nil {
 		return err
+	}
+	attestationBefore, err := readOptionalSavedPlanAttestation(
+		state.attestationPath,
+		options.SavedPlanBudget,
+		state.originalPlan.StableFileDigest.SHA256,
+	)
+	if err != nil {
+		return err
+	}
+	if !sameSavedPlanAttestationFile(state.attestationFile, attestationBefore) {
+		return evidenceDomainFailure(
+			"PLAN_ATTESTATION_CHANGED",
+			"saved-plan attestation changed after evidence was prepared",
+		)
 	}
 	originalBefore, err := artifacts.SHA256StableFile(
 		state.originalPlan.Path,
@@ -810,6 +899,20 @@ func RecheckSavedPlanEvidence(options RecheckSavedPlanEvidenceOptions) error {
 		"saved-plan snapshot changed after evidence was prepared",
 	); err != nil {
 		return err
+	}
+	attestationAfter, err := readOptionalSavedPlanAttestation(
+		state.attestationPath,
+		options.SavedPlanBudget,
+		state.originalPlan.StableFileDigest.SHA256,
+	)
+	if err != nil {
+		return err
+	}
+	if !sameSavedPlanAttestationFile(state.attestationFile, attestationAfter) {
+		return evidenceDomainFailure(
+			"PLAN_ATTESTATION_CHANGED",
+			"saved-plan attestation changed after evidence was prepared",
+		)
 	}
 	_, err = snapshotFileIdentity(state.snapshot.Path, &binding.file)
 	return err

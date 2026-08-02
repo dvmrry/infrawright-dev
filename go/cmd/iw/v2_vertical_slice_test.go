@@ -1645,7 +1645,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load selected full profile for generated module semantics: %v", err)
 	}
-	fullResourceTypes := modulesgen.ActiveGeneratedResourceTypes(fullPackRoot)
+	fullResourceTypes := modulesgen.ActiveModuleResourceTypes(fullPackRoot)
 	v2VerifyGeneratedModuleSemantics(
 		t,
 		semanticWorkspace,

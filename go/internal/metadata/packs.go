@@ -325,6 +325,116 @@ func validateLookupSources(value JsonObject, source string) {
 	}
 }
 
+// validateDataReferentSurfaces cross-checks the two metadata surfaces a
+// data-only module must consume. Structural validation can prove that an
+// individual lookup_sources entry is well shaped when present, but only the
+// loaded registry and provider schema together can prove that every active
+// data referent has both required declarations.
+func validateDataReferentSurfaces(packMetadata PackMetadata, resources map[string]LoadedResourceMetadata) {
+	providerSchemas := make(map[string]ProviderSchema)
+	loadedProviders := make(map[string]bool)
+	for _, resourceType := range sortedMapKeys(resources) {
+		resource := resources[resourceType]
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if !dataReferent {
+			continue
+		}
+
+		manifest := manifestForProvider(packMetadata, resource.Provider)
+		lookupSources, ok := manifest.Data["lookup_sources"].(JsonObject)
+		if !ok {
+			failf(
+				"data referent %s is missing effective lookup_sources.%s.name_field",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+		lookup, ok := lookupSources[resourceType].(JsonObject)
+		if !ok {
+			failf(
+				"data referent %s is missing effective lookup_sources.%s.name_field",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+		if _, ok := lookup["name_field"]; !ok {
+			failf(
+				"data referent %s is missing effective lookup_sources.%s.name_field",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+
+		if !loadedProviders[resource.Provider] {
+			providerSchemas[resource.Provider] = loadProviderSchema(packMetadata, resource.Provider)
+			loadedProviders[resource.Provider] = true
+		}
+		providerSchema := providerSchemas[resource.Provider]
+		dataSourceSchemas, ok := providerSchema.Data["data_source_schemas"].(JsonObject)
+		if !ok {
+			failf(
+				"data referent %s is missing provider data_source_schemas.%s entry",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+		dataSourceSchema, ok := dataSourceSchemas[resourceType].(JsonObject)
+		if !ok || dataSourceSchema == nil {
+			failf(
+				"data referent %s is missing provider data_source_schemas.%s entry",
+				jsonQuote(resourceType), resourceType,
+			)
+		}
+	}
+}
+
+// validateDataReferentReferences rejects the effective merged reference table
+// when a data referent appears as a referrer. Data referents are lookup/input
+// producers, never Terraform configuration owners, so allowing a declaration
+// here would make downstream topology and transform ordering silently drop an
+// edge. The merge follows active manifest order and field overwrite semantics
+// used by refedges and transform.
+func validateDataReferentReferences(packMetadata PackMetadata, activePacks []string, resources map[string]LoadedResourceMetadata) {
+	active := make(map[string]struct{}, len(activePacks))
+	for _, pack := range activePacks {
+		active[pack] = struct{}{}
+	}
+	effective := make(map[string]map[string]struct{})
+	for _, manifest := range packMetadata.Manifests {
+		if _, ok := active[manifest.Name]; !ok {
+			continue
+		}
+		references, ok := manifest.Data["references"].(JsonObject)
+		if !ok {
+			continue
+		}
+		for _, referrer := range sortedKeys(references) {
+			fields, ok := references[referrer].(JsonObject)
+			if !ok {
+				continue
+			}
+			if effective[referrer] == nil {
+				effective[referrer] = make(map[string]struct{})
+			}
+			for _, field := range sortedKeys(fields) {
+				effective[referrer][field] = struct{}{}
+			}
+		}
+	}
+	for _, referrer := range sortedMapKeys(effective) {
+		resource, ok := resources[referrer]
+		if !ok {
+			continue
+		}
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if !dataReferent {
+			continue
+		}
+		for _, field := range sortedMapKeys(effective[referrer]) {
+			failf(
+				"references.%s.%s: %s is a data referent and cannot declare references",
+				referrer, field, jsonQuote(referrer),
+			)
+		}
+	}
+}
+
 func validateReferences(value JsonObject, source string) {
 	for _, resourceType := range sortedKeys(value) {
 		rawFields := value[resourceType]

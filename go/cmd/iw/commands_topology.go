@@ -544,7 +544,7 @@ func modulesInput(verb string, parsed commandInput) (int, error) {
 			return 0, err
 		}
 	}
-	selected := modulesgen.ActiveGeneratedResourceTypes(loadedRoot)
+	selected := modulesgen.ActiveModuleResourceTypes(loadedRoot)
 	if len(resources) > 0 {
 		topology, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
 			Root:       loadedRoot,

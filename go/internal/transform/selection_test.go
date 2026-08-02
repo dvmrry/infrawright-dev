@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
@@ -43,6 +44,28 @@ func syntheticSelectionRoot(t *testing.T, packs []selectionTestPack) metadata.Lo
 	for _, pack := range packs {
 		writeSelectionJSONFile(t, filepath.Join(directory, pack.name, "pack.json"), pack.manifest)
 		writeSelectionJSONFile(t, filepath.Join(directory, pack.name, "registry.json"), pack.registry)
+		dataSourceSchemas := metadata.JsonObject{}
+		for resourceType, entry := range pack.registry {
+			entryObject, ok := entry.(metadata.JsonObject)
+			if !ok {
+				continue
+			}
+			dataReferent, _ := entryObject["data_referent"].(bool)
+			if dataReferent {
+				dataSourceSchemas[resourceType] = metadata.JsonObject{"block": metadata.JsonObject{
+					"attributes": metadata.JsonObject{
+						"id":   metadata.JsonObject{"computed": true, "type": "string"},
+						"name": metadata.JsonObject{"required": true, "type": "string"},
+					},
+				}}
+			}
+		}
+		if len(dataSourceSchemas) > 0 {
+			writeSelectionJSONFile(t, filepath.Join(directory, pack.name, "schemas", "provider", pack.name+".json"), metadata.JsonObject{
+				"resource_schemas":    metadata.JsonObject{},
+				"data_source_schemas": dataSourceSchemas,
+			})
+		}
 	}
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{PacksRoot: directory})
 	if err != nil {
@@ -254,8 +277,13 @@ func TestEffectiveReferenceMergeShadowsEarlierFieldBeforeCycleValidation(t *test
 
 func TestDerivedResourcesResolveSourcePullWhileNormalResourcesResolveThemselves(t *testing.T) {
 	root := syntheticSelectionRoot(t, []selectionTestPack{{
-		name:     "sample",
-		manifest: metadata.JsonObject{"provider_prefixes": metadata.JsonObject{"sample_": "sample"}},
+		name: "sample",
+		manifest: metadata.JsonObject{
+			"provider_prefixes": metadata.JsonObject{"sample_": "sample"},
+			"lookup_sources": metadata.JsonObject{
+				"sample_groups_data": metadata.JsonObject{"name_field": "name"},
+			},
+		},
 		registry: metadata.JsonObject{
 			"sample_source": metadata.JsonObject{"generate": true, "product": "sample"},
 			"sample_derived": metadata.JsonObject{
@@ -264,6 +292,14 @@ func TestDerivedResourcesResolveSourcePullWhileNormalResourcesResolveThemselves(
 				"product":  "sample",
 			},
 			"sample_data_only": metadata.JsonObject{"product": "sample"},
+			"sample_groups_data": metadata.JsonObject{
+				"data_referent": true,
+				"fetch": metadata.JsonObject{
+					"pagination": "zia",
+					"path":       "locations/groups",
+				},
+				"product": "sample",
+			},
 		},
 	}})
 
@@ -276,7 +312,96 @@ func TestDerivedResourcesResolveSourcePullWhileNormalResourcesResolveThemselves(
 	if _, err := TransformSourceType(root, "sample_data_only"); err == nil {
 		t.Fatalf("TransformSourceType(sample_data_only) = nil error, want an 'unknown or non-generated' error")
 	}
+	if source, err := TransformSourceType(root, "sample_groups_data"); err != nil || source != "sample_groups_data" {
+		t.Fatalf("TransformSourceType(sample_groups_data) = (%q, %v), want (sample_groups_data, nil)", source, err)
+	}
 	if _, err := TransformSourceType(root, "sample_missing"); err == nil {
 		t.Fatalf("TransformSourceType(sample_missing) = nil error, want an 'unknown or non-generated' error")
+	}
+}
+
+func TestDataReferentsStayOutOfGeneratedSelectionLane(t *testing.T) {
+	root := syntheticSelectionRoot(t, []selectionTestPack{{
+		name: "sample",
+		manifest: metadata.JsonObject{
+			"provider_prefixes": metadata.JsonObject{"sample_": "sample"},
+			"lookup_sources": metadata.JsonObject{
+				"sample_groups_data": metadata.JsonObject{"name_field": "name"},
+			},
+		},
+		registry: metadata.JsonObject{
+			"sample_rule": metadata.JsonObject{"generate": true, "product": "sample"},
+			"sample_groups_data": metadata.JsonObject{
+				"data_referent": true,
+				"fetch": metadata.JsonObject{
+					"pagination": "zia",
+					"path":       "locations/groups",
+				},
+				"product": "sample",
+			},
+		},
+	}})
+
+	defaultSelection, err := SelectTransformResources(root, []string{})
+	if err != nil {
+		t.Fatalf("SelectTransformResources(%v) = error %v, want nil", []string{}, err)
+	}
+	wantDefault := TransformSelection{ResourceTypes: []string{"sample_groups_data", "sample_rule"}, Notes: []string{}}
+	if !reflect.DeepEqual(defaultSelection, wantDefault) {
+		t.Fatalf("SelectTransformResources(%v) = %+v, want %+v; the default lane must include data referents before generated referrers", []string{}, defaultSelection, wantDefault)
+	}
+
+	dataSelection, err := SelectTransformResources(root, []string{"sample_groups_data"})
+	if err != nil {
+		t.Fatalf("SelectTransformResources(%v) = error %v, want nil", []string{"sample_groups_data"}, err)
+	}
+	wantData := TransformSelection{ResourceTypes: []string{"sample_groups_data"}, Notes: []string{}}
+	if !reflect.DeepEqual(dataSelection, wantData) {
+		t.Fatalf("SelectTransformResources(%v) = %+v, want %+v; data referents need their own selectable lane", []string{"sample_groups_data"}, dataSelection, wantData)
+	}
+
+	defaultAdoption, err := SelectAdoptionResources(root, nil)
+	if err != nil {
+		t.Fatalf("SelectAdoptionResources(%v) = error %v, want nil", []string{}, err)
+	}
+	wantAdoption := TransformSelection{ResourceTypes: []string{"sample_rule"}, Notes: []string{}}
+	if !reflect.DeepEqual(defaultAdoption, wantAdoption) {
+		t.Fatalf("SelectAdoptionResources(%v) = %+v, want generated-only %v", []string{}, defaultAdoption, wantAdoption)
+	}
+	explicitAdoption, err := SelectAdoptionResources(root, []string{"sample_groups_data"})
+	if err != nil {
+		t.Fatalf("SelectAdoptionResources(data referent) = error %v, want the runner boundary to classify it", err)
+	}
+	wantExplicitAdoption := TransformSelection{ResourceTypes: []string{"sample_groups_data"}, Notes: []string{}}
+	if !reflect.DeepEqual(explicitAdoption, wantExplicitAdoption) {
+		t.Fatalf("SelectAdoptionResources(data referent) = %+v, want explicit boundary candidate %v", explicitAdoption, wantExplicitAdoption)
+	}
+}
+
+func TestReferenceOrderRefusesDataReferentReferrerAtDefensiveBoundary(t *testing.T) {
+	root := unvalidatedSelectionRoot(metadata.JsonObject{
+		"sample_groups_data": metadata.JsonObject{
+			"target": metadata.JsonObject{"name_field": "name", "referent": "sample_rule"},
+		},
+	})
+	root.Resources = map[string]metadata.LoadedResourceMetadata{
+		"sample_groups_data": {
+			Type:     "sample_groups_data",
+			Provider: "sample",
+			Registry: metadata.JsonObject{"data_referent": true},
+		},
+		"sample_rule": {
+			Type:     "sample_rule",
+			Provider: "sample",
+			Registry: metadata.JsonObject{"generate": true},
+		},
+	}
+
+	result, err := ReferenceOrder(root, []string{"sample_groups_data", "sample_rule"})
+	if err == nil || !strings.Contains(err.Error(), "sample_groups_data") {
+		t.Errorf("ReferenceOrder(data referent referrer) error = %v, want a refusal naming sample_groups_data", err)
+	}
+	if !reflect.DeepEqual(result, TransformSelection{}) {
+		t.Errorf("ReferenceOrder(data referent referrer) result = %+v, want no partial result", result)
 	}
 }

@@ -161,6 +161,7 @@ func requireLifecycleFailure(t *testing.T, err error, code string) *procerr.Proc
 }
 
 func TestCreatePlanTerraformEmitsExactCommands(t *testing.T) {
+	directory := t.TempDir()
 	timeout := int64(12_345)
 	adapter := CreatePlanTerraform(CreatePlanTerraformOptions{
 		Environment: map[string]string{"BASE": "base", "OVERRIDE": "base"},
@@ -174,6 +175,14 @@ func TestCreatePlanTerraformEmitsExactCommands(t *testing.T) {
 	var calls []terraformcmd.TerraformCommandOptions
 	adapter.run = func(options terraformcmd.TerraformCommandOptions) (terraformcmd.TerraformCommandResult, error) {
 		calls = append(calls, options)
+		switch options.Argv[0] {
+		case "plan":
+			if err := os.WriteFile(filepath.Join(options.CWD, "tfplan"), []byte("opaque-plan"), 0o600); err != nil {
+				return terraformcmd.TerraformCommandResult{}, err
+			}
+		case "version":
+			return terraformcmd.TerraformCommandResult{Stdout: []byte("Terraform v1.15.4\n")}, nil
+		}
 		return terraformcmd.TerraformCommandResult{}, nil
 	}
 	backendConfig := "/workspace/backend.hcl"
@@ -181,7 +190,7 @@ func TestCreatePlanTerraformEmitsExactCommands(t *testing.T) {
 	request := PlanTerraformRequest{
 		BackendConfig: &backendConfig,
 		BackendKey:    &backendKey,
-		Directory:     "/workspace/envs/tenant/grouped",
+		Directory:     directory,
 		Environment:   map[string]string{"OVERRIDE": "request", "REQUEST": "value"},
 		Save:          true,
 		VarFiles:      []string{"/workspace/a.tfvars", "/workspace/b.tfvars"},
@@ -192,8 +201,8 @@ func TestCreatePlanTerraformEmitsExactCommands(t *testing.T) {
 	if err := adapter.Plan(request); err != nil {
 		t.Fatalf("PlanTerraform.Plan(%+v) error: %v", request, err)
 	}
-	if len(calls) != 2 {
-		t.Fatalf("Terraform command calls = %d, want 2", len(calls))
+	if len(calls) != 3 {
+		t.Fatalf("Terraform command calls = %d, want 3", len(calls))
 	}
 	wantInitArgv := []string{
 		"init", "-input=false", "-reconfigure",
@@ -204,7 +213,7 @@ func TestCreatePlanTerraformEmitsExactCommands(t *testing.T) {
 		t.Errorf("Initialize argv = %#v, want %#v", calls[0].Argv, wantInitArgv)
 	}
 	wantPlanArgv := []string{
-		"plan", "-input=false",
+		"plan", "-input=false", "-refresh=true",
 		"-var-file=/workspace/a.tfvars",
 		"-var-file=/workspace/b.tfvars",
 		"-out=tfplan",
@@ -224,8 +233,68 @@ func TestCreatePlanTerraformEmitsExactCommands(t *testing.T) {
 	if calls[0].Output != terraformcmd.TerraformCommandOutputInheritStderr {
 		t.Errorf("Initialize output = %q, want %q", calls[0].Output, terraformcmd.TerraformCommandOutputInheritStderr)
 	}
+	if !reflect.DeepEqual(calls[2].Argv, []string{"version"}) {
+		t.Errorf("Version argv = %#v, want [version]", calls[2].Argv)
+	}
 	if calls[1].Output != terraformcmd.TerraformCommandOutputInherit {
 		t.Errorf("Plan output = %q, want %q", calls[1].Output, terraformcmd.TerraformCommandOutputInherit)
+	}
+	if calls[2].Output != terraformcmd.TerraformCommandOutputCapture {
+		t.Errorf("Version output = %q, want %q", calls[2].Output, terraformcmd.TerraformCommandOutputCapture)
+	}
+	if _, err := os.Stat(SavedPlanAttestationPath(filepath.Join(directory, "tfplan"))); err != nil {
+		t.Errorf("saved-plan attestation stat error = %v, want a sibling sidecar", err)
+	}
+}
+
+func TestPlanTerraformPassesExplicitRefreshFlag(t *testing.T) {
+	directory := t.TempDir()
+	terraformPath := filepath.Join(directory, "fake-terraform")
+	argsLog := filepath.Join(directory, "terraform-args.log")
+	const fakeTerraform = `#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$IW_ARGS_LOG"
+case "$1" in
+plan)
+  printf '%s' 'opaque-plan' > tfplan
+  ;;
+version)
+  printf '%s\n' 'Terraform v1.15.4'
+  ;;
+esac
+`
+	if err := os.WriteFile(terraformPath, []byte(fakeTerraform), 0o700); err != nil {
+		t.Fatalf("WriteFile(fake terraform) error: %v", err)
+	}
+	request := PlanTerraformRequest{
+		Directory: directory,
+		Environment: map[string]string{
+			"IW_ARGS_LOG": argsLog,
+		},
+		Save: true,
+	}
+	terraform := CreatePlanTerraform(CreatePlanTerraformOptions{
+		TerraformExecutable: terraformPath,
+	}).(*planTerraformAdapter)
+	if err := terraform.Plan(request); err != nil {
+		t.Fatalf("PlanTerraform.Plan(fake terraform) error: %v", err)
+	}
+	logBytes, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatalf("ReadFile(fake terraform args) error: %v", err)
+	}
+	var planLine string
+	for _, line := range normalizedLifecycleLines(string(logBytes)) {
+		if strings.HasPrefix(line, "plan ") {
+			planLine = line
+			break
+		}
+	}
+	if planLine == "" {
+		t.Fatalf("fake Terraform argv log = %q, want a plan invocation", logBytes)
+	}
+	if !strings.Contains(planLine, "-refresh=true") || strings.Contains(planLine, "-refresh=false") {
+		t.Errorf("fake Terraform received plan argv %q, want explicit -refresh=true", planLine)
 	}
 }
 
@@ -709,6 +778,65 @@ func TestPlanEnvironmentRootsImportsOnlySkipsDerivedRoot(t *testing.T) {
 	}
 	if got, readErr := os.ReadFile(filepath.Join(directory, "tfplan.sources")); readErr != nil || string(got) != "seeded-sources\n" {
 		t.Errorf("tfplan.sources after imports-only skip = (%q, %v), want seeded-sources", got, readErr)
+	}
+}
+
+// TestPlanEnvironmentRootsDataReferentImportsOnlyPlansOnce is the group (c)
+// acceptance. A data-only root has no derive declaration and no imports
+// artifact, but it is still a real root: imports-only planning must initialize
+// and plan it once, and saved-plan artifacts must be the ordinary pair.
+func TestPlanEnvironmentRootsDataReferentImportsOnlyPlansOnce(t *testing.T) {
+	const resourceType = "zia_location_groups"
+	workspace := t.TempDir()
+	directory := writeLifecycleRoot(t, workspace, "tenant", resourceType, []string{resourceType}, nil, false)
+	config := lifecycleTestConfigPath(workspace, "tenant", resourceType, ".auto.tfvars.json")
+	writeLifecycleText(t, config, `{"items":{}}`+"\n")
+	root := lifecycleTestRoot(map[string]metadata.JsonObject{
+		resourceType: {
+			"data_referent": true,
+			"fetch":         metadata.JsonObject{"pagination": "zia", "path": "locations/groups"},
+			"product":       "zia",
+		},
+	})
+	fake := &lifecycleFakeTerraform{}
+	result, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
+		Deployment:  lifecycleTestDeployment(),
+		ImportsOnly: true,
+		Root:        root,
+		Save:        true,
+		Selectors:   []string{},
+		Tenant:      "tenant",
+		Terraform:   fake,
+		Workspace:   workspace,
+	})
+	if err != nil {
+		t.Fatalf("PlanEnvironmentRoots(data referent, imports-only) error = %v, want nil", err)
+	}
+	if result.Planned != 1 {
+		t.Errorf("PlanEnvironmentRoots(data referent, imports-only).Planned = %d, want 1", result.Planned)
+	}
+	if len(fake.initialized) != 1 {
+		t.Errorf("Initialize calls for data referent = %d, want 1", len(fake.initialized))
+	}
+	if len(fake.planned) != 1 {
+		t.Errorf("Plan calls for data referent = %d, want 1", len(fake.planned))
+	}
+	if len(fake.planned) == 1 && !reflect.DeepEqual(fake.planned[0].VarFiles, []string{config}) {
+		t.Errorf("Plan(data referent).VarFiles = %#v, want [%q] and no imports file", fake.planned[0].VarFiles, config)
+	}
+	importsPath := filepath.Join(workspace, "imports", "tenant", resourceType+"_imports.tf")
+	if _, statErr := os.Stat(importsPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("os.Stat(%s) error = %v, want os.ErrNotExist", importsPath, statErr)
+	}
+	if got, readErr := os.ReadFile(filepath.Join(directory, "tfplan")); readErr != nil || string(got) != "opaque-plan" {
+		t.Errorf("tfplan = (%q, %v), want opaque-plan", got, readErr)
+	}
+	sources, readErr := os.ReadFile(filepath.Join(directory, "tfplan.sources"))
+	if readErr != nil {
+		t.Fatalf("ReadFile(tfplan.sources) error = %v, want saved-plan fingerprint", readErr)
+	}
+	if len(sources) == 0 {
+		t.Error("tfplan.sources is empty, want saved-plan fingerprint")
 	}
 }
 

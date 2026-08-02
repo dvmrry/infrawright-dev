@@ -15,6 +15,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/controlevidence"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/plan"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 )
@@ -192,6 +193,104 @@ func loadedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
 		t.Fatalf("metadata.LoadPackRoot(synthetic assessment pack) error: %v", err)
 	}
 	return root
+}
+
+func loadedDataMaterializationPack(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	directory := t.TempDir()
+	pack := filepath.Join(directory, "capture")
+	write := func(path string, value any) {
+		t.Helper()
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("json.Marshal(%q) error: %v", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("os.MkdirAll(%q) error: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(%q) error: %v", path, err)
+		}
+	}
+	write(filepath.Join(pack, "pack.json"), metadata.JsonObject{
+		"pin":               "1.0.0",
+		"provider_prefixes": metadata.JsonObject{"capture_": "capture"},
+		"provider_sources":  metadata.JsonObject{"capture": "example/capture"},
+		"lookup_sources": metadata.JsonObject{
+			"capture_item": metadata.JsonObject{"name_field": "name"},
+		},
+		"references": metadata.JsonObject{
+			"capture_rule": metadata.JsonObject{
+				"item_id": metadata.JsonObject{"name_field": "name", "referent": "capture_item"},
+			},
+		},
+	})
+	write(filepath.Join(pack, "registry.json"), metadata.JsonObject{
+		"capture_item": metadata.JsonObject{
+			"data_referent": true,
+			"fetch":         metadata.JsonObject{"pagination": "single", "path": "items"},
+			"product":       "capture",
+		},
+		"capture_rule": metadata.JsonObject{"generate": true, "product": "capture"},
+	})
+	write(filepath.Join(pack, "schemas", "provider", "capture.json"), metadata.JsonObject{
+		"resource_schemas": metadata.JsonObject{
+			"capture_rule": metadata.JsonObject{"block": metadata.JsonObject{"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			}}},
+		},
+		"data_source_schemas": metadata.JsonObject{
+			"capture_item": metadata.JsonObject{"block": metadata.JsonObject{"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+				"id":   metadata.JsonObject{"type": "string", "computed": true},
+			}}},
+		},
+	})
+	profile := filepath.Join(directory, "profile.json")
+	write(profile, metadata.JsonObject{
+		"kind": metadata.PackSetKind, "version": 1, "packs": []string{"capture"}, "shared": []string{},
+	})
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot:   directory,
+		ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("metadata.LoadPackRoot(synthetic data materialization pack) error: %v", err)
+	}
+	return root
+}
+
+func TestMaterializeLoadedSavedPlanAssessmentRootsDataReferenceUsesPlainID(t *testing.T) {
+	workspace := t.TempDir()
+	writeAssessmentPlan(t, workspace, "tenant", "capture_item")
+	tenant := "tenant"
+	roots, _, err := MaterializeLoadedSavedPlanAssessmentRoots(LoadedSavedPlanAssessmentContext{
+		Workspace: workspace,
+		Deployment: deployment.Deployment{
+			Overlay: ".",
+			Roots:   map[string]deployment.RootProviderConfig{},
+		},
+		Root:      loadedDataMaterializationPack(t),
+		Tenant:    &tenant,
+		Selectors: []string{"capture_item"},
+	})
+	if err != nil {
+		t.Fatalf("MaterializeLoadedSavedPlanAssessmentRoots(data referent) error = %v, want nil", err)
+	}
+	if len(roots) != 1 {
+		t.Fatalf("MaterializeLoadedSavedPlanAssessmentRoots(data referent) roots = %#v, want one root", roots)
+	}
+	if len(roots[0].ReferenceOutputTypes) != 1 {
+		t.Fatalf("MaterializeLoadedSavedPlanAssessmentRoots(data referent) ReferenceOutputTypes = %#v, want one type", roots[0].ReferenceOutputTypes)
+	}
+	got := roots[0].ReferenceOutputTypes[0]
+	want := plan.ReferenceOutputType{
+		Type: "capture_item",
+		Kind: plan.ReferenceOutputKindData,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("production materialized data ReferenceOutputType = %#v, want %#v", got, want)
+	}
 }
 
 func installedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
@@ -607,7 +706,9 @@ func TestLoadedAssessmentDefaultsToSortedCrossStateReferenceOutputs(t *testing.T
 		VarFiles: []string{
 			filepath.Join(workspace, "config", "tenant", "zpa_segment_group.auto.tfvars.json"),
 		},
-		ReferenceOutputTypes: []string{"zpa_segment_group"},
+		ReferenceOutputTypes: []plan.ReferenceOutputType{{
+			Type: "zpa_segment_group", Kind: plan.ReferenceOutputKindManaged,
+		}},
 	}}
 	if !reflect.DeepEqual(resolved.Assessment.Roots, wantRoots) {
 		t.Errorf("ResolveLoadedSavedPlanAssessment(default cross-state outputs).Roots = %#v, want %#v", resolved.Assessment.Roots, wantRoots)
@@ -625,6 +726,33 @@ func TestLoadedAssessmentDefaultsToSortedCrossStateReferenceOutputs(t *testing.T
 		"ASSESSMENT_CONTEXT_CHANGED",
 		"saved-plan assessment context changed during assessment",
 	)
+}
+
+func TestLoadedAssessmentProjectsDataReferenceOutputKindFromMetadata(t *testing.T) {
+	workspace := t.TempDir()
+	writeAssessmentPlan(t, workspace, "tenant", "zpa_segment_group")
+	root := loadedAssessmentPack(t)
+	root.Resources["zpa_segment_group"].Registry["data_referent"] = true
+	resolved, err := ResolveLoadedSavedPlanAssessment(ResolveLoadedSavedPlanAssessmentOptions{
+		Workspace: workspace,
+		Deployment: deployment.Deployment{
+			Overlay: ".",
+			Roots:   map[string]deployment.RootProviderConfig{},
+		},
+		Root:                root,
+		Tenant:              assessmentString("tenant"),
+		Selectors:           []string{"zpa_segment_group"},
+		TerraformExecutable: "/opt/terraform",
+	})
+	if err != nil {
+		t.Fatalf("ResolveLoadedSavedPlanAssessment(data referent metadata) error = %v, want nil", err)
+	}
+	want := []plan.ReferenceOutputType{{
+		Type: "zpa_segment_group", Kind: plan.ReferenceOutputKindData,
+	}}
+	if got := resolved.Assessment.Roots[0].ReferenceOutputTypes; !reflect.DeepEqual(got, want) {
+		t.Errorf("ResolveLoadedSavedPlanAssessment(data referent metadata).ReferenceOutputTypes = %#v, want %#v", got, want)
+	}
 }
 
 func TestAssessmentContextRechecksAreExactAndRedacted(t *testing.T) {
@@ -684,7 +812,7 @@ func TestAssessmentRootEqualityTreatsMissingReferenceOutputsAsEmptyAndChecksOrde
 	explicitEmpty := []SavedPlanAssessmentRootInput{{
 		Tenant: "tenant", Label: "root", Members: []string{"a", "b"},
 		EnvDir: "/env", SavedPlanPath: "/env/tfplan", FingerprintPath: "/env/tfplan.sources",
-		VarFiles: []string{"/a", "/b"}, ReferenceOutputTypes: []string{},
+		VarFiles: []string{"/a", "/b"}, ReferenceOutputTypes: []plan.ReferenceOutputType{},
 	}}
 	if !sameAssessmentRoots(base, explicitEmpty) {
 		t.Error("sameAssessmentRoots(nil reference outputs, empty reference outputs) = false, want true")
@@ -695,7 +823,7 @@ func TestAssessmentRootEqualityTreatsMissingReferenceOutputsAsEmptyAndChecksOrde
 			cloned[index] = value
 			cloned[index].Members = cloneStrings(value.Members)
 			cloned[index].VarFiles = cloneStrings(value.VarFiles)
-			cloned[index].ReferenceOutputTypes = cloneStrings(value.ReferenceOutputTypes)
+			cloned[index].ReferenceOutputTypes = cloneReferenceOutputTypes(value.ReferenceOutputTypes)
 		}
 		return cloned
 	}
@@ -705,9 +833,15 @@ func TestAssessmentRootEqualityTreatsMissingReferenceOutputsAsEmptyAndChecksOrde
 		t.Error("sameAssessmentRoots(original members, reordered members) = true, want false")
 	}
 	withOutputs := cloneRoots(explicitEmpty)
-	withOutputs[0].ReferenceOutputTypes = []string{"zpa_server_group", "zpa_segment_group"}
+	withOutputs[0].ReferenceOutputTypes = []plan.ReferenceOutputType{
+		{Type: "zpa_server_group", Kind: plan.ReferenceOutputKindManaged},
+		{Type: "zpa_segment_group", Kind: plan.ReferenceOutputKindManaged},
+	}
 	reversedOutputs := cloneRoots(explicitEmpty)
-	reversedOutputs[0].ReferenceOutputTypes = []string{"zpa_segment_group", "zpa_server_group"}
+	reversedOutputs[0].ReferenceOutputTypes = []plan.ReferenceOutputType{
+		{Type: "zpa_segment_group", Kind: plan.ReferenceOutputKindManaged},
+		{Type: "zpa_server_group", Kind: plan.ReferenceOutputKindManaged},
+	}
 	if sameAssessmentRoots(withOutputs, reversedOutputs) {
 		t.Error("sameAssessmentRoots(reference output order mismatch) = true, want false")
 	}

@@ -5,6 +5,7 @@ package plan
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -207,6 +208,28 @@ func evidenceSHA256(value []byte) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func writeEvidenceAttestation(t *testing.T, fixture *evidenceFixture, attestation PlanCreationAttestation) {
+	t.Helper()
+	if err := WritePlanCreationAttestation(SavedPlanAttestationPath(fixture.planPath), attestation); err != nil {
+		t.Fatalf("WritePlanCreationAttestation(%q) error = %v, want nil", SavedPlanAttestationPath(fixture.planPath), err)
+	}
+}
+
+func evidenceAttestation(t *testing.T, fixture *evidenceFixture) PlanCreationAttestation {
+	t.Helper()
+	planBytes, err := os.ReadFile(fixture.planPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v, want nil", fixture.planPath, err)
+	}
+	return PlanCreationAttestation{
+		FormatVersion:    PlanCreationAttestationVersion,
+		TerraformVersion: "1.15.4",
+		PlanArgv:         []string{"plan", "-input=false", "-refresh=true", "-out=tfplan"},
+		Refresh:          true,
+		PlanSHA256:       evidenceSHA256(planBytes),
+	}
+}
+
 func replaceEvidenceFile(t *testing.T, filePath string, content []byte) {
 	t.Helper()
 	replacement := filepath.Join(filepath.Dir(filePath), ".replacement-"+filepath.Base(filePath))
@@ -247,6 +270,9 @@ func TestSavedPlanEvidencePrepareRecheckCleanupAndBudgets(t *testing.T) {
 	}
 	if evidence.FingerprintInput.VarFiles == nil || evidence.FingerprintInput.MemberTypes == nil {
 		t.Errorf("SavedPlanEvidence.FingerprintInput slices = %+v, want detached non-nil arrays", evidence.FingerprintInput)
+	}
+	if evidence.PlanAttestation != nil {
+		t.Errorf("SavedPlanEvidence.PlanAttestation = %+v, want nil for the managed-compatible absent-sidecar path", evidence.PlanAttestation)
 	}
 	snapshotBytes, err := os.ReadFile(evidence.Snapshot.Path)
 	if err != nil {
@@ -295,6 +321,78 @@ func TestSavedPlanEvidencePrepareRecheckCleanupAndBudgets(t *testing.T) {
 		procerr.CategoryDomain,
 		"saved-plan evidence is not active",
 	)
+}
+
+func TestSavedPlanEvidenceAttestationIsBoundAndValidated(t *testing.T) {
+	t.Run("valid sidecar is exposed and rechecked", func(t *testing.T) {
+		fixture := newEvidenceFixture(t)
+		attestation := evidenceAttestation(t, fixture)
+		writeEvidenceAttestation(t, fixture, attestation)
+		evidence := prepareEvidence(t, fixture)
+		if evidence.PlanAttestation == nil || !samePlanCreationAttestation(*evidence.PlanAttestation, attestation) {
+			t.Fatalf("SavedPlanEvidence.PlanAttestation = %+v, want %+v", evidence.PlanAttestation, attestation)
+		}
+		changed := attestation
+		changed.PlanArgv = append([]string{}, attestation.PlanArgv...)
+		changed.PlanArgv = append(changed.PlanArgv, "-no-color")
+		changedBytes, err := json.Marshal(changed)
+		if err != nil {
+			t.Fatalf("json.Marshal(changed attestation) error = %v, want nil", err)
+		}
+		replaceEvidenceFile(t, SavedPlanAttestationPath(fixture.planPath), append(changedBytes, '\n'))
+		requireEvidenceCode(t, recheckEvidence(t, evidence), "PLAN_ATTESTATION_CHANGED")
+		if err := CleanupSavedPlanEvidence(evidence); err != nil {
+			t.Errorf("CleanupSavedPlanEvidence(attested evidence) error = %v, want nil", err)
+		}
+	})
+	t.Run("refresh_false is recorded and accepted", func(t *testing.T) {
+		fixture := newEvidenceFixture(t)
+		attestation := evidenceAttestation(t, fixture)
+		attestation.Refresh = false
+		attestation.PlanArgv = []string{"plan", "-input=false", "-refresh=false", "-out=tfplan"}
+		writeEvidenceAttestation(t, fixture, attestation)
+		evidence := prepareEvidence(t, fixture)
+		if evidence.PlanAttestation == nil || evidence.PlanAttestation.Refresh {
+			t.Fatalf("SavedPlanEvidence.PlanAttestation = %+v, want accepted refresh=false attestation", evidence.PlanAttestation)
+		}
+	})
+
+	tests := []struct {
+		name       string
+		content    string
+		wantCode   string
+		wantErrSub string
+	}{
+		{
+			name:       "malformed",
+			content:    "{not-json",
+			wantCode:   "INVALID_PLAN_ATTESTATION",
+			wantErrSub: "valid contract JSON",
+		},
+		{
+			name:       "unqualified_version",
+			content:    `{"format_version":1,"terraform_version":"1.14.9","argv":["plan","-refresh=true"],"refresh":true,"plan_sha256":"` + strings.Repeat("a", 64) + `"}`,
+			wantCode:   "INVALID_PLAN_ATTESTATION",
+			wantErrSub: "not capture-qualified",
+		},
+		{
+			name:       "digest_mismatch",
+			content:    `{"format_version":1,"terraform_version":"1.15.4","argv":["plan","-refresh=true"],"refresh":true,"plan_sha256":"` + strings.Repeat("b", 64) + `"}`,
+			wantCode:   "PLAN_ATTESTATION_MISMATCH",
+			wantErrSub: "does not match the saved plan",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newEvidenceFixture(t)
+			writeEvidenceFile(t, SavedPlanAttestationPath(fixture.planPath), []byte(test.content), 0o600)
+			_, err := PrepareSavedPlanEvidence(evidencePrepareOptions(t, fixture))
+			failure := requireEvidenceCode(t, err, test.wantCode)
+			if !strings.Contains(failure.Message, test.wantErrSub) {
+				t.Errorf("attestation failure message = %q, want substring %q", failure.Message, test.wantErrSub)
+			}
+		})
+	}
 }
 
 func TestReadSavedPlanFingerprintContractAndRawBinding(t *testing.T) {
