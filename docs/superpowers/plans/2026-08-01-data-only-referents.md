@@ -306,9 +306,13 @@ source must exist in `data_source_schemas` (load error if absent).
   "name_field": "name"}` on `zia_url_filtering_rules`,
   `zia_cloud_app_control_rule`, `zia_dlp_web_rules`,
   `zia_ssl_inspection_rules`)
-- Modify: `packs/zia/overrides/{zia_url_filtering_rules,zia_cloud_app_control_rule,zia_dlp_web_rules,zia_ssl_inspection_rules}.json`
-  (remove `location_groups.name` from `acknowledged_drops` — the
-  reference now owns the field)
+- NOT modified after all (correction from the Task 7 qualification
+  run): `location_groups.name` STAYS in `acknowledged_drops` on the four
+  rule types — the established pattern for referenced fields (see
+  `labels.name`, `dlp_engines.name`, `url_categories.name`, all
+  referenced and all acknowledged) is that transform still drops the
+  name subfield; the reference machinery consumes it via lookups rather
+  than un-dropping it. Removing it resurfaces the DROPS_CHECK refusal.
 - NOT modified: `zia_location_management`'s own
   `static_location_groups.name` / `dynamiclocation_groups` drops stay
   (referencing from location-management is follow-on pack work)

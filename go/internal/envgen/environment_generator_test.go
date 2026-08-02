@@ -927,17 +927,27 @@ func TestInstalledPackTreeGeneratesAllRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateEnvironmentRoots: %v", err)
 	}
-	wantResourceTypes := modulesgen.ActiveGeneratedResourceTypes(root)
-	gotResourceTypes := make([]string, len(result.Roots))
-	for index, generatedRoot := range result.Roots {
-		gotResourceTypes[index] = generatedRoot.Label
+	fullTopology, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
+		Deployment: dep, Root: root, Selectors: []string{}, Tenant: strPtr("full-profile-parity"),
+	})
+	if err != nil {
+		t.Fatalf("LoadedRootTopology: %v", err)
 	}
-	sort.Strings(gotResourceTypes)
-	if !reflect.DeepEqual(gotResourceTypes, wantResourceTypes) {
-		t.Fatalf("generated root labels = %v, want selected generated resources %v", gotResourceTypes, wantResourceTypes)
+	wantRootLabels := make([]string, len(fullTopology.Topology.Roots))
+	for index, topologyRoot := range fullTopology.Topology.Roots {
+		wantRootLabels[index] = topologyRoot.Label
+	}
+	sort.Strings(wantRootLabels)
+	gotRootLabels := make([]string, len(result.Roots))
+	for index, generatedRoot := range result.Roots {
+		gotRootLabels[index] = generatedRoot.Label
+	}
+	sort.Strings(gotRootLabels)
+	if !reflect.DeepEqual(gotRootLabels, wantRootLabels) {
+		t.Fatalf("generated root labels = %v, want loaded topology root labels %v", gotRootLabels, wantRootLabels)
 	}
 	tree := snapshotTree(t, outputRoot)
-	wantFiles := len(wantResourceTypes) * 3
+	wantFiles := len(wantRootLabels) * 3
 	if len(tree) != wantFiles {
 		t.Fatalf("len(tree) = %d, want %d", len(tree), wantFiles)
 	}
@@ -950,13 +960,13 @@ func TestInstalledPackTreeGeneratesAllRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateEnvironmentRoots (raw Terraform oracle tree): %v", err)
 	}
-	oracleResourceTypes := make([]string, len(oracleResult.Roots))
+	oracleRootLabels := make([]string, len(oracleResult.Roots))
 	for index, generatedRoot := range oracleResult.Roots {
-		oracleResourceTypes[index] = generatedRoot.Label
+		oracleRootLabels[index] = generatedRoot.Label
 	}
-	sort.Strings(oracleResourceTypes)
-	if !reflect.DeepEqual(oracleResourceTypes, wantResourceTypes) {
-		t.Fatalf("Terraform oracle root labels = %v, want selected generated resources %v", oracleResourceTypes, wantResourceTypes)
+	sort.Strings(oracleRootLabels)
+	if !reflect.DeepEqual(oracleRootLabels, wantRootLabels) {
+		t.Fatalf("Terraform oracle root labels = %v, want loaded topology root labels %v", oracleRootLabels, wantRootLabels)
 	}
 	command := exec.Command(terraformTestExecutable(t), "fmt", "-recursive", oracleRoot)
 	if output, err := command.CombinedOutput(); err != nil {

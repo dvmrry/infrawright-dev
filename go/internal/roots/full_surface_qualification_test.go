@@ -14,9 +14,9 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-const qualificationGeneratedResourceCount = 151
+const qualificationGeneratedResourceCount = 152
 
-const qualificationBackendKeysSHA256 = "9895329b146e360acfe06b47bc410333a66b08e3f95d74e1b2ae79751eedc4dd"
+const qualificationBackendKeysSHA256 = "5e070d3da4320c0f4a1023fd438e0d62765f6ab3d0c896fda526bd227c0e78cc"
 
 // TestFullProfileSingletonTopologyAndBackendKeys preserves the committed full
 // distribution's backend-state-key inventory. It is a full-profile contract,
@@ -66,8 +66,9 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 	labels := make([]string, 0, len(result.Topology.Roots))
 	for resourceType, resource := range loaded.Resources {
 		generated, _ := resource.Registry["generate"].(bool)
-		if !generated {
-			t.Errorf("LoadPackRoot(full profile) resource %q generate = %v, want true", resourceType, resource.Registry["generate"])
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if !generated && !dataReferent {
+			t.Errorf("LoadPackRoot(full profile) resource %q is neither generated nor a data referent (generate = %v)", resourceType, resource.Registry["generate"])
 		}
 	}
 	for _, root := range result.Topology.Roots {
@@ -84,8 +85,9 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 			continue
 		}
 		generated, _ := resource.Registry["generate"].(bool)
-		if root.Label != resourceType || !generated {
-			t.Errorf("LoadedRootTopology(full profile) root = {label:%q members:%v}, want label == member == generated resource type %q", root.Label, root.Members, resourceType)
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if root.Label != resourceType || (!generated && !dataReferent) {
+			t.Errorf("LoadedRootTopology(full profile) root = {label:%q members:%v}, want label == member == a generated or data-referent resource type %q", root.Label, root.Members, resourceType)
 		}
 		if root.Provider == nil || *root.Provider != resource.Provider {
 			t.Errorf("LoadedRootTopology(full profile) root %q provider = %v, want loaded resource provider %q", root.Label, root.Provider, resource.Provider)
