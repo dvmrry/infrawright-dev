@@ -195,6 +195,104 @@ func loadedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
 	return root
 }
 
+func loadedDataMaterializationPack(t *testing.T) metadata.LoadedPackRoot {
+	t.Helper()
+	directory := t.TempDir()
+	pack := filepath.Join(directory, "capture")
+	write := func(path string, value any) {
+		t.Helper()
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("json.Marshal(%q) error: %v", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("os.MkdirAll(%q) error: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(%q) error: %v", path, err)
+		}
+	}
+	write(filepath.Join(pack, "pack.json"), metadata.JsonObject{
+		"pin":               "1.0.0",
+		"provider_prefixes": metadata.JsonObject{"capture_": "capture"},
+		"provider_sources":  metadata.JsonObject{"capture": "example/capture"},
+		"lookup_sources": metadata.JsonObject{
+			"capture_item": metadata.JsonObject{"name_field": "name"},
+		},
+		"references": metadata.JsonObject{
+			"capture_rule": metadata.JsonObject{
+				"item_id": metadata.JsonObject{"name_field": "name", "referent": "capture_item"},
+			},
+		},
+	})
+	write(filepath.Join(pack, "registry.json"), metadata.JsonObject{
+		"capture_item": metadata.JsonObject{
+			"data_referent": true,
+			"fetch":         metadata.JsonObject{"pagination": "single", "path": "items"},
+			"product":       "capture",
+		},
+		"capture_rule": metadata.JsonObject{"generate": true, "product": "capture"},
+	})
+	write(filepath.Join(pack, "schemas", "provider", "capture.json"), metadata.JsonObject{
+		"resource_schemas": metadata.JsonObject{
+			"capture_rule": metadata.JsonObject{"block": metadata.JsonObject{"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			}}},
+		},
+		"data_source_schemas": metadata.JsonObject{
+			"capture_item": metadata.JsonObject{"block": metadata.JsonObject{"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+				"id":   metadata.JsonObject{"type": "string", "computed": true},
+			}}},
+		},
+	})
+	profile := filepath.Join(directory, "profile.json")
+	write(profile, metadata.JsonObject{
+		"kind": metadata.PackSetKind, "version": 1, "packs": []string{"capture"}, "shared": []string{},
+	})
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot:   directory,
+		ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("metadata.LoadPackRoot(synthetic data materialization pack) error: %v", err)
+	}
+	return root
+}
+
+func TestMaterializeLoadedSavedPlanAssessmentRootsDataReferenceUsesPlainID(t *testing.T) {
+	workspace := t.TempDir()
+	writeAssessmentPlan(t, workspace, "tenant", "capture_item")
+	tenant := "tenant"
+	roots, _, err := MaterializeLoadedSavedPlanAssessmentRoots(LoadedSavedPlanAssessmentContext{
+		Workspace: workspace,
+		Deployment: deployment.Deployment{
+			Overlay: ".",
+			Roots:   map[string]deployment.RootProviderConfig{},
+		},
+		Root:      loadedDataMaterializationPack(t),
+		Tenant:    &tenant,
+		Selectors: []string{"capture_item"},
+	})
+	if err != nil {
+		t.Fatalf("MaterializeLoadedSavedPlanAssessmentRoots(data referent) error = %v, want nil", err)
+	}
+	if len(roots) != 1 {
+		t.Fatalf("MaterializeLoadedSavedPlanAssessmentRoots(data referent) roots = %#v, want one root", roots)
+	}
+	if len(roots[0].ReferenceOutputTypes) != 1 {
+		t.Fatalf("MaterializeLoadedSavedPlanAssessmentRoots(data referent) ReferenceOutputTypes = %#v, want one type", roots[0].ReferenceOutputTypes)
+	}
+	got := roots[0].ReferenceOutputTypes[0]
+	want := plan.ReferenceOutputType{
+		Type: "capture_item",
+		Kind: plan.ReferenceOutputKindData,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("production materialized data ReferenceOutputType = %#v, want %#v", got, want)
+	}
+}
+
 func installedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
 	packsRoot := filepath.Join(assessmentRepoRoot(t), "packs")

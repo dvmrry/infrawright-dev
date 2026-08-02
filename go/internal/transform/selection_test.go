@@ -359,6 +359,23 @@ func TestDataReferentsStayOutOfGeneratedSelectionLane(t *testing.T) {
 	if !reflect.DeepEqual(dataSelection, wantData) {
 		t.Fatalf("SelectTransformResources(%v) = %+v, want %+v; data referents need their own selectable lane", []string{"sample_groups_data"}, dataSelection, wantData)
 	}
+
+	defaultAdoption, err := SelectAdoptionResources(root, nil)
+	if err != nil {
+		t.Fatalf("SelectAdoptionResources(%v) = error %v, want nil", []string{}, err)
+	}
+	wantAdoption := TransformSelection{ResourceTypes: []string{"sample_rule"}, Notes: []string{}}
+	if !reflect.DeepEqual(defaultAdoption, wantAdoption) {
+		t.Fatalf("SelectAdoptionResources(%v) = %+v, want generated-only %v", []string{}, defaultAdoption, wantAdoption)
+	}
+	explicitAdoption, err := SelectAdoptionResources(root, []string{"sample_groups_data"})
+	if err != nil {
+		t.Fatalf("SelectAdoptionResources(data referent) = error %v, want the runner boundary to classify it", err)
+	}
+	wantExplicitAdoption := TransformSelection{ResourceTypes: []string{"sample_groups_data"}, Notes: []string{}}
+	if !reflect.DeepEqual(explicitAdoption, wantExplicitAdoption) {
+		t.Fatalf("SelectAdoptionResources(data referent) = %+v, want explicit boundary candidate %v", explicitAdoption, wantExplicitAdoption)
+	}
 }
 
 func TestReferenceOrderRefusesDataReferentReferrerAtDefensiveBoundary(t *testing.T) {

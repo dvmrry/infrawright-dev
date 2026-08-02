@@ -1,13 +1,16 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/plan"
+	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
 
 type exactDataRootPlanTerraform struct {
@@ -112,5 +115,57 @@ func TestRefreshLifecycleExactDataSelectorRefreshesOnlyDataRoot(t *testing.T) {
 	wantConfig := filepath.Join(fixture.workspace, "config", "tenant", "sample_groups_data.auto.tfvars.json")
 	if !reflect.DeepEqual(fake.planned[0].VarFiles, []string{wantConfig}) {
 		t.Errorf("Refresh exact data selector var files = %#v, want [%q]", fake.planned[0].VarFiles, wantConfig)
+	}
+}
+
+func TestResourcesCommandSelectorBoundaryDoesNotAdmitDataRoots(t *testing.T) {
+	fixture := newDefaultTransformDataFixture(t)
+	profile := filepath.Join(fixture.workspace, "packs", "sample.packset.json")
+	t.Setenv("INFRAWRIGHT_PACKAGE_ROOT", fixture.workspace)
+	baseOptions := map[string][]string{
+		"--root":    {filepath.Join(fixture.workspace, "packs")},
+		"--profile": {profile},
+	}
+	tests := []struct {
+		name      string
+		selectors []string
+		wantCode  string
+		wantText  string
+	}{
+		{
+			name:      "exact_data_selector",
+			selectors: []string{"sample_groups_data"},
+			wantCode:  "UNKNOWN_RESOURCE_SELECTOR",
+			wantText:  "non-generated resource selector",
+		},
+		{
+			name:      "mixed_generated_and_data_selectors",
+			selectors: []string{"sample_rule", "sample_groups_data"},
+			wantCode:  "UNKNOWN_RESOURCE_SELECTOR",
+			wantText:  "non-generated resource selector",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			options := map[string][]string{}
+			for key, values := range baseOptions {
+				options[key] = append([]string(nil), values...)
+			}
+			options["--resource"] = test.selectors
+			_, err := resourcesInput(commandInput{Options: options})
+			if err == nil {
+				t.Fatalf("resourcesInput(%v) error = nil, want generated-only selector refusal", test.selectors)
+			}
+			var failure *procerr.ProcessFailure
+			if !errors.As(err, &failure) {
+				t.Fatalf("resourcesInput(%v) error = %T(%v), want ProcessFailure", test.selectors, err, err)
+			}
+			if failure.Code != test.wantCode {
+				t.Errorf("resourcesInput(%v) ProcessFailure.Code = %q, want %q", test.selectors, failure.Code, test.wantCode)
+			}
+			if !strings.Contains(failure.Message, test.wantText) {
+				t.Errorf("resourcesInput(%v) ProcessFailure.Message = %q, want substring %q", test.selectors, failure.Message, test.wantText)
+			}
+		})
 	}
 }

@@ -15,6 +15,8 @@ const dataReferenceType = "sample_groups_data"
 
 const terraformRemoteStateReferenceType = "terraform_remote_state"
 
+const providerDoubleReferenceType = "capture_item"
+
 func dataReferenceAssessmentPlan(resources []any, configurationMode string, ids map[string]any) map[string]any {
 	configurationAddress := "data." + dataReferenceType + ".items"
 	configurationResource := map[string]any{
@@ -32,7 +34,18 @@ func dataReferenceAssessmentPlan(resources []any, configurationMode string, ids 
 		}
 	}
 	value := map[string]any{dataReferenceType: ids}
-	return map[string]any{
+	plannedRoot := map[string]any{
+		"child_modules": []any{
+			map[string]any{
+				"address":   "module." + dataReferenceType,
+				"resources": resources,
+			},
+		},
+	}
+	if configurationMode == "data" {
+		plannedRoot = map[string]any{}
+	}
+	plan := map[string]any{
 		"format_version": "1.2",
 		"complete":       true,
 		"errored":        false,
@@ -43,14 +56,7 @@ func dataReferenceAssessmentPlan(resources []any, configurationMode string, ids 
 					"value":     value,
 				},
 			},
-			"root_module": map[string]any{
-				"child_modules": []any{
-					map[string]any{
-						"address":   "module." + dataReferenceType,
-						"resources": resources,
-					},
-				},
-			},
+			"root_module": plannedRoot,
 		},
 		"configuration": map[string]any{
 			"root_module": map[string]any{
@@ -75,6 +81,21 @@ func dataReferenceAssessmentPlan(resources []any, configurationMode string, ids 
 			},
 		},
 	}
+	if configurationMode == "data" {
+		plan["prior_state"] = map[string]any{
+			"values": map[string]any{
+				"root_module": map[string]any{
+					"child_modules": []any{
+						map[string]any{
+							"address":   "module." + dataReferenceType,
+							"resources": resources,
+						},
+					},
+				},
+			},
+		}
+	}
+	return plan
 }
 
 func dataReferenceResource(mode, address, index string, id any, resourceType string) map[string]any {
@@ -111,12 +132,12 @@ func validDataReferencePlan(id any) map[string]any {
 }
 
 func dataReferenceContract() *AssessmentPlanContract {
-	return dataReferenceContractFor(dataReferenceType, "")
+	return dataReferenceContractFor(dataReferenceType)
 }
 
-func dataReferenceContractFor(resourceType, dataIDPath string) *AssessmentPlanContract {
+func dataReferenceContractFor(resourceType string) *AssessmentPlanContract {
 	return &AssessmentPlanContract{ReferenceOutputTypes: []ReferenceOutputType{{
-		Type: resourceType, Kind: ReferenceOutputKindData, DataIDPath: dataIDPath,
+		Type: resourceType, Kind: ReferenceOutputKindData,
 	}}}
 }
 
@@ -156,6 +177,61 @@ func offlineTerraformShowCapture(t *testing.T, scenario string) map[string]any {
 	return show
 }
 
+func providerDoubleShowCapture(t *testing.T, scenario string) map[string]any {
+	t.Helper()
+	fixtureDirectory := filepath.Join("testdata", "provider_double_capture", scenario)
+	raw, err := os.ReadFile(filepath.Join(fixtureDirectory, "show.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(%s/show.json) error = %v, want nil", fixtureDirectory, err)
+	}
+	showValue, err := canonjson.ParseDataJSONLosslessly(string(raw))
+	if err != nil {
+		t.Fatalf("ParseDataJSONLosslessly(%s/show.json) error = %v, want nil", fixtureDirectory, err)
+	}
+	show, ok := showValue.(map[string]any)
+	if !ok {
+		t.Fatalf("ParseDataJSONLosslessly(%s/show.json) = %T, want object", fixtureDirectory, showValue)
+	}
+	return show
+}
+
+func providerDoubleDataReferenceContract() *AssessmentPlanContract {
+	return &AssessmentPlanContract{ReferenceOutputTypes: []ReferenceOutputType{{
+		Type: providerDoubleReferenceType,
+		Kind: ReferenceOutputKindData,
+	}}}
+}
+
+func TestValidateAssessmentPlanAcceptsProviderDoubleCaptures(t *testing.T) {
+	for _, scenario := range []string{
+		"initial_create",
+		"refresh_id_change",
+		"output_only_change",
+		"no_op",
+		"empty_for_each",
+	} {
+		t.Run(scenario, func(t *testing.T) {
+			requireValidAssessmentPlan(
+				t,
+				"ValidateAssessmentPlan(provider-double "+scenario+")",
+				providerDoubleShowCapture(t, scenario),
+				providerDoubleDataReferenceContract(),
+			)
+		})
+	}
+}
+
+func TestValidateAssessmentPlanDataNoOpDoesNotRequireAuthorization(t *testing.T) {
+	plan := providerDoubleShowCapture(t, "no_op")
+	delete(plan, "prior_state")
+	requireValidAssessmentPlan(
+		t,
+		"ValidateAssessmentPlan(provider-double no-op without evidence)",
+		plan,
+		providerDoubleDataReferenceContract(),
+	)
+}
+
 func TestValidateAssessmentPlanReferenceOutputModeAuthorization(t *testing.T) {
 	managed := referenceAssessmentPlan("create")
 	managedChild := managed["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)
@@ -169,7 +245,7 @@ func TestValidateAssessmentPlanReferenceOutputModeAuthorization(t *testing.T) {
 	requireAssessmentPlanErrorContaining(t, managed, referenceContract(), "unauthorized mode")
 
 	managedForData := validDataReferencePlan("101")
-	dataChild := managedForData["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)
+	dataChild := managedForData["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)
 	dataChild["resources"].([]any)[0] = dataReferenceResource(
 		"managed",
 		`module.sample_groups_data.sample_groups_data.this["group_one"]`,
@@ -180,7 +256,7 @@ func TestValidateAssessmentPlanReferenceOutputModeAuthorization(t *testing.T) {
 	requireAssessmentPlanErrorContaining(t, managedForData, dataReferenceContract(), "unauthorized mode")
 
 	mixed := validDataReferencePlan(json.Number("101"))
-	mixedChild := mixed["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)
+	mixedChild := mixed["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)
 	mixedChild["resources"] = []any{
 		validDataReferenceResource("group_one", json.Number("101")),
 		dataReferenceResource(
@@ -255,7 +331,7 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 		{
 			name: "address_index_mismatch",
 			mutate: func(plan map[string]any) {
-				resource := plan["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
+				resource := plan["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
 				resource["address"] = `module.sample_groups_data.data.sample_groups_data.items["real_key"]`
 			},
 			want: "invalid reference-output resource instance",
@@ -263,7 +339,7 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 		{
 			name: "trailing_address_material",
 			mutate: func(plan map[string]any) {
-				resource := plan["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
+				resource := plan["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
 				resource["address"] = `module.sample_groups_data.data.sample_groups_data.items["group_one"].trailing`
 			},
 			want: "invalid reference-output resource instance",
@@ -271,7 +347,7 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 		{
 			name: "boolean_id",
 			mutate: func(plan map[string]any) {
-				resource := plan["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
+				resource := plan["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
 				resource["values"].(map[string]any)["id"] = false
 			},
 			want: "invalid reference-output resource instance",
@@ -279,7 +355,7 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 		{
 			name: "object_id",
 			mutate: func(plan map[string]any) {
-				resource := plan["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
+				resource := plan["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
 				resource["values"].(map[string]any)["id"] = map[string]any{"nested": true}
 			},
 			want: "invalid reference-output resource instance",
@@ -287,7 +363,7 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 		{
 			name: "array_id",
 			mutate: func(plan map[string]any) {
-				resource := plan["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
+				resource := plan["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
 				resource["values"].(map[string]any)["id"] = []any{"nested"}
 			},
 			want: "invalid reference-output resource instance",
@@ -295,7 +371,7 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 		{
 			name: "null_id",
 			mutate: func(plan map[string]any) {
-				resource := plan["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
+				resource := plan["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
 				resource["values"].(map[string]any)["id"] = nil
 			},
 			want: "invalid reference-output resource instance",
@@ -303,15 +379,15 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 		{
 			name: "wrong_type",
 			mutate: func(plan map[string]any) {
-				resource := plan["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
+				resource := plan["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
 				resource["type"] = "other_data_source"
 			},
-			want: "planned engine reference output does not match provider-observed resource IDs",
+			want: "engine reference output does not match provider-observed resource IDs",
 		},
 		{
 			name: "wrong_name",
 			mutate: func(plan map[string]any) {
-				resource := plan["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
+				resource := plan["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
 				resource["name"] = "other"
 			},
 			want: "invalid reference-output resource instance",
@@ -319,7 +395,7 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 		{
 			name: "wrong_module_address",
 			mutate: func(plan map[string]any) {
-				resource := plan["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
+				resource := plan["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)["resources"].([]any)[0].(map[string]any)
 				resource["address"] = `module.other.data.sample_groups_data.items["group_one"]`
 			},
 			want: "invalid reference-output resource instance",
@@ -346,7 +422,7 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 	}
 
 	duplicate := validDataReferencePlan(json.Number("101"))
-	duplicateChild := duplicate["planned_values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)
+	duplicateChild := duplicate["prior_state"].(map[string]any)["values"].(map[string]any)["root_module"].(map[string]any)["child_modules"].([]any)[0].(map[string]any)
 	duplicateChild["resources"] = []any{
 		validDataReferenceResource("group_one", json.Number("101")),
 		validDataReferenceResource("group_one", json.Number("102")),
@@ -354,23 +430,22 @@ func TestValidateAssessmentPlanDataReferenceEvidenceIsExactAndScalar(t *testing.
 	requireAssessmentPlanErrorContaining(t, duplicate, dataReferenceContract(), "duplicate reference-output key")
 }
 
-// TestValidateAssessmentPlanAcceptsOfflineTerraformInitialCreate pins the
-// positive data contract to an unmodified Terraform 1.15.4 `show -json`
-// capture from a fresh root directory with no prior root state. The builtin
-// terraform_remote_state read is deliberately deferred by the initial create,
-// so its known defaults.id scalar is declared by the contract as the planned
-// identity path. No JSON resource, address, mode, or output field is
-// transplanted or renamed by this test.
-func TestValidateAssessmentPlanAcceptsOfflineTerraformInitialCreate(t *testing.T) {
-	requireValidAssessmentPlan(
+// TestValidateAssessmentPlanRejectsOfflineTerraformConfiguredDefaults pins the
+// builtin terraform_remote_state fixture as a negative. Its configured
+// defaults.id is not provider-observed prior_state evidence: the initial-create
+// prior_state root is empty, while the configured defaults object exists only
+// in planned_values. It must not be promoted into a positive data-reference
+// contract.
+func TestValidateAssessmentPlanRejectsOfflineTerraformConfiguredDefaults(t *testing.T) {
+	requireAssessmentPlanErrorContaining(
 		t,
-		"ValidateAssessmentPlan(real offline terraform initial-create data shape)",
 		offlineTerraformShowCapture(t, "initial_create"),
-		dataReferenceContractFor(terraformRemoteStateReferenceType, "defaults.id"),
+		dataReferenceContractFor(terraformRemoteStateReferenceType),
+		"engine reference output does not match provider-observed resource IDs",
 	)
 }
 
-func TestValidateAssessmentPlanDoesNotAuthorizeOfflineTerraformPriorState(t *testing.T) {
+func TestValidateAssessmentPlanAcceptsOfflineTerraformPriorStateOnlyNoOp(t *testing.T) {
 	plan := offlineTerraformShowCapture(t, "")
 	plannedValues := plan["planned_values"].(map[string]any)
 	plannedRoot := plannedValues["root_module"].(map[string]any)
@@ -393,11 +468,11 @@ func TestValidateAssessmentPlanDoesNotAuthorizeOfflineTerraformPriorState(t *tes
 	if priorResource["mode"] != "data" || priorResource["type"] != terraformRemoteStateReferenceType {
 		t.Fatalf("offline refreshed/no-op prior_state resource = %#v, want builtin data resource", priorResource)
 	}
-	requireAssessmentPlanErrorContaining(
+	requireValidAssessmentPlan(
 		t,
+		"ValidateAssessmentPlan(real offline terraform prior-state-only no-op)",
 		plan,
-		dataReferenceContractFor(terraformRemoteStateReferenceType, ""),
-		"planned engine reference output does not match provider-observed resource IDs",
+		dataReferenceContractFor(terraformRemoteStateReferenceType),
 	)
 }
 
@@ -406,6 +481,39 @@ func TestValidateAssessmentPlanAcceptsOfflineTerraformEmptyForEach(t *testing.T)
 		t,
 		"ValidateAssessmentPlan(real offline terraform empty for_each data shape)",
 		offlineTerraformShowCapture(t, "empty_for_each"),
-		dataReferenceContractFor(terraformRemoteStateReferenceType, ""),
+		dataReferenceContractFor(terraformRemoteStateReferenceType),
+	)
+}
+
+func TestValidateAssessmentPlanDoesNotAuthorizePlannedValuesOrResourceChanges(t *testing.T) {
+	plan := validDataReferencePlan(json.Number("101"))
+	priorState := plan["prior_state"].(map[string]any)
+	priorValues := priorState["values"].(map[string]any)
+	priorRoot := priorValues["root_module"].(map[string]any)
+	priorRoot["child_modules"] = []any{}
+	plannedValues := plan["planned_values"].(map[string]any)
+	plannedRoot := plannedValues["root_module"].(map[string]any)
+	plannedRoot["child_modules"] = []any{
+		map[string]any{
+			"address":   "module." + dataReferenceType,
+			"resources": []any{validDataReferenceResource("group_one", json.Number("101"))},
+		},
+	}
+	plan["resource_changes"] = []any{
+		map[string]any{
+			"address": "module." + dataReferenceType + ".data." + dataReferenceType + `.items["group_one"]`,
+			"type":    dataReferenceType,
+			"change": map[string]any{
+				"actions": []any{"read"},
+				"before":  nil,
+				"after":   map[string]any{"id": json.Number("101")},
+			},
+		},
+	}
+	requireAssessmentPlanErrorContaining(
+		t,
+		plan,
+		dataReferenceContract(),
+		"engine reference output does not match provider-observed resource IDs",
 	)
 }

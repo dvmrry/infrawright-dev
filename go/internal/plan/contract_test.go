@@ -825,20 +825,6 @@ func TestValidateAssessmentPlanRejectsInvalidReferenceContractAndEvidence(t *tes
 		want   string
 	}{
 		{
-			name: "missing_output_changes",
-			mutate: func(plan map[string]any) {
-				delete(plan, "output_changes")
-			},
-			want: "reference output contract requires output_changes evidence",
-		},
-		{
-			name: "missing_engine_change",
-			mutate: func(plan map[string]any) {
-				plan["output_changes"] = map[string]any{}
-			},
-			want: "reference output contract requires the engine output change",
-		},
-		{
 			name: "wrong_after",
 			mutate: func(plan map[string]any) {
 				change := plan["output_changes"].(map[string]any)[infrawrightReferenceOutput].(map[string]any)

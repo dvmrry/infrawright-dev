@@ -251,6 +251,48 @@ func TestRunAdoptBatchDataReferentRejectedBeforeSideEffects(t *testing.T) {
 	}
 }
 
+func TestRunAdoptBatchDefaultSelectionIsGeneratedOnlyWithDataReferent(t *testing.T) {
+	workspace := t.TempDir()
+	input := t.TempDir()
+	generatedTypes := []string{"test_alpha", "test_beta"}
+	root := runnerTestRoot(t, generatedTypes...)
+	root.Resources["test_data"] = metadata.LoadedResourceMetadata{
+		Type:     "test_data",
+		Product:  "test",
+		Provider: testProvider,
+		Registry: metadata.JsonObject{
+			"data_referent": true,
+			"fetch":         metadata.JsonObject{"pagination": "single", "path": "items"},
+			"product":       "test",
+		},
+	}
+	for _, resourceType := range append(append([]string{}, generatedTypes...), "test_data") {
+		writeRunnerInput(t, input, resourceType, "[{\"id\":\"1\",\"name\":\""+resourceType+"\"}]")
+	}
+	loaded := make([]string, 0, len(generatedTypes))
+	result, err := RunAdoptBatch(RunAdoptBatchOptions{
+		Deployment:     runnerTestDeployment(workspace, generatedTypes),
+		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: nil,
+		StateLoader: func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
+			if request.ResourceType == "test_data" {
+				t.Fatalf("default adoption selection touched data referent %s", request.ResourceType)
+			}
+			loaded = append(loaded, request.ResourceType)
+			return stateForRunnerRequest(request), nil
+		},
+		Tenant: "tenant",
+	})
+	if err != nil {
+		t.Fatalf("RunAdoptBatch(default generated-only selection) error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(loaded, generatedTypes) || !reflect.DeepEqual(result.Processed, generatedTypes) {
+		t.Fatalf("RunAdoptBatch(default generated-only selection) loaded/result = %v/%#v, want generated types only %v", loaded, result, generatedTypes)
+	}
+	if len(result.Failed) != 0 || len(result.Skipped) != 0 {
+		t.Fatalf("RunAdoptBatch(default generated-only selection) failed/skipped = %v/%v, want empty", result.Failed, result.Skipped)
+	}
+}
+
 func TestRunnerHasNoCredentialOrLiveApplySurface(t *testing.T) {
 	files := []string{"runner.go", "runner_loaders.go"}
 	for _, file := range files {

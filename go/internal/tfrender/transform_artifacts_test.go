@@ -247,6 +247,33 @@ func TestRenderTransformLookupNestedRejectsDuplicateCanonicalIDs(t *testing.T) {
 	}
 }
 
+func TestRenderTransformLookupNestedRejectsEmptyCanonicalID(t *testing.T) {
+	_, err := RenderTransformLookupWithShape(
+		map[string]map[string]any{"alpha": {"name": "Alpha"}},
+		map[string]map[string]any{"alpha": {"id": "", "name": "Alpha"}},
+		"name",
+		TransformLookupShapeNested,
+	)
+	if err == nil || !strings.Contains(err.Error(), "alpha") {
+		t.Fatalf("RenderTransformLookupWithShape(nested empty ID) error = %v, want a refusal naming alpha", err)
+	}
+}
+
+func TestRenderTransformLookupLegacyStillSkipsEmptyIdentity(t *testing.T) {
+	got, err := RenderTransformLookupWithShape(
+		map[string]map[string]any{"alpha": {"name": "Alpha"}},
+		map[string]map[string]any{"alpha": {"id": "", "name": "Alpha"}},
+		"name",
+		TransformLookupShapeLegacy,
+	)
+	if err != nil {
+		t.Fatalf("RenderTransformLookupWithShape(legacy empty ID) error = %v, want nil", err)
+	}
+	if got != "{}\n" {
+		t.Fatalf("RenderTransformLookupWithShape(legacy empty ID) = %q, want empty legacy lookup", got)
+	}
+}
+
 func TestCompileDataReferentRejectsDuplicateIDsBeforePublication(t *testing.T) {
 	options := newArtifactOptions(t.TempDir(), "sample_groups_data")
 	options.ArtifactMode = TransformArtifactModeDataReferent
@@ -273,6 +300,23 @@ func TestCompileDataReferentRejectsDuplicateIDsBeforePublication(t *testing.T) {
 	}
 	if fileExists(t, paths.Config) || fileExists(t, paths.Lookup) {
 		t.Fatalf("CompileTransformArtifacts(data duplicate IDs) published config or lookup: config=%q lookup=%q", paths.Config, paths.Lookup)
+	}
+}
+
+func TestCompileDataReferentRejectsEmptyIDBeforePublication(t *testing.T) {
+	options := newArtifactOptions(t.TempDir(), "sample_groups_data")
+	options.ArtifactMode = TransformArtifactModeDataReferent
+	options.Result = PullTransformResult{
+		Items:     map[string]map[string]any{"alpha": {"name": "Alpha"}},
+		Originals: map[string]map[string]any{"alpha": {"id": "", "name": "Alpha"}},
+		Drops:     []string{},
+	}
+	paths := mustComputePaths(t, options)
+	if _, err := CompileTransformArtifacts(options); err == nil {
+		t.Fatal("CompileTransformArtifacts(data empty ID) error = nil, want refusal before publication")
+	}
+	if fileExists(t, paths.Config) || fileExists(t, paths.Lookup) {
+		t.Fatalf("CompileTransformArtifacts(data empty ID) published config or lookup: config=%q lookup=%q", paths.Config, paths.Lookup)
 	}
 }
 

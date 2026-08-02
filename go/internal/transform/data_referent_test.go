@@ -40,6 +40,8 @@ func TestTransformDataReferentRejectsInvalidNameAndID(t *testing.T) {
 		{name: "non-string name", item: map[string]any{"id": json.Number("1"), "name": 7}},
 		{name: "whitespace name", item: map[string]any{"id": json.Number("1"), "name": " \t\n "}},
 		{name: "missing id", item: map[string]any{"name": "Alpha"}},
+		{name: "empty id", item: map[string]any{"id": "", "name": "Alpha"}},
+		{name: "whitespace id", item: map[string]any{"id": " \t\n ", "name": "Alpha"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -69,6 +71,25 @@ func TestTransformDataReferentRejectsDuplicateDerivedKeys(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "duplicate") || !strings.Contains(err.Error(), "a_b") {
 		t.Errorf("TransformDataReferentItems(collision pair) error = %q, want a loud duplicate a_b failure", err)
+	}
+}
+
+func TestTransformDataReferentRejectsCaseInsensitiveNames(t *testing.T) {
+	_, err := TransformDataReferentItems(DataReferentTransformOptions{
+		NameField: "name",
+		RawItems: []any{
+			map[string]any{"id": json.Number("1"), "name": "Location Group"},
+			map[string]any{"id": json.Number("2"), "name": "location group"},
+		},
+		ResourceType: "sample_groups_data",
+	})
+	if err == nil {
+		t.Fatal("TransformDataReferentItems(case-insensitive name collision) error = nil, want derived-key refusal")
+	}
+	for _, want := range []string{"duplicate", "location_group", "sample_groups_data"} {
+		if !strings.Contains(strings.ToLower(err.Error()), want) {
+			t.Errorf("TransformDataReferentItems(case-insensitive name collision) error = %q, want it to contain %q", err, want)
+		}
 	}
 }
 

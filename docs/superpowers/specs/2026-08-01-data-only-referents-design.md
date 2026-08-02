@@ -118,6 +118,30 @@ root topology as an ordinary singleton root with its own state.
   create or destroy anything; it can only refresh the snapshot.
 - `terraform plan` on the data root is the drift detector for
   data-only objects: output-only diffs mean the tenant's set changed.
+- Saved-plan policy is output-change scoped: when `iw_reference_ids` has no
+  output change (including the prior-state-only no-op shape), the plan needs
+  no new reference authorization. For a create or update with a non-null
+  `after`, data-kind authorization reconstructs provider-observed IDs from
+  the refreshed `prior_state.values.root_module` data instances at the exact
+  canonical `module.<type>.data.<type>.items["<index>"]` addresses, requiring
+  `mode = data`, `name = items`, address/index equality, and a scalar string or
+  number `values.id`; the reconstructed map must equal the output `after`
+  value exactly. `planned_values` and `resource_changes` are not data-kind
+  evidence sources. Empty refreshed prior-state evidence therefore refuses a
+  nonempty `after`, while an empty map is accepted only for the configured
+  empty data module. A changed output key projection may be retained only
+  when its scalar values match the refreshed data IDs one-for-one.
+- This container rule is grounded in the committed Terraform 1.15.4
+  provider-double captures: all five have zero planned child resources; the
+  `refresh_id_change` prior state carries the newly observed ID and matches
+  `output_changes.iw_reference_ids.after`; and `no_op`, `output_only_change`,
+  `initial_create`, and `empty_for_each` exhibit the distinct no-op, output-
+  only, nonempty-create, and empty-create shapes respectively.
+- Provider name lookup caveat: the pinned ZIA 4.8.0 provider/SDK resolves a
+  per-name data-source read case-insensitively and returns the first matching
+  item. This is safe only because the data transform derives keys
+  case-insensitively and refuses case-colliding names before publication;
+  ambiguous names never become a published lookup or configuration.
 
 ## Refresh strategy
 
@@ -149,6 +173,11 @@ depends on it doing so.
 
 - Plan classification and assessment accept a root whose plans contain
   zero resource changes (outputs-only diffs).
+- Data-kind changed-output authorization uses refreshed
+  `prior_state.values.root_module` provider observations, never planned data
+  values or `resource_changes`, and requires the reconstructed ID map to equal
+  `iw_reference_ids.after` exactly; no-op output changes require no new
+  authorization.
 - Lifecycle gates that assume imports or resources (imports-only skip
   logic, artifact-state classification) treat data roots correctly.
 - Reference machinery passes its existing suites unchanged with a

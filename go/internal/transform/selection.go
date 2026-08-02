@@ -247,6 +247,42 @@ func SelectTransformResources(root metadata.LoadedPackRoot, selectors []string) 
 	return referenceOrder(root, resourceTypes), nil
 }
 
+// SelectAdoptionResources expands the adoption lane. Its implicit batch is
+// generated-only: data referents are root targets and transform inputs, but
+// they are never adoption candidates. An explicit exact data selector is
+// retained in the result so adopt can issue its classified refusal before any
+// state, diagnostic, or artifact side effect; mixed explicit selectors are
+// therefore whole-request refusals as well.
+func SelectAdoptionResources(root metadata.LoadedPackRoot, selectors []string) (result TransformSelection, err error) {
+	defer recoverErr(&err)
+	dataReferents := map[string]struct{}{}
+	generatedSelectors := selectors
+	if len(selectors) > 0 {
+		generatedSelectors = make([]string, 0, len(selectors))
+		for _, selector := range selectors {
+			resource, ok := root.Resources[selector]
+			dataReferent, isDataReferent := resource.Registry["data_referent"].(bool)
+			if ok && isDataReferent && dataReferent {
+				dataReferents[selector] = struct{}{}
+				continue
+			}
+			generatedSelectors = append(generatedSelectors, selector)
+		}
+	}
+	resourceTypes := []string{}
+	if len(selectors) == 0 || len(generatedSelectors) > 0 {
+		expanded, expandErr := roots.ExpandLoadedResources(root, generatedSelectors)
+		if expandErr != nil {
+			return TransformSelection{}, expandErr
+		}
+		resourceTypes = append(resourceTypes, expanded...)
+	}
+	for resourceType := range dataReferents {
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+	return referenceOrder(root, resourceTypes), nil
+}
+
 func activeDataReferentTypes(root metadata.LoadedPackRoot) []string {
 	resourceTypes := make([]string, 0)
 	for resourceType, resource := range root.Resources {

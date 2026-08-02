@@ -214,5 +214,6 @@ Expression bindings do not:
 - change drift policy
 - make arbitrary output changes acceptable to `assert-adoptable`; the one
   exception is the engine-owned cross-state ID output, which is accepted only
-  when bound topology and planned provider IDs prove its exact value
+  when bound topology and the applicable provider-observed plan evidence prove
+  its exact value
 - run Terraform/OpenTofu

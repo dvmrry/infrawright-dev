@@ -42,9 +42,16 @@ func TransformDataReferentItems(options DataReferentTransformOptions) (result Pu
 		if !ok || id == nil {
 			failf("data referent %s item %d requires an id field", jsonQuote(options.ResourceType), index)
 		}
+		idToken := identityComponent(id)
+		if strings.TrimSpace(idToken) == "" {
+			failf(
+				"data referent %s item %d requires a non-empty canonical id",
+				jsonQuote(options.ResourceType), index,
+			)
+		}
 		key := SlugifyTransformKey(name)
 		if key == "" {
-			key = "id_" + SlugifyTransformKey(identityComponent(id))
+			key = "id_" + SlugifyTransformKey(idToken)
 		}
 		if _, exists := items[key]; exists {
 			failf(
@@ -52,7 +59,6 @@ func TransformDataReferentItems(options DataReferentTransformOptions) (result Pu
 				jsonQuote(key), jsonQuote(options.ResourceType),
 			)
 		}
-		idToken := identityComponent(id)
 		if previousKey, exists := seenIDs[idToken]; exists {
 			failf(
 				"duplicate data referent canonical ID %s for keys %s and %s in %s; IDs must be unique",

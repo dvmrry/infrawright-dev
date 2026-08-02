@@ -588,7 +588,19 @@ func RenderTransformLookupWithShape(
 			return "", err
 		}
 		if ident == nil {
+			if shape == TransformLookupShapeNested {
+				return "", fmt.Errorf(
+					"data referent lookup key %s has an empty canonical ID",
+					jsonQuote(key),
+				)
+			}
 			continue
+		}
+		if shape == TransformLookupShapeNested && strings.TrimSpace(*ident) == "" {
+			return "", fmt.Errorf(
+				"data referent lookup key %s has an empty canonical ID",
+				jsonQuote(key),
+			)
 		}
 		// Nested shape is the data-referent lane. Keep the legacy flat
 		// renderer's last-key-wins behavior unchanged.

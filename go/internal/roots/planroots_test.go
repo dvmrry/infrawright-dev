@@ -519,12 +519,12 @@ func TestPlanRootsInvalidTenantDirectoryNameIsToleratedUnlessSelected(t *testing
 // TestLoadedPlanRootsHasNoUpfrontSelectorPrecheck is not a ported oracle
 // scenario -- it pins the asymmetry PlanRootsFromResourceSet's own doc
 // comment documents: unlike PlanRootsFromResourceSet (which calls
-// expandResources on the raw catalog index before ever building a
+// expandRootTargets on the raw catalog index before ever building a
 // topology, "historical explicit validation" ported verbatim from
 // plan-roots.ts's own comment), LoadedPlanRoots has no such precheck --
 // the original implementation's loadedPlanRoots never calls
 // expandLoadedResources. Both still fail on an unknown selector (via the
-// `selected` rootTopologyFromIndex call's own expandResources), so this
+// `selected` rootTopologyFromIndex call's own expandRootTargets), so this
 // only proves the CODE PATH differs, not that the outward behavior does;
 // it exists so a future edit that "cleans up" the asymmetry away (by
 // adding or removing the precheck from just one of the two) gets caught.
@@ -545,7 +545,7 @@ func TestLoadedPlanRootsHasNoUpfrontSelectorPrecheck(t *testing.T) {
 	})
 	pf, ok := asProcessFailure(err)
 	if !ok || pf.Code != "UNKNOWN_RESOURCE_SELECTOR" {
-		t.Fatalf("err = %v, want UNKNOWN_RESOURCE_SELECTOR (raised by rootTopologyFromIndex's own expandResources, not an upfront precheck)", err)
+		t.Fatalf("err = %v, want UNKNOWN_RESOURCE_SELECTOR (raised by rootTopologyFromIndex's own expandRootTargets, not an upfront precheck)", err)
 	}
 }
 

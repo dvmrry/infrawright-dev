@@ -25,18 +25,23 @@ func outputsOnlyDataReferentPlan() map[string]any {
 					"value":     value,
 				},
 			},
-			"root_module": map[string]any{
-				"child_modules": []any{
-					map[string]any{
-						"address": "module.sample_groups_data",
-						"resources": []any{
-							map[string]any{
-								"address": `module.sample_groups_data.data.sample_groups_data.items["group_one"]`,
-								"index":   "group_one",
-								"mode":    "data",
-								"name":    "items",
-								"type":    "sample_groups_data",
-								"values":  map[string]any{"id": json.Number("101"), "name": "Group One"},
+			"root_module": map[string]any{},
+		},
+		"prior_state": map[string]any{
+			"values": map[string]any{
+				"root_module": map[string]any{
+					"child_modules": []any{
+						map[string]any{
+							"address": "module.sample_groups_data",
+							"resources": []any{
+								map[string]any{
+									"address": `module.sample_groups_data.data.sample_groups_data.items["group_one"]`,
+									"index":   "group_one",
+									"mode":    "data",
+									"name":    "items",
+									"type":    "sample_groups_data",
+									"values":  map[string]any{"id": json.Number("101"), "name": "Group One"},
+								},
 							},
 						},
 					},

@@ -283,12 +283,18 @@ func TestLoadedRootTopologyIncludesDataReferentAndExactExpansionSelectsIt(t *tes
 	if !reflect.DeepEqual(generated, []string{"sample_rule"}) {
 		t.Errorf("ExpandLoadedResources(data referent fixture) mismatch:\n got: %#v\nwant: %#v", generated, []string{"sample_rule"})
 	}
-	selected, err := ExpandLoadedResources(root, []string{"sample_groups_data"})
+	selected, err := ExpandLoadedRootTargets(root, []string{"sample_groups_data"})
 	if err != nil {
-		t.Fatalf("ExpandLoadedResources(%q) error = %v, want nil", "sample_groups_data", err)
+		t.Fatalf("ExpandLoadedRootTargets(%q) error = %v, want nil", "sample_groups_data", err)
 	}
 	if !reflect.DeepEqual(selected, []string{"sample_groups_data"}) {
-		t.Errorf("ExpandLoadedResources(%q) = %#v, want exactly the selected data root", "sample_groups_data", selected)
+		t.Errorf("ExpandLoadedRootTargets(%q) = %#v, want exactly the selected data root", "sample_groups_data", selected)
+	}
+	if _, err := ExpandLoadedResources(root, []string{"sample_groups_data"}); err == nil {
+		t.Error("ExpandLoadedResources(exact data selector) error = nil, want generated-only boundary refusal")
+	}
+	if _, err := ExpandLoadedResources(root, []string{"sample_rule", "sample_groups_data"}); err == nil {
+		t.Error("ExpandLoadedResources(mixed generated/data selectors) error = nil, want generated-only boundary refusal")
 	}
 }
 

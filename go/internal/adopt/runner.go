@@ -376,7 +376,7 @@ func RunAdoptBatch(options RunAdoptBatchOptions) (AdoptBatchResult, error) {
 	if write == nil {
 		write = func(string) {}
 	}
-	selection, err := transform.SelectTransformResources(options.Root, options.Selectors)
+	selection, err := transform.SelectAdoptionResources(options.Root, options.Selectors)
 	if err != nil {
 		return result, err
 	}

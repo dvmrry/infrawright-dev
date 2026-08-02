@@ -380,13 +380,13 @@ func PlanRootsFromResourceSet(options PlanRootsOptions) (result PlanRootsResult,
 		// resolution -- ported verbatim, comment included, from
 		// the original implementation's planRoots. The
 		// rootTopologyFromIndex call below (building `selected`) already
-		// runs the identical expandResources check on the same selectors
+		// runs the identical expandRootTargets check on the same selectors
 		// and would raise the same UNKNOWN_RESOURCE_SELECTOR failure on
 		// its own; this call's result is discarded, kept only for
 		// structural parity with the TS source (see this port's
 		// non-goal against "optimizing away" redundant-looking checks
 		// found during porting, the Go runtime contract).
-		expandResources(options.Selectors, indexResourceSet(options.ResourceSet))
+		expandRootTargets(options.Selectors, indexResourceSet(options.ResourceSet))
 	}
 	all := rootTopologyFromIndex(rootTopologyFromIndexOptions{
 		index:     indexResourceSet(options.ResourceSet),
@@ -427,7 +427,7 @@ type LoadedPlanRootsOptions struct {
 // LoadedPlanRoots ports loadedPlanRoots from
 // the original implementation: "Enumerate materialized roots from the
 // active pack metadata loader." Unlike PlanRootsFromResourceSet, this has no
-// upfront expandResources precheck -- the original implementation's own
+// upfront expandRootTargets precheck -- the original implementation's own
 // loadedPlanRoots does not call expandLoadedResources either; only
 // planRoots (the persisted-ResourceSet entry point) carries that
 // "historical explicit validation" duplicate.

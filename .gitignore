@@ -19,3 +19,4 @@ go/.gocache/
 go/.gotmp/
 .gocache/
 .gotmp/
+.provider-double-bin/

@@ -26,7 +26,6 @@ const MaxAssessmentChangeRecords = 100_000
 var (
 	assessmentFormatVersion = regexp.MustCompile(`^1\.[0-9]+$`)
 	assessmentResourceType  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	assessmentDataIDPath    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$`)
 )
 
 // AssessmentPlanError reports a plan-contract validation failure. It ports
@@ -50,15 +49,9 @@ const (
 // ReferenceOutputType is one kinded reference-output contract entry. Keeping
 // the kind beside the type makes every validated assessment input declare
 // which Terraform shape may authorize it; a missing zero kind is rejected.
-// DataIDPath is an optional dotted path under a planned data resource's
-// values. It defaults to "id", which is the provider data-source shape used
-// by the engine. A source whose planned JSON exposes its authorized scalar
-// under another field must declare that path in the contract; validation
-// never infers it from prior_state or resource_changes.
 type ReferenceOutputType struct {
-	Type       string
-	Kind       ReferenceOutputKind
-	DataIDPath string
+	Type string
+	Kind ReferenceOutputKind
 }
 
 // AssessmentPlanContract ports AssessmentPlanContract from
@@ -287,16 +280,22 @@ func validateEmptyArray(plan map[string]any, field string) {
 	}
 }
 
-// referenceOutputValue reconstructs authorization exclusively from
-// planned_values.root_module. Terraform show -json may also carry refreshed
-// data resources under prior_state, and may list reads in resource_changes,
-// but neither container authorizes the engine reference output. In particular,
-// a data resource present only in prior_state contributes no IDs here.
+// referenceOutputValue reconstructs managed authorization from
+// planned_values.root_module and data authorization from the refreshed
+// prior_state.values.root_module. The committed Terraform 1.15.4
+// provider-double captures establish that data reads are never in
+// planned_values (all five captures have zero planned child resources), that
+// prior_state is refresh-fresh (refresh_id_change carries the new provider
+// ID, exactly matching output_changes.iw_reference_ids.after), and that no_op
+// is a no-authorization-needed output shape while
+// initial_create, output_only_change, and empty_for_each carry their data
+// instances in prior_state. resource_changes is never an evidence source.
 func referenceOutputValue(
 	plan map[string]any,
 	resourceTypes []ReferenceOutputType,
 ) map[string]any {
 	seenTypes := make(map[string]struct{}, len(resourceTypes))
+	hasManagedType := false
 	for _, outputType := range resourceTypes {
 		if _, duplicate := seenTypes[outputType.Type]; duplicate ||
 			!assessmentResourceType.MatchString(outputType.Type) {
@@ -305,11 +304,8 @@ func referenceOutputValue(
 		if outputType.Kind != ReferenceOutputKindManaged && outputType.Kind != ReferenceOutputKindData {
 			assessmentFail("reference output contract must declare a managed or data evidence kind")
 		}
-		if outputType.Kind == ReferenceOutputKindManaged && outputType.DataIDPath != "" {
-			assessmentFail("managed reference output contracts must not declare a data ID path")
-		}
-		if outputType.DataIDPath != "" && !assessmentDataIDPath.MatchString(outputType.DataIDPath) {
-			assessmentFail("data reference output ID path must be a dotted Terraform attribute path")
+		if outputType.Kind == ReferenceOutputKindManaged {
+			hasManagedType = true
 		}
 		seenTypes[outputType.Type] = struct{}{}
 	}
@@ -317,25 +313,22 @@ func referenceOutputValue(
 		assessmentFail("reference output contract must contain unique Terraform resource types")
 	}
 
-	plannedValues, ok := assessmentObject(plan["planned_values"])
-	if !ok {
-		assessmentFail("reference output authorization requires planned root-module values")
-	}
-	rootModule, ok := assessmentObject(plannedValues["root_module"])
-	if !ok {
-		assessmentFail("reference output authorization requires planned root-module values")
-	}
-	var childModules []any
-	if rawChildren, present := rootModule["child_modules"]; present {
-		childModules, ok = rawChildren.([]any)
-		if !ok {
-			assessmentFail("planned child modules must be an array")
-		}
-	}
-
 	expected := make(map[string]any, len(resourceTypes))
 	for _, outputType := range resourceTypes {
 		resourceType := outputType.Type
+		rootModule := referenceOutputRootModule(plan, outputType.Kind)
+		var childModules []any
+		if rawChildren, present := rootModule["child_modules"]; present {
+			var ok bool
+			childModules, ok = rawChildren.([]any)
+			if !ok {
+				container := "planned"
+				if outputType.Kind == ReferenceOutputKindData {
+					container = "refreshed prior-state"
+				}
+				assessmentFailf("%s child modules must be an array", container)
+			}
+		}
 		address := "module." + resourceType
 		ids := make(map[string]any)
 		matches := make([]map[string]any, 0, 1)
@@ -395,7 +388,7 @@ func referenceOutputValue(
 					if resourceAddress != expectedAddress {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
 					}
-					id, idOK = referenceDataID(values, outputType.DataIDPath)
+					id, idOK = values["id"]
 					if !idOK {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
 					}
@@ -411,44 +404,153 @@ func referenceOutputValue(
 				ids[index] = id
 			}
 		}
+		if outputType.Kind == ReferenceOutputKindData {
+			ids = referenceOutputDataIDs(plan, resourceType, ids)
+		}
 		if len(ids) == 0 {
 			validateEmptyReferenceModule(plan, resourceType, outputType.Kind)
 		}
 		expected[resourceType] = ids
 	}
 
-	outputs, ok := assessmentObject(plannedValues["outputs"])
-	if !ok {
-		assessmentFail("reference output authorization requires the planned engine output")
-	}
-	plannedOutput, ok := assessmentObject(outputs[infrawrightReferenceOutput])
-	if !ok {
-		assessmentFail("reference output authorization requires the planned engine output")
-	}
-	outputValue, hasValue := plannedOutput["value"]
-	if plannedOutput["sensitive"] != true || !hasValue ||
-		!canonjson.TerraformJSONEqual(outputValue, expected) {
-		assessmentFail("planned engine reference output does not match provider-observed resource IDs")
+	if hasManagedType {
+		plannedValues, ok := assessmentObject(plan["planned_values"])
+		if !ok {
+			assessmentFail("reference output authorization requires planned root-module values")
+		}
+		outputs, ok := assessmentObject(plannedValues["outputs"])
+		if !ok {
+			assessmentFail("reference output authorization requires the planned engine output")
+		}
+		plannedOutput, ok := assessmentObject(outputs[infrawrightReferenceOutput])
+		if !ok {
+			assessmentFail("reference output authorization requires the planned engine output")
+		}
+		outputValue, hasValue := plannedOutput["value"]
+		if plannedOutput["sensitive"] != true || !hasValue ||
+			!canonjson.TerraformJSONEqual(outputValue, expected) {
+			assessmentFail("planned engine reference output does not match provider-observed resource IDs")
+		}
 	}
 	return expected
 }
 
-func referenceDataID(values map[string]any, path string) (any, bool) {
-	if path == "" {
-		path = "id"
+func referenceOutputDataIDs(
+	plan map[string]any,
+	resourceType string,
+	ids map[string]any,
+) map[string]any {
+	// A data module may project its for_each keys into different output keys;
+	// output_only_change is the committed capture of that shape. Preserve that
+	// refreshed prior-state key projection only after its scalar values match
+	// the provider-observed IDs reconstructed above one-for-one. The root-module
+	// resource IDs remain the evidence source; this output map only preserves
+	// the already-evaluated key projection needed for exact after comparison.
+	priorValues, present := referenceOutputPriorValues(plan)
+	if !present {
+		return ids
 	}
-	var current any = values
-	for _, segment := range strings.Split(path, ".") {
-		object, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		current, ok = object[segment]
-		if !ok {
-			return nil, false
-		}
+	outputsValue, present := priorValues["outputs"]
+	if !present || outputsValue == nil {
+		return ids
 	}
-	return current, true
+	outputs, ok := assessmentObject(outputsValue)
+	if !ok {
+		assessmentFail("refreshed prior-state outputs must be an object")
+	}
+	outputValue, present := outputs[infrawrightReferenceOutput]
+	if !present || outputValue == nil {
+		return ids
+	}
+	output, ok := assessmentObject(outputValue)
+	if !ok {
+		assessmentFail("refreshed prior-state reference output must be an object")
+	}
+	value, present := output["value"]
+	if !present || value == nil {
+		return ids
+	}
+	valueObject, ok := assessmentObject(value)
+	if !ok {
+		assessmentFail("refreshed prior-state reference output value must be an object")
+	}
+	typeValue, present := valueObject[resourceType]
+	if !present || typeValue == nil {
+		return ids
+	}
+	outputIDs, ok := assessmentObject(typeValue)
+	if !ok {
+		assessmentFailf("refreshed prior-state reference output %s value must be an object", resourceType)
+	}
+	if len(outputIDs) != len(ids) {
+		assessmentFail("engine reference output does not match provider-observed resource IDs")
+	}
+	remaining := make([]any, 0, len(ids))
+	for _, id := range ids {
+		remaining = append(remaining, id)
+	}
+	for _, id := range outputIDs {
+		switch id.(type) {
+		case string, json.Number:
+		default:
+			assessmentFail("engine reference output does not match provider-observed resource IDs")
+		}
+		matched := -1
+		for index, observedID := range remaining {
+			if canonjson.TerraformJSONEqual(id, observedID) {
+				matched = index
+				break
+			}
+		}
+		if matched < 0 {
+			assessmentFail("engine reference output does not match provider-observed resource IDs")
+		}
+		remaining = append(remaining[:matched], remaining[matched+1:]...)
+	}
+	if len(remaining) != 0 {
+		assessmentFail("engine reference output does not match provider-observed resource IDs")
+	}
+	return outputIDs
+}
+
+func referenceOutputPriorValues(plan map[string]any) (map[string]any, bool) {
+	priorStateValue, present := plan["prior_state"]
+	if !present || priorStateValue == nil {
+		return nil, false
+	}
+	priorState, ok := assessmentObject(priorStateValue)
+	if !ok {
+		assessmentFail("reference output authorization requires refreshed prior-state values")
+	}
+	priorValues, ok := assessmentObject(priorState["values"])
+	if !ok {
+		assessmentFail("reference output authorization requires refreshed prior-state values")
+	}
+	return priorValues, true
+}
+
+func referenceOutputRootModule(plan map[string]any, kind ReferenceOutputKind) map[string]any {
+	if kind == ReferenceOutputKindManaged {
+		plannedValues, ok := assessmentObject(plan["planned_values"])
+		if !ok {
+			assessmentFail("reference output authorization requires planned root-module values")
+		}
+		rootModule, ok := assessmentObject(plannedValues["root_module"])
+		if !ok {
+			assessmentFail("reference output authorization requires planned root-module values")
+		}
+		return rootModule
+	}
+
+	priorValues, present := referenceOutputPriorValues(plan)
+	if !present {
+		return map[string]any{}
+	}
+	rootModule, ok := assessmentObject(priorValues["root_module"])
+	if !ok {
+		assessmentFail("reference output authorization requires refreshed prior-state root-module values")
+	}
+	return rootModule
 }
 
 func validateEmptyReferenceModule(plan map[string]any, resourceType string, expectedKind ReferenceOutputKind) {
@@ -552,27 +654,55 @@ func validateReferenceOutputChange(
 	}
 }
 
+func validateNoOpOutputChange(change map[string]any) {
+	actions, ok := change["actions"].([]any)
+	if !ok || len(actions) != 1 || actions[0] != "no-op" {
+		assessmentFail("non-no-op output changes are not supported by saved-plan assessment")
+	}
+	before, hasBefore := change["before"]
+	after, hasAfter := change["after"]
+	if !hasBefore || !hasAfter || !canonjson.TerraformJSONEqual(before, after) {
+		assessmentFail("output no-op values must be identical")
+	}
+	if afterUnknown, hasAfterUnknown := change["after_unknown"]; hasAfterUnknown {
+		validateBooleanMask(afterUnknown, "output_changes after_unknown")
+		if booleanMaskHasTrue(afterUnknown) {
+			assessmentFail("output no-op must not contain unknown values")
+		}
+	}
+	for _, field := range [...]string{"before_sensitive", "after_sensitive"} {
+		if mask, hasMask := change[field]; hasMask {
+			validateBooleanMask(mask, "output_changes "+field)
+		}
+	}
+	beforeSensitive, beforePresent := change["before_sensitive"]
+	if !beforePresent || beforeSensitive == nil {
+		beforeSensitive = map[string]any{}
+	}
+	afterSensitive, afterPresent := change["after_sensitive"]
+	if !afterPresent || afterSensitive == nil {
+		afterSensitive = map[string]any{}
+	}
+	if !canonjson.TerraformJSONEqual(beforeSensitive, afterSensitive) {
+		assessmentFail("output no-op sensitivity metadata must be identical")
+	}
+}
+
 func validateOutputChanges(plan map[string]any, contract *AssessmentPlanContract) {
 	var resourceTypes []ReferenceOutputType
 	if contract != nil {
 		resourceTypes = contract.ReferenceOutputTypes
 	}
-	if len(resourceTypes) > 0 {
-		referenceOutputValue(plan, resourceTypes)
-	}
 	value, present := plan["output_changes"]
 	if !present {
-		if len(resourceTypes) > 0 {
-			assessmentFail("reference output contract requires output_changes evidence")
-		}
+		// A plan with no engine-output change carries no new reference
+		// authorization claim. In particular, prior-state-only no-op plans do
+		// not need a planned_values data-resource read.
 		return
 	}
 	changes, ok := assessmentObject(value)
 	if !ok {
 		assessmentFail("output_changes must be an object")
-	}
-	if _, hasReferenceOutput := changes[infrawrightReferenceOutput]; len(resourceTypes) > 0 && !hasReferenceOutput {
-		assessmentFail("reference output contract requires the engine output change")
 	}
 	for _, name := range assessmentObjectKeys(changes) {
 		change, changeOK := assessmentObject(changes[name])
@@ -581,7 +711,12 @@ func validateOutputChanges(plan map[string]any, contract *AssessmentPlanContract
 			assessmentFail("output_changes entries must contain actions")
 		}
 		if name == infrawrightReferenceOutput && len(resourceTypes) > 0 {
-			validateReferenceOutputChange(change, plan, resourceTypes)
+			actions, actionsOK := change["actions"].([]any)
+			if actionsOK && len(actions) == 1 && actions[0] == "no-op" {
+				validateNoOpOutputChange(change)
+			} else {
+				validateReferenceOutputChange(change, plan, resourceTypes)
+			}
 			continue
 		}
 		// The iw_ rename transition: under an active reference contract --
@@ -596,36 +731,7 @@ func validateOutputChanges(plan map[string]any, contract *AssessmentPlanContract
 				continue
 			}
 		}
-		if len(actions) != 1 || actions[0] != "no-op" {
-			assessmentFail("non-no-op output changes are not supported by saved-plan assessment")
-		}
-		before, hasBefore := change["before"]
-		after, hasAfter := change["after"]
-		if !hasBefore || !hasAfter || !canonjson.TerraformJSONEqual(before, after) {
-			assessmentFail("output no-op values must be identical")
-		}
-		if afterUnknown, hasAfterUnknown := change["after_unknown"]; hasAfterUnknown {
-			validateBooleanMask(afterUnknown, "output_changes after_unknown")
-			if booleanMaskHasTrue(afterUnknown) {
-				assessmentFail("output no-op must not contain unknown values")
-			}
-		}
-		for _, field := range [...]string{"before_sensitive", "after_sensitive"} {
-			if mask, hasMask := change[field]; hasMask {
-				validateBooleanMask(mask, "output_changes "+field)
-			}
-		}
-		beforeSensitive, beforePresent := change["before_sensitive"]
-		if !beforePresent || beforeSensitive == nil {
-			beforeSensitive = map[string]any{}
-		}
-		afterSensitive, afterPresent := change["after_sensitive"]
-		if !afterPresent || afterSensitive == nil {
-			afterSensitive = map[string]any{}
-		}
-		if !canonjson.TerraformJSONEqual(beforeSensitive, afterSensitive) {
-			assessmentFail("output no-op sensitivity metadata must be identical")
-		}
+		validateNoOpOutputChange(change)
 	}
 }
 
