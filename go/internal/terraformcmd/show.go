@@ -223,7 +223,7 @@ func TerraformShowPlan(options TerraformShowOptions) (canonjson.Value, error) {
 			MaxStdoutBytes: limits.MaxStdoutBytes,
 			MaxStderrBytes: limits.MaxStderrBytes,
 		},
-		Output:       TerraformCommandOutputCapture,
+		Output:       TerraformCommandOutputCaptureStdoutInheritStderr,
 		SnapshotFile: options.SnapshotFile,
 	})
 	if err != nil {

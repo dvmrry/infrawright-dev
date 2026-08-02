@@ -38,10 +38,10 @@ const (
 // points its data blocks at (tenantDirectory/<label>/terraform.tfstate).
 //
 // A missing state file is "absent" -- the ordinary not-yet-applied case.
-// Anything else (unreadable file, malformed JSON) is an error, never absent:
-// stage-imports' ListState deliberately maps a Terraform failure to "no
-// state" because keeping imports is the safe direction there, but here the
-// safe direction is the opposite, so that leniency is not copied.
+// Anything else (unreadable file, malformed JSON) is an error, never absent.
+// State-aware import staging follows the same distinction: a successful empty
+// state means no managed addresses, while a Terraform failure aborts before
+// publication.
 func localStateProbe(tenantDirectory string) StateProbe {
 	return func(rootLabel, referentType string) (StateProbeResult, error) {
 		statePath := path.Join(tenantDirectory, rootLabel, "terraform.tfstate")

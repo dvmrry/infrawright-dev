@@ -121,6 +121,42 @@ func fakeTerraformForProbe(t *testing.T) string {
 	return path
 }
 
+const terraformStatePullDiagnosticSentinel = "TERRAFORM_STATE_PULL_DIAGNOSTIC_SENTINEL_7c1f"
+
+func fakeTerraformForStatePullFailure(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "terraform")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"init\" ]; then exit 0; fi\n" +
+		"if [ \"$1\" = \"state\" ] && [ \"$2\" = \"pull\" ]; then\n" +
+		"  printf '%s\\n' '" + terraformStatePullDiagnosticSentinel + "' >&2\n" +
+		"  exit 17\n" +
+		"fi\n" +
+		"exit 99\n"
+	if err := os.WriteFile(path, []byte(script), 0o777); err != nil {
+		t.Fatalf("write state pull failure fake terraform: %v", err)
+	}
+	return path
+}
+
+const terraformStateListDiagnosticSentinel = "TERRAFORM_STATE_LIST_DIAGNOSTIC_SENTINEL_9e42"
+
+func fakeTerraformForStateListFailure(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "terraform")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"init\" ]; then exit 0; fi\n" +
+		"if [ \"$1\" = \"state\" ] && [ \"$2\" = \"list\" ]; then\n" +
+		"  printf '%s\\n' '" + terraformStateListDiagnosticSentinel + "' >&2\n" +
+		"  exit 17\n" +
+		"fi\n" +
+		"exit 99\n"
+	if err := os.WriteFile(path, []byte(script), 0o777); err != nil {
+		t.Fatalf("write state list failure fake terraform: %v", err)
+	}
+	return path
+}
+
 func runStateAwareGenEnvCLI(
 	t *testing.T,
 	binary string,
@@ -285,6 +321,99 @@ func TestGenEnvStateAwareBackendDispatch(t *testing.T) {
 			t.Errorf("stderr = %q, want the refusal to name the supported backends", result.stderr)
 		}
 	})
+}
+
+func TestGenEnvStateAwareTerraformDiagnosticsReachCLI(t *testing.T) {
+	repositoryRoot := repoRoot(t)
+	binary := buildGoV2AuthorityCLI(t, repositoryRoot, "iw-state-aware-diagnostic")
+	fixture := prepareStateAwareCLIFixture(t)
+	backendConfig := filepath.Join(fixture.workspace, "backend.azurerm.json")
+	writeBlockC4JSON(t, backendConfig, map[string]any{
+		"container_name": "tfstate", "resource_group_name": "rg",
+		"storage_account_name": "sa", "use_azuread_auth": true,
+	})
+
+	result := runStateAwareGenEnvCLI(t, binary, fixture,
+		"--state-aware", "--backend", "azurerm",
+		"--backend-config", backendConfig,
+		"--terraform", fakeTerraformForStatePullFailure(t))
+	if result.exit == 0 {
+		t.Fatalf("gen-env --state-aware --backend azurerm exit = %d, want nonzero; stdout=%q stderr=%q", result.exit, result.stdout, result.stderr)
+	}
+	if len(result.stdout) != 0 {
+		t.Errorf("gen-env --state-aware stdout = %q, want empty", result.stdout)
+	}
+	if got := bytes.Count(result.stderr, []byte(terraformStatePullDiagnosticSentinel)); got != 1 {
+		t.Errorf("gen-env --state-aware stderr contains diagnostic sentinel %d times, want 1: %q", got, result.stderr)
+	}
+	if !bytes.Contains(result.stderr, []byte("Terraform command did not complete successfully")) {
+		t.Errorf("gen-env --state-aware stderr = %q, want the generic Terraform ProcessFailure summary", result.stderr)
+	}
+	if !bytes.Contains(result.stderr, []byte("TERRAFORM_COMMAND_FAILED")) {
+		t.Errorf("gen-env --state-aware stderr = %q, want TERRAFORM_COMMAND_FAILED", result.stderr)
+	}
+	if bytes.Contains(result.stderr, []byte("  detail:")) {
+		t.Errorf("gen-env --state-aware stderr = %q, want no structured detail rendering", result.stderr)
+	}
+}
+
+func TestStageImportsStateAwareTerraformDiagnosticsReachCLI(t *testing.T) {
+	repositoryRoot := repoRoot(t)
+	binary := buildGoV2AuthorityCLI(t, repositoryRoot, "iw-stage-imports-diagnostic")
+	fixture := prepareStateAwareCLIFixture(t)
+	backendConfig := filepath.Join(fixture.workspace, "backend.azurerm.json")
+	writeBlockC4JSON(t, backendConfig, map[string]any{
+		"container_name": "tfstate", "resource_group_name": "rg",
+		"storage_account_name": "sa", "use_azuread_auth": true,
+	})
+
+	const sourceText = "\nimport {\n  to = module.sample_referrer.sample_referrer.this[\"referrer_one\"]\n  id = \"id-1\"\n}\n"
+	source := filepath.Join(fixture.workspace, "imports", "tenant", "sample_referrer_imports.tf")
+	destination := filepath.Join(fixture.referrerDir, filepath.Base(source))
+	writeBlockC4File(t, source, []byte(sourceText), 0o600)
+	const previousDestination = "known-good staged imports\n"
+	writeBlockC4File(t, destination, []byte(previousDestination), 0o640)
+
+	result := runBinaryWithEnv(t, fixture.workspace, binary, []string{
+		"stage-imports",
+		"--tenant", "tenant",
+		"--root", fixture.packs,
+		"--profile", fixture.profile,
+		"--deployment", fixture.deployment,
+		"--resource", "sample_referrer",
+		"--state-aware",
+		"--backend-config", backendConfig,
+		"--terraform", fakeTerraformForStateListFailure(t),
+	}, []string{
+		"HOME=" + filepath.Join(fixture.workspace, "home"),
+		"INFRAWRIGHT_DEPLOYMENT=",
+		"INFRAWRIGHT_PACKAGE_ROOT=" + fixture.workspace,
+		"INFRAWRIGHT_PACKS=",
+		"INFRAWRIGHT_PACK_PROFILE=",
+		"TMPDIR=" + fixture.temporaryDir,
+	})
+	if result.exit == 0 {
+		t.Errorf("stage-imports --state-aware exit = %d, want nonzero; stdout=%q stderr=%q", result.exit, result.stdout, result.stderr)
+	}
+	if len(result.stdout) != 0 {
+		t.Errorf("stage-imports --state-aware stdout = %q, want empty", result.stdout)
+	}
+	if got := bytes.Count(result.stderr, []byte(terraformStateListDiagnosticSentinel)); got != 1 {
+		t.Errorf("stage-imports --state-aware stderr contains diagnostic sentinel %d times, want 1: %q", got, result.stderr)
+	}
+	for _, expected := range []string{
+		"Terraform command did not complete successfully",
+		"TERRAFORM_COMMAND_FAILED",
+	} {
+		if !bytes.Contains(result.stderr, []byte(expected)) {
+			t.Errorf("stage-imports --state-aware stderr = %q, want %q", result.stderr, expected)
+		}
+	}
+	if got, err := os.ReadFile(destination); err != nil {
+		t.Errorf("os.ReadFile(%q) error = %v, want existing destination preserved", destination, err)
+	} else if string(got) != previousDestination {
+		t.Errorf("stage-imports --state-aware destination = %q, want unchanged %q", got, previousDestination)
+	}
 }
 
 // recordingFakeTerraform writes a terraform stand-in that appends each
