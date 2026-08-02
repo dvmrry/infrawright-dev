@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 )
 
 // fakeTerraform writes an executable stand-in that logs each invocation's
@@ -92,6 +94,45 @@ func TestProbeInitArgvMatchesPlanConvention(t *testing.T) {
 		if !strings.Contains(argv, want) {
 			t.Errorf("argv log %q does not contain %q", argv, want)
 		}
+	}
+}
+
+func TestProbeUsesDiagnosticOutputModesAndParsesCapturedState(t *testing.T) {
+	originalRunner := runTerraformCommand
+	var calls []terraformcmd.TerraformCommandOptions
+	runTerraformCommand = func(options terraformcmd.TerraformCommandOptions) (terraformcmd.TerraformCommandResult, error) {
+		calls = append(calls, options)
+		if options.Argv[0] == "init" {
+			return terraformcmd.TerraformCommandResult{Kind: terraformcmd.TerraformCommandResultInherited}, nil
+		}
+		return terraformcmd.TerraformCommandResult{
+			Kind:   terraformcmd.TerraformCommandResultCaptured,
+			Stdout: []byte(appliedState),
+		}, nil
+	}
+	t.Cleanup(func() { runTerraformCommand = originalRunner })
+
+	probe := New(Options{
+		BackendConfig:       "/config/backend.azurerm.json",
+		Environment:         map[string]string{},
+		Tenant:              "demo",
+		TerraformExecutable: "/bin/terraform",
+	})
+	result, err := probe("referent_root", "example_type")
+	if err != nil {
+		t.Fatalf("probe(%q, %q) = %v, want nil error", "referent_root", "example_type", err)
+	}
+	if !result.Usable {
+		t.Errorf("probe(%q, %q).Usable = false, want true for captured applied state", "referent_root", "example_type")
+	}
+	if len(calls) != 2 {
+		t.Fatalf("probe(%q, %q) ran %d Terraform commands, want 2", "referent_root", "example_type", len(calls))
+	}
+	if got, want := calls[0].Output, terraformcmd.TerraformCommandOutputInheritStderr; got != want {
+		t.Errorf("probe init output = %q, want %q", got, want)
+	}
+	if got, want := calls[1].Output, terraformcmd.TerraformCommandOutputCaptureStdoutInheritStderr; got != want {
+		t.Errorf("probe state pull output = %q, want %q", got, want)
 	}
 }
 

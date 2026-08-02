@@ -124,6 +124,249 @@ func TestRunTerraformCommandOutputModes(t *testing.T) {
 	}
 }
 
+func TestRunTerraformCommandCaptureStdoutInheritStderrSuccess(t *testing.T) {
+	requirePOSIX(t)
+	executable := writeExecutable(t, `printf captured-stdout; printf streamed-stderr >&2`)
+	var hostStdout synchronizedBuffer
+	var hostStderr synchronizedBuffer
+	original := terraformCommandHostOutput
+	terraformCommandHostOutput.stdout = &hostStdout
+	terraformCommandHostOutput.stderr = &hostStderr
+	t.Cleanup(func() { terraformCommandHostOutput = original })
+
+	options := baseCommandOptions(t, executable)
+	options.Output = TerraformCommandOutputCaptureStdoutInheritStderr
+	result, err := RunTerraformCommand(options)
+	if err != nil {
+		t.Fatalf("RunTerraformCommand(%q) = %v, want nil error", options.Output, err)
+	}
+	if result.Kind != TerraformCommandResultCaptured {
+		t.Errorf("RunTerraformCommand(%q) result.Kind = %q, want %q", options.Output, result.Kind, TerraformCommandResultCaptured)
+	}
+	if got := string(result.Stdout); got != "captured-stdout" {
+		t.Errorf("RunTerraformCommand(%q) stdout = %q, want %q", options.Output, got, "captured-stdout")
+	}
+	if got := hostStdout.String(); got != "" {
+		t.Errorf("RunTerraformCommand(%q) inherited stdout = %q, want empty", options.Output, got)
+	}
+	if got := hostStderr.String(); got != "streamed-stderr" {
+		t.Errorf("RunTerraformCommand(%q) inherited stderr = %q, want %q", options.Output, got, "streamed-stderr")
+	}
+}
+
+func TestRunTerraformCommandCaptureStdoutInheritStderrNonzero(t *testing.T) {
+	requirePOSIX(t)
+	executable := writeExecutable(t, `printf child-stdout-secret; printf child-stderr-secret >&2; exit 19`)
+	var hostStdout synchronizedBuffer
+	var hostStderr synchronizedBuffer
+	original := terraformCommandHostOutput
+	terraformCommandHostOutput.stdout = &hostStdout
+	terraformCommandHostOutput.stderr = &hostStderr
+	t.Cleanup(func() { terraformCommandHostOutput = original })
+
+	options := baseCommandOptions(t, executable)
+	options.Output = TerraformCommandOutputCaptureStdoutInheritStderr
+	_, err := RunTerraformCommand(options)
+	failure := requireProcessFailure(t, err, "TERRAFORM_COMMAND_FAILED")
+	if failure.Message != "Terraform command did not complete successfully" {
+		t.Errorf("RunTerraformCommand(%q) failure.Message = %q, want generic process-failure message", options.Output, failure.Message)
+	}
+	if strings.Contains(failure.Error(), "child-stdout-secret") || strings.Contains(failure.Error(), "child-stderr-secret") {
+		t.Errorf("RunTerraformCommand(%q) failure leaked child output: %q", options.Output, failure.Error())
+	}
+	if got := hostStdout.String(); got != "" {
+		t.Errorf("RunTerraformCommand(%q) inherited stdout after failure = %q, want empty", options.Output, got)
+	}
+	if got := hostStderr.String(); got != "child-stderr-secret" {
+		t.Errorf("RunTerraformCommand(%q) inherited stderr after failure = %q, want %q", options.Output, got, "child-stderr-secret")
+	}
+}
+
+func TestRunTerraformCommandCaptureStdoutInheritStderrHostBackpressureCannotDefeatTimeout(t *testing.T) {
+	executable := writeExecutable(t, `printf timeout-diagnostic >&2; while :; do :; done`)
+	blocked := &blockingWriter{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+	original := terraformCommandHostOutput
+	terraformCommandHostOutput.stderr = blocked
+	t.Cleanup(func() { terraformCommandHostOutput = original })
+	originalHook := terraformCommandStartedHook
+	terraformCommandStartedHook = func() {
+		select {
+		case <-blocked.started:
+		case <-time.After(2 * time.Second):
+		}
+	}
+	t.Cleanup(func() { terraformCommandStartedHook = originalHook })
+	var releaseOnce sync.Once
+	releaseWriter := func() { releaseOnce.Do(func() { close(blocked.release) }) }
+	t.Cleanup(func() {
+		releaseWriter()
+		select {
+		case <-blocked.started:
+			select {
+			case <-blocked.done:
+			case <-time.After(2 * time.Second):
+				t.Errorf("timeout host-output worker did not exit after release")
+			}
+		case <-time.After(2 * time.Second):
+		}
+	})
+
+	options := baseCommandOptions(t, executable)
+	options.Output = TerraformCommandOutputCaptureStdoutInheritStderr
+	options.Limits = commandTestLimits(5)
+	result := make(chan error, 1)
+	go func() {
+		_, err := RunTerraformCommand(options)
+		result <- err
+	}()
+	select {
+	case <-blocked.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("combined-mode stderr write did not start")
+	}
+	select {
+	case err := <-result:
+		requireProcessFailure(t, err, "TERRAFORM_COMMAND_TIMEOUT")
+	case <-time.After(2 * time.Second):
+		t.Fatal("combined-mode timeout waited on blocked host stderr output")
+	}
+	releaseWriter()
+	select {
+	case <-blocked.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("combined-mode timeout host-output worker did not exit after release")
+	}
+}
+
+func TestRunTerraformCommandCaptureStdoutInheritStderrHostBackpressureCannotDefeatStderrLimit(t *testing.T) {
+	executable := writeExecutable(t, "")
+	releaseChild := filepath.Join(filepath.Dir(executable), "release-child")
+	body := fmt.Sprintf(
+		"#!/bin/sh\nprintf x >&2\nwhile [ ! -f %s ]; do :; done\nwhile :; do printf overflow >&2; done\n",
+		shellQuote(releaseChild),
+	)
+	if err := os.WriteFile(executable, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	blocked := &blockingWriter{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+	original := terraformCommandHostOutput
+	terraformCommandHostOutput.stderr = blocked
+	t.Cleanup(func() { terraformCommandHostOutput = original })
+	var releaseOnce sync.Once
+	releaseWriter := func() { releaseOnce.Do(func() { close(blocked.release) }) }
+	t.Cleanup(func() {
+		releaseWriter()
+		select {
+		case <-blocked.started:
+			select {
+			case <-blocked.done:
+			case <-time.After(2 * time.Second):
+				t.Errorf("stderr-limit host-output worker did not exit after release")
+			}
+		case <-time.After(2 * time.Second):
+		}
+	})
+
+	options := baseCommandOptions(t, executable)
+	options.Output = TerraformCommandOutputCaptureStdoutInheritStderr
+	options.Limits.MaxStderrBytes = 32
+	result := make(chan error, 1)
+	go func() {
+		_, err := RunTerraformCommand(options)
+		result <- err
+	}()
+	select {
+	case <-blocked.started:
+	case err := <-result:
+		t.Fatalf("combined-mode stderr-limit run returned before its inherited write started: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("combined-mode stderr write did not start")
+	}
+	if err := os.WriteFile(releaseChild, []byte{}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		requireProcessFailure(t, err, "TERRAFORM_COMMAND_STDERR_LIMIT")
+	case <-time.After(2 * time.Second):
+		t.Fatal("combined-mode stderr-limit failure waited on blocked host stderr output")
+	}
+	releaseWriter()
+	select {
+	case <-blocked.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("combined-mode stderr-limit host-output worker did not exit after release")
+	}
+}
+
+func TestRunTerraformCommandCaptureStdoutInheritStderrDeliversBeforeNonzeroReturn(t *testing.T) {
+	executable := writeExecutable(t, `printf blocked-diagnostic >&2; exit 19`)
+	blocked := &selectivelyBlockingWriter{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+	original := terraformCommandHostOutput
+	terraformCommandHostOutput.stderr = blocked
+	t.Cleanup(func() { terraformCommandHostOutput = original })
+	var releaseOnce sync.Once
+	releaseWriter := func() { releaseOnce.Do(func() { close(blocked.release) }) }
+	t.Cleanup(func() {
+		releaseWriter()
+		select {
+		case <-blocked.started:
+			select {
+			case <-blocked.done:
+			case <-time.After(2 * time.Second):
+				t.Errorf("nonzero host-output worker did not exit after release")
+			}
+		case <-time.After(2 * time.Second):
+		}
+	})
+
+	options := baseCommandOptions(t, executable)
+	options.Output = TerraformCommandOutputCaptureStdoutInheritStderr
+	options.Limits.TimeoutMs = nil
+	result := make(chan error, 1)
+	go func() {
+		_, err := RunTerraformCommand(options)
+		result <- err
+	}()
+	select {
+	case <-blocked.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("combined-mode stderr write did not start")
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("RunTerraformCommand(%q) returned before releasing stderr: %v", options.Output, err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	releaseWriter()
+	select {
+	case <-blocked.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("combined-mode nonzero host-output worker did not exit after release")
+	}
+	select {
+	case err := <-result:
+		requireProcessFailure(t, err, "TERRAFORM_COMMAND_FAILED")
+	case <-time.After(2 * time.Second):
+		t.Fatal("combined-mode nonzero command did not return after stderr delivery")
+	}
+	if got := blocked.String(); got != "blocked-diagnostic" {
+		t.Errorf("RunTerraformCommand(%q) inherited stderr = %q, want %q", options.Output, got, "blocked-diagnostic")
+	}
+}
+
 func TestRunTerraformCommandHostBackpressureCannotDefeatTimeout(t *testing.T) {
 	executable := writeExecutable(t, `printf x; while :; do :; done`)
 	blocked := &blockingWriter{

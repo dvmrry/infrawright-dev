@@ -34,6 +34,10 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 )
 
+// runTerraformCommand keeps the probe tests at the command-options seam
+// without introducing a runner abstraction shared by production callers.
+var runTerraformCommand = terraformcmd.RunTerraformCommand
+
 // Options configures a backend-backed probe.
 type Options struct {
 	// BackendConfig is the same JSON backend file iw plan consumes; the
@@ -104,7 +108,7 @@ func pullState(options Options, rootLabel string) ([]byte, error) {
 	if err := os.WriteFile(path.Join(scratch, "backend.tf"), []byte(backend), 0o666); err != nil {
 		return nil, fmt.Errorf("probe state for root %s: %w", rootLabel, err)
 	}
-	if _, err := terraformcmd.RunTerraformCommand(terraformcmd.TerraformCommandOptions{
+	if _, err := runTerraformCommand(terraformcmd.TerraformCommandOptions{
 		TerraformExecutable: options.TerraformExecutable,
 		Argv: []string{
 			"init", "-input=false", "-reconfigure",
@@ -113,19 +117,19 @@ func pullState(options Options, rootLabel string) ([]byte, error) {
 		},
 		CWD:         scratch,
 		Environment: options.Environment,
-		Output:      terraformcmd.TerraformCommandOutputDiscard,
+		Output:      terraformcmd.TerraformCommandOutputInheritStderr,
 	}); err != nil {
 		return nil, fmt.Errorf(
 			"probe state for root %s: terraform init against the cross-state backend failed, so this run cannot tell an unapplied root from an unreachable backend: %w",
 			rootLabel, err,
 		)
 	}
-	result, err := terraformcmd.RunTerraformCommand(terraformcmd.TerraformCommandOptions{
+	result, err := runTerraformCommand(terraformcmd.TerraformCommandOptions{
 		TerraformExecutable: options.TerraformExecutable,
 		Argv:                []string{"state", "pull"},
 		CWD:                 scratch,
 		Environment:         options.Environment,
-		Output:              terraformcmd.TerraformCommandOutputCapture,
+		Output:              terraformcmd.TerraformCommandOutputCaptureStdoutInheritStderr,
 	})
 	if err != nil {
 		return nil, fmt.Errorf(

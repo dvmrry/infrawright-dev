@@ -789,7 +789,7 @@ func TestStageImportsStateAwarePublicationPreservesSourceMode(t *testing.T) {
 	}
 }
 
-func TestStageImportsEmptyDeltaAndFailedStateList(t *testing.T) {
+func TestStageImportsEmptyDeltaRemovesStaleArtifact(t *testing.T) {
 	workspace := t.TempDir()
 	dep := stagingDeployment(workspace)
 	root := stagingTestRoot(stagingTestResource)
@@ -819,20 +819,36 @@ func TestStageImportsEmptyDeltaAndFailedStateList(t *testing.T) {
 	if len(diagnostics) != 2 || !strings.Contains(diagnostics[0], "delta is empty") || !strings.HasPrefix(diagnostics[1], "NOTE: 0 staged") {
 		t.Errorf("StageImports(all managed) diagnostics = %#v, want empty-delta then zero-staged note", diagnostics)
 	}
+}
 
-	noState := &fakeImportStagingTerraform{result: ImportStagingStateResult{Success: false, Stdout: "ignored"}}
-	result, err = StageImports(StageImportsOptions{
+func TestStageImportsRejectsUnsuccessfulStateBeforePublication(t *testing.T) {
+	workspace := t.TempDir()
+	dep := stagingDeployment(workspace)
+	root := stagingTestRoot(stagingTestResource)
+	text := stagingImports(t, stagingTestResource, "one")
+	source := filepath.Join(workspace, "imports", "tenant", stagingTestResource+"_imports.tf")
+	destination := filepath.Join(workspace, "envs", "tenant", stagingTestResource, stagingTestResource+"_imports.tf")
+	writeStagingText(t, source, text)
+	const previous = "known-good staged imports\n"
+	writeStagingText(t, destination, previous)
+
+	noState := &fakeImportStagingTerraform{result: ImportStagingStateResult{
+		Success: false,
+		Stdout:  "provider diagnostic: do not include this in a ProcessFailure",
+	}}
+	_, err := StageImports(StageImportsOptions{
 		Deployment: dep, Root: root, Selectors: []string{stagingTestResource}, StateAware: true,
 		Tenant: "tenant", Terraform: noState, Workspace: workspace,
 	})
-	if err != nil {
-		t.Fatalf("StageImports(failed state list) error: %v", err)
+	failure := requireStagingFailure(t, err, "TERRAFORM_STATE_LIST_FAILED")
+	if failure.Category != procerr.CategoryDomain {
+		t.Errorf("StageImports(unsuccessful state list) failure category = %q, want %q", failure.Category, procerr.CategoryDomain)
 	}
-	if result != (StageImportsResult{Sources: 1, Staged: 1}) {
-		t.Errorf("StageImports(failed state list) = %#v, want sources=1 staged=1", result)
+	if strings.Contains(failure.Message, "provider diagnostic") {
+		t.Errorf("StageImports(unsuccessful state list) failure message = %q, want raw diagnostics omitted", failure.Message)
 	}
-	if got := readStagingText(t, destination); got != text {
-		t.Errorf("failed-state staged imports = %q, want full source %q", got, text)
+	if got := readStagingText(t, destination); got != previous {
+		t.Errorf("StageImports(unsuccessful state list) destination bytes = %q, want preserved %q", got, previous)
 	}
 }
 
@@ -956,7 +972,7 @@ func TestImportStagingTerraformAdapterUsesExactArgvAndSnapshotsEnvironment(t *te
 		t.Fatalf("os.Mkdir(%q) error: %v", directory, err)
 	}
 	environment := map[string]string{
-		"FAKE_STATE_STATUS": "1",
+		"FAKE_STATE_STATUS": "0",
 		"FAKE_TF_LOG":       logPath,
 		"SNAPSHOT_VALUE":    "before",
 	}
@@ -975,14 +991,48 @@ func TestImportStagingTerraformAdapterUsesExactArgvAndSnapshotsEnvironment(t *te
 	if err != nil {
 		t.Fatalf("ImportStagingTerraform.ListState(%#v) error: %v", request, err)
 	}
-	if state != (ImportStagingStateResult{Success: false, Stdout: ""}) {
-		t.Errorf("ImportStagingTerraform.ListState(%#v) = %#v, want failed empty result", request, state)
+	if state != (ImportStagingStateResult{Success: true, Stdout: ""}) {
+		t.Errorf("ImportStagingTerraform.ListState(%#v) = %#v, want successful empty state", request, state)
 	}
 	logText := readStagingText(t, logPath)
 	if !strings.Contains(logText, "init -input=false -reconfigure") ||
 		!strings.Contains(logText, "-backend-config=key=tenant/grouped.tfstate") ||
 		!strings.Contains(logText, "state list") || strings.Contains(logText, "|after") || strings.Count(logText, "|before") != 2 {
 		t.Errorf("Terraform adapter log = %q, want exact init/state argv and snapshotted environment", logText)
+	}
+}
+
+func TestImportStagingTerraformAdapterPropagatesStateListFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Terraform execution is intentionally unsupported on Windows")
+	}
+	workspace := t.TempDir()
+	executable := filepath.Join(workspace, "terraform-fake")
+	writeStagingText(t, executable, strings.Join([]string{
+		"#!/bin/sh",
+		"if [ \"$1 $2\" = \"state list\" ]; then printf '%s\\n' 'provider diagnostic: redacted' >&2; exit 1; fi",
+		"exit 0",
+		"",
+	}, "\n"))
+	if err := os.Chmod(executable, 0o700); err != nil {
+		t.Fatalf("os.Chmod(%q) error: %v", executable, err)
+	}
+	directory := filepath.Join(workspace, "root")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatalf("os.Mkdir(%q) error: %v", directory, err)
+	}
+	adapter := CreateImportStagingTerraform(ImportStagingTerraformOptions{
+		Environment:         map[string]string{},
+		TerraformExecutable: executable,
+	})
+	request := ImportStagingTerraformRequest{Directory: directory, Label: "grouped", Tenant: "tenant"}
+	if err := adapter.Initialize(request); err != nil {
+		t.Fatalf("ImportStagingTerraform.Initialize(%#v) error: %v", request, err)
+	}
+	_, err := adapter.ListState(request)
+	failure := requireStagingFailure(t, err, "TERRAFORM_COMMAND_FAILED")
+	if strings.Contains(failure.Message, "provider diagnostic") {
+		t.Errorf("ImportStagingTerraform.ListState(%#v) failure message = %q, want raw diagnostics omitted", request, failure.Message)
 	}
 }
 

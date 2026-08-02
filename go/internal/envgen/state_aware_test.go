@@ -200,11 +200,11 @@ func TestStateAwareFallsBackWhenReferencedStateHasNoReferenceOutputs(t *testing.
 // TestStateAwareProbeErrorFailsClosed pins the direction that matters most:
 // a probe that cannot answer must abort generation, never report "absent".
 //
-// stage-imports' ListState deliberately maps a Terraform failure to "no
-// state" because keeping imports is the safe direction there. Here the safe
-// direction is the opposite -- folding a probe failure into "absent" would
-// silently rewrite every reference in the run to a stale literal, which is
-// the exact silent-drift outcome the repository exists to prevent.
+// State-aware import staging follows the same boundary: only a successful
+// empty state means no managed addresses; a failed Terraform state query
+// aborts. Here, folding a probe failure into "absent" would silently rewrite
+// every reference in the run to a stale literal, which is the exact
+// silent-drift outcome the repository exists to prevent.
 //
 // Red proof: this test passes against the committed implementation, so it is
 // verified against the faithful unsafe mutation "return
