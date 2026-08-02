@@ -59,7 +59,8 @@ reads during plan appear in `prior_state.values.root_module`, not in
 provider-observed evidence for a changed `iw_reference_ids` output. Tests read
 each JSON file directly without rewriting or transplanting any field.
 
-The attestation validator accepts qualified Terraform `1.15.x` output and
+The attestation validator accepts exactly Terraform `1.15.4` output (the
+only capture-qualified release; widening requires re-running this matrix) and
 records either refresh flag. The committed capture matrix qualifies only
 Terraform 1.15.4; widening that version range requires re-running the full
 capture matrix under the new version before the evidence is promoted.

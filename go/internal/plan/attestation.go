@@ -229,7 +229,8 @@ func ReadSavedPlanAttestation(
 }
 
 // WritePlanCreationAttestation writes one validated creation-attestation
-// sidecar. Terraform 1.15.x is the qualified evidence boundary; plans made
+// sidecar. Exactly Terraform 1.15.4 is the qualified evidence boundary (the
+// only release the capture matrix has been promoted under); plans made
 // by another version remain assessable only as managed plans when no sidecar
 // is present, and are refused for data authorization when this sidecar exists.
 func WritePlanCreationAttestation(path string, attestation PlanCreationAttestation) error {

@@ -1,6 +1,32 @@
 #!/bin/sh
 set -eu
 
+if [ "${PYTHONOPTIMIZE+x}" = x ]; then
+	printf '%s\n' 'capture regeneration refuses PYTHONOPTIMIZE (validator must not be optimized out)' >&2
+	exit 1
+fi
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ "${1:-}" = "--recover" ]; then
+	backup_dir=${2:?usage: gen-captures.sh --recover <backup-dir>}
+	if [ ! -f "$backup_dir/TRANSACTION" ]; then
+		printf '%s\n' "recovery refused: $backup_dir carries no TRANSACTION record" >&2
+		exit 1
+	fi
+	for scenario_dir in "$backup_dir"/*/; do
+		scenario=$(basename "$scenario_dir")
+		target="$script_dir/$scenario/show.json"
+		if [ -e "$scenario_dir/show.json" ]; then
+			cp -p "$scenario_dir/show.json" "$target"
+		elif [ -e "$scenario_dir/missing" ]; then
+			rm -f "$target"
+		fi
+	done
+	rm -rf "$backup_dir"
+	printf '%s\n' 'RECOVERED'
+	exit 0
+fi
+
 # Refuse and strip EVERY TF_CLI_ARGS variant: Terraform applies
 # TF_CLI_ARGS_<subcommand> per command, and this script runs apply, plan,
 # init, and show — an inherited TF_CLI_ARGS_apply could alter the state the
@@ -104,30 +130,14 @@ INFRAWRIGHT_CAPTURE_ID_VERSION=v2 terraform plan -input=false -no-color -refresh
 capture_show refresh_true p.tfplan
 
 # Validate the COMPLETE staged set semantically before any tracked fixture
-# changes: JSON-parseable, complete, not errored, the qualified Terraform
-# version, and refresh-pair byte identity modulo the single timestamp.
+# changes, via the shared validator the Go regression also exercises.
 for scenario in $scenarios; do
 	if [ ! -s "$stage_dir/$scenario/show.json" ]; then
 		printf '%s\n' "capture regeneration produced an empty $scenario/show.json" >&2
 		exit 1
 	fi
-	python3 - "$stage_dir/$scenario/show.json" <<'PYEOF'
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d.get("complete") is True, "capture is not complete"
-assert d.get("errored") is False, "capture errored"
-assert d.get("terraform_version") == "1.15.4", "capture terraform_version is not 1.15.4"
-PYEOF
 done
-python3 - "$stage_dir/refresh_false/show.json" "$stage_dir/refresh_true/show.json" <<'PYEOF'
-import json, re, sys
-def norm(p):
-	raw = open(p).read()
-	matches = re.findall(r'"timestamp":"[^"]*"', raw)
-	assert len(matches) == 1, "expected exactly one timestamp"
-	return re.sub(r'"timestamp":"[^"]*"', '"timestamp":"<t>"', raw)
-assert norm(sys.argv[1]) == norm(sys.argv[2]), "refresh pair differs beyond timestamp"
-PYEOF
+python3 "$capture_dir/validate_captures.py" "$stage_dir"
 
 # The backup set and transaction record live OUTSIDE the trap-deleted work
 # directory so an interruption mid-promotion leaves deterministic recovery

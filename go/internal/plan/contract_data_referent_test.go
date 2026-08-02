@@ -367,8 +367,8 @@ func assertRefreshPairSemantics(t *testing.T, scenario string, show map[string]a
 	if got, _ := show["terraform_version"].(string); got != "1.15.4" {
 		t.Errorf("%s terraform_version = %#v, want 1.15.4", scenario, show["terraform_version"])
 	}
-	if got, _ := show["format_version"].(string); !strings.HasPrefix(got, "1.") {
-		t.Errorf("%s format_version = %#v, want a 1.x plan format", scenario, show["format_version"])
+	if got, _ := show["format_version"].(string); got != "1.2" {
+		t.Errorf("%s format_version = %#v, want exactly 1.2", scenario, show["format_version"])
 	}
 	if complete, _ := show["complete"].(bool); !complete {
 		t.Errorf("%s complete = %#v, want true", scenario, show["complete"])
@@ -376,8 +376,31 @@ func assertRefreshPairSemantics(t *testing.T, scenario string, show map[string]a
 	if errored, _ := show["errored"].(bool); errored {
 		t.Errorf("%s errored = %#v, want false", scenario, show["errored"])
 	}
-	if failing := failingCheckCount(show); failing != 0 {
-		t.Errorf("%s failing lifecycle checks = %d, want 0", scenario, failing)
+	// Exactly the postcondition check the data module declares must be
+	// present and passing at both the top level and every instance: an
+	// absent checks section would silently drop the postcondition evidence.
+	checks, _ := show["checks"].([]any)
+	if len(checks) != 1 {
+		t.Errorf("%s checks length = %d, want exactly the data-module postcondition check", scenario, len(checks))
+	} else {
+		check, _ := checks[0].(map[string]any)
+		checkAddress, _ := check["address"].(map[string]any)
+		if display, _ := checkAddress["to_display"].(string); display != "module.capture_item.data.capture_item.items" {
+			t.Errorf("%s check address = %#v, want the data-module postcondition", scenario, checkAddress["to_display"])
+		}
+		if status, _ := check["status"].(string); status != "pass" {
+			t.Errorf("%s check status = %#v, want pass", scenario, check["status"])
+		}
+		instances, _ := check["instances"].([]any)
+		if len(instances) != 1 {
+			t.Errorf("%s check instances = %d, want 1", scenario, len(instances))
+		}
+		for _, rawInstance := range instances {
+			instance, _ := rawInstance.(map[string]any)
+			if status, _ := instance["status"].(string); status != "pass" {
+				t.Errorf("%s check instance status = %#v, want pass", scenario, instance["status"])
+			}
+		}
 	}
 	outputChanges, _ := show["output_changes"].(map[string]any)
 	change, _ := outputChanges["iw_reference_ids"].(map[string]any)
@@ -400,6 +423,28 @@ func assertRefreshPairSemantics(t *testing.T, scenario string, show map[string]a
 	if diff := cmp.Diff(wantPrior, priorIDs); diff != "" {
 		t.Errorf("%s prior-state data IDs mismatch (-want +got):\n%s", scenario, diff)
 	}
+	// The planned output must already carry the v2 map: a capture whose
+	// planned value contradicts its output change is not coherent evidence.
+	plannedValues, _ := show["planned_values"].(map[string]any)
+	plannedOutputs, _ := plannedValues["outputs"].(map[string]any)
+	plannedReference, _ := plannedOutputs["iw_reference_ids"].(map[string]any)
+	if diff := cmp.Diff(wantAfter, plannedReference["value"]); diff != "" {
+		t.Errorf("%s planned output value mismatch (-want +got):\n%s", scenario, diff)
+	}
+	// The prior-state resource itself is pinned field-for-field: provider,
+	// schema version, requested name, and the deterministic observed ID.
+	priorResource := providerDoublePriorStateResource(t, show, `module.capture_item.data.capture_item.items["group_one"]`)
+	if provider, _ := priorResource["provider_name"].(string); provider != "registry.terraform.io/infrawright/capture" {
+		t.Errorf("%s prior resource provider_name = %#v, want the provider double", scenario, priorResource["provider_name"])
+	}
+	if schemaVersion, _ := priorResource["schema_version"].(json.Number); schemaVersion != json.Number("0") {
+		t.Errorf("%s prior resource schema_version = %#v, want 0", scenario, priorResource["schema_version"])
+	}
+	priorValues, _ := priorResource["values"].(map[string]any)
+	wantValues := map[string]any{"id": providerDoubleRefreshPairAfterID, "name": "Location Group"}
+	if diff := cmp.Diff(wantValues, priorValues); diff != "" {
+		t.Errorf("%s prior resource values mismatch (-want +got):\n%s", scenario, diff)
+	}
 	if planned := plannedDataResourceCount(show); planned != 0 {
 		t.Errorf("%s planned data resources = %d, want 0", scenario, planned)
 	}
@@ -408,16 +453,24 @@ func assertRefreshPairSemantics(t *testing.T, scenario string, show map[string]a
 	}
 }
 
-func failingCheckCount(show map[string]any) int {
-	checks, _ := show["checks"].([]any)
-	failing := 0
-	for _, rawCheck := range checks {
-		check, _ := rawCheck.(map[string]any)
-		if status, _ := check["status"].(string); status != "" && status != "pass" {
-			failing++
+func providerDoublePriorStateResource(t *testing.T, show map[string]any, address string) map[string]any {
+	t.Helper()
+	priorState, _ := show["prior_state"].(map[string]any)
+	values, _ := priorState["values"].(map[string]any)
+	root, _ := values["root_module"].(map[string]any)
+	children, _ := root["child_modules"].([]any)
+	for _, rawChild := range children {
+		child, _ := rawChild.(map[string]any)
+		resources, _ := child["resources"].([]any)
+		for _, rawResource := range resources {
+			resource, _ := rawResource.(map[string]any)
+			if resource["address"] == address {
+				return resource
+			}
 		}
 	}
-	return failing
+	t.Fatalf("prior-state resource %s not found", address)
+	return nil
 }
 
 func providerDoublePriorStateDataIDs(t *testing.T, show map[string]any) map[string]any {

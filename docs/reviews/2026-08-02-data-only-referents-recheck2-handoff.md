@@ -6,14 +6,17 @@ committed candidate under review.
 
 ## Base / Head
 
-- Base: `472316ef` (second-recheck closure).
-- Intermediate: `f375ca3d` (third-recheck closure: attestation trust
-  boundary documented, refresh-pair reframed, data-module name
-  postcondition, transactional script v1).
-- Head: the commit carrying this handoff (fourth-recheck closure).
-- Diff command: `git diff 472316ef..HEAD`.
+- Base: `f375ca3d` (third-recheck closure), per the review's declared
+  recheck scope. The prior closure commit `18f07aa7` and this
+  fifth-recheck closure commit together form the delta under review.
+- Head: the commit carrying this handoff.
+- Diff command: `git diff f375ca3d..HEAD`.
+- The seven show.json changes from f375ca3d are semantically
+  timestamp-only where regenerated in the same configuration; the
+  fifth-recheck run regenerated all seven under the shared validator
+  (hashes below).
 
-## What the fourth-recheck closure changes
+## What the fourth- and fifth-recheck closures change
 
 - Capture tests are mandatory: a missing or under-shaped committed
   capture FAILS the focused gate (no skips), so the fixture set cannot
@@ -50,17 +53,33 @@ committed candidate under review.
   third-recheck postcondition changes the data-module configuration,
   so every capture legitimately drifts to include Terraform `checks`
   records; initial_create additionally carries two items).
-- Post-run SHA-256 prefixes:
-  - empty_for_each `f18a91036ee9e8c0`
-  - initial_create `4347fab4a0988c25`
-  - no_op `de95d2c0becc56be`
-  - refresh_false `59b5050d3dd8c0e3`
-  - refresh_id_change `3e536f681f6fddad`
-  - refresh_true `2032a23ddc8f2814`
-  - rekey_refusal `be99377b9bc7b7ea`
-  - refresh_false and refresh_true differ only in the single
-    timestamp (script-validated during promotion; test-validated by
-    the pair regression).
+- Post-run SHA-256 prefixes (fifth-recheck regeneration):
+  - c7eefc99653c6152 empty_for_each/show.json
+  - 7960e936800b6301 initial_create/show.json
+  - 4ef1a3e9b3852d33 no_op/show.json
+  - 0861a1038deaee89 refresh_false/show.json
+  - b39ede33d1fd244d refresh_id_change/show.json
+  - 0861a1038deaee89 refresh_true/show.json
+  - 896a4502dd4a1cf7 rekey_refusal/show.json
+  - refresh_false and refresh_true differ only in the single timestamp
+    (validator- and test-enforced).
+
+## Fifth-recheck additions
+
+- The refresh-pair matrix now also pins exact format_version 1.2, the
+  exact postcondition check (address, top-level and instance pass), the
+  planned output value, and the prior-state resource's provider,
+  schema_version, and full values map.
+- Exact-version qualification carries discriminating tables refusing
+  1.15.0/1.15.3/1.15.5/1.15.999/1.14.9/1.16.0 at both the attestation
+  and plan-creation parsers; the attestation comment and capture README
+  say exactly 1.15.4.
+- validate_captures.py is the single shared semantic validator (no
+  assert statements; PYTHONOPTIMIZE refused by the script) covering the
+  full seven-scenario matrix, exercised pre-promotion by the script and
+  directly by fault-injection Go tests (corrupted-set refusal;
+  --recover restores a backed-up set from its TRANSACTION record and
+  refuses recovery without one).
 
 ## Files changed in this closure
 
