@@ -1151,15 +1151,39 @@ func wrapResolverFallbacks(
 	bindingsByType map[string][]ExpressionBinding,
 	operatorIdentitiesByType map[string]map[string]bool,
 ) {
+	rewriteResolverFallbacks(bindingsByType, operatorIdentitiesByType, nil)
+}
+
+// rewriteResolverFallbacks applies the token resolver policy after state
+// probing. A state-aware absent data referent cannot keep a
+// terraform_remote_state selector: Terraform reads the data block before
+// try() evaluates its expression, so the missing state would fail the plan.
+// Such selectors are therefore rewritten to the lookup-only arm. Generated
+// referents and usable data referents retain the ordinary try(remote, lookup)
+// resolver, and operator-authored bindings remain untouched.
+func rewriteResolverFallbacks(
+	bindingsByType map[string][]ExpressionBinding,
+	operatorIdentitiesByType map[string]map[string]bool,
+	lookupOnlyReferents map[string]bool,
+) {
 	for resourceType, bindings := range bindingsByType {
 		operators := operatorIdentitiesByType[resourceType]
 		for i, binding := range bindings {
 			if operators[bindingIdentity(binding)] {
 				continue
 			}
-			bindings[i].Expression = canonicalRemoteStateSelectorPattern.ReplaceAllString(
+			bindings[i].Expression = canonicalRemoteStateSelectorPattern.ReplaceAllStringFunc(
 				binding.Expression,
-				`try(${0}, local.iw_reference_lookup_${1}[${2}])`,
+				func(selector string) string {
+					parts := canonicalRemoteStateSelectorPattern.FindStringSubmatch(selector)
+					if len(parts) != 3 {
+						return selector
+					}
+					if lookupOnlyReferents[parts[1]] {
+						return "local.iw_reference_lookup_" + parts[1] + "[" + parts[2] + "]"
+					}
+					return "try(" + selector + ", local.iw_reference_lookup_" + parts[1] + "[" + parts[2] + "])"
+				},
 			)
 		}
 	}
@@ -2328,6 +2352,12 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 				return EnvironmentGenerationResult{}, err
 			}
 		}
+		lookupReferentTypes := map[string]bool{}
+		if tokensPresent {
+			for _, reference := range remoteStateReferences {
+				lookupReferentTypes[reference.ResourceType] = true
+			}
+		}
 		// Topology is validated against the unfiltered set: a binding naming a
 		// root outside this topology is malformed evidence, not a root awaiting
 		// apply, and must be refused whether or not state-awareness would drop
@@ -2347,12 +2377,29 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		// Every gate has now run against the full merged set. Only here, with
 		// the evidence proven well formed, may bindings be dropped for want of
 		// state -- and the reference list is rebuilt from the survivors so no
-		// data block outlives its binding. A tokenised root is exempt: its
-		// resolvers carry the lookup fallback in-language, so there is nothing
-		// valid to degrade to and no reason to consult state at render time.
-		if probe != nil && !tokensPresent {
-			if err := filterStatelessBindings(bindingsByType, operatorIdentitiesByType, probe, onDiagnostic); err != nil {
-				return EnvironmentGenerationResult{}, err
+		// data block outlives its binding. Tokenised generated referents remain
+		// exempt because their resolver carries the lookup fallback in-language;
+		// tokenised data referents are the narrow exception and are probed so an
+		// unusable state can remove the remote-state read before rendering.
+		lookupOnlyDataReferents := map[string]bool{}
+		if probe != nil {
+			if tokensPresent {
+				for _, reference := range remoteStateReferences {
+					if !dataReferent(options.Root, reference.ResourceType) {
+						continue
+					}
+					result, err := probe(reference.Root, reference.ResourceType)
+					if err != nil {
+						return EnvironmentGenerationResult{}, err
+					}
+					if !result.Usable {
+						lookupOnlyDataReferents[reference.ResourceType] = true
+					}
+				}
+			} else {
+				if err := filterStatelessBindings(bindingsByType, operatorIdentitiesByType, probe, onDiagnostic); err != nil {
+					return EnvironmentGenerationResult{}, err
+				}
 			}
 			if bindingMode == deployment.ReferenceBindingCrossState {
 				remoteStateReferences, err = remoteStateReferencesForBindings(bindingsByType)
@@ -2376,7 +2423,13 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		// reference extraction, coverage): from here on the strings are
 		// renderer output, not evidence.
 		if tokensPresent {
-			wrapResolverFallbacks(bindingsByType, operatorIdentitiesByType)
+			rewriteResolverFallbacks(bindingsByType, operatorIdentitiesByType, lookupOnlyDataReferents)
+			if len(lookupOnlyDataReferents) > 0 && bindingMode == deployment.ReferenceBindingCrossState {
+				remoteStateReferences, err = remoteStateReferencesForBindings(bindingsByType)
+				if err != nil {
+					return EnvironmentGenerationResult{}, err
+				}
+			}
 		} else {
 			warnUnwrappedLegacySelectors(bindingsByType, operatorIdentitiesByType, onDiagnostic)
 		}
@@ -2425,13 +2478,9 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 				return EnvironmentGenerationResult{}, err
 			}
 			if tokensPresent {
-				referentTypeSet := map[string]bool{}
-				for _, reference := range remoteStateReferences {
-					referentTypeSet[reference.ResourceType] = true
-				}
 				lookups, err := referenceLookupLocals(
 					options.Deployment, options.Tenant, directory,
-					canonjson.SortedStrings(mapKeysBoolSetGeneric(referentTypeSet)),
+					canonjson.SortedStrings(mapKeysBoolSetGeneric(lookupReferentTypes)),
 				)
 				if err != nil {
 					return EnvironmentGenerationResult{}, err

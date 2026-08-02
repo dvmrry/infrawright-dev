@@ -181,7 +181,7 @@ An integration-validation run is successful when:
 - saved plans are clean/import-only, or all non-import drift is explicitly
   policy-tolerated,
 - any cross-state reference output change is mechanically verified against the
-  bound root topology and planned provider IDs,
+  bound root topology and the applicable provider-observed plan evidence,
 - there are zero destroys and zero creates unless each is intentional and
   approved for the validation scope,
 - no sensitive values are rendered into committed artifacts,

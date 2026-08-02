@@ -17,6 +17,7 @@
           "path": "<V2_TOPOLOGY_FIXTURE>/envs/tenant/sample_resource/tfplan.sources"
         }
       },
+      "data_referents": [],
       "env_dir": "<V2_TOPOLOGY_FIXTURE>/envs/tenant/sample_resource",
       "label": "sample_resource",
       "members": [
@@ -26,5 +27,5 @@
       "tenant": "tenant"
     }
   ],
-  "schema_version": 1
+  "schema_version": 2
 }

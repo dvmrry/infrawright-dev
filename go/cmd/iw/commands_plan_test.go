@@ -498,6 +498,7 @@ func TestPlanCommandUsesExactTerraformArgv(t *testing.T) {
 		`    case "$argument" in -out=*) printf '%s' 'opaque-plan' > "${argument#-out=}";; esac`,
 		`  done`,
 		`fi`,
+		`if [ "$1" = "version" ]; then printf '%s\n' 'Terraform v1.15.4'; fi`,
 		"exit 0",
 		"",
 	}, "\n"))
@@ -544,7 +545,8 @@ func TestPlanCommandUsesExactTerraformArgv(t *testing.T) {
 	}
 	wantLog := strings.Join([]string{
 		physicalDirectory + "|init -input=false",
-		physicalDirectory + "|plan -input=false -var-file=" + secondConfig + " -out=tfplan",
+		physicalDirectory + "|plan -input=false -refresh=true -var-file=" + secondConfig + " -out=tfplan",
+		physicalDirectory + "|version",
 		"",
 	}, "\n")
 	logBytes, err := os.ReadFile(logPath)

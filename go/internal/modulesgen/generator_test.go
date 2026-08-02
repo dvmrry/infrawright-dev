@@ -777,7 +777,7 @@ func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.
 	root := installedModuleRoot(t)
 	output := t.TempDir()
 
-	types := ActiveGeneratedResourceTypes(root)
+	types := ActiveModuleResourceTypes(root)
 	generated, err := GenerateActiveModules(root, GenerateModuleOptions{
 		OutputRoot: output,
 		FormatHCL:  IdentityFormatter,
@@ -893,7 +893,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			if err != nil {
 				t.Fatalf("LoadPackRoot: %v", err)
 			}
-			resourceTypes := ActiveGeneratedResourceTypes(loaded)
+			resourceTypes := ActiveModuleResourceTypes(loaded)
 			generated, err := GenerateActiveModules(loaded, GenerateModuleOptions{
 				OutputRoot: output,
 				FormatHCL:  IdentityFormatter,

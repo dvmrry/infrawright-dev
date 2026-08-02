@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
+	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 )
 
-const environmentRootsCompatibilitySHA256 = "619040911feb448e3b5d78de8702b5e48138a861654aa2c374508f94aeda469c"
+const environmentRootsCompatibilitySHA256 = "4d3d701444aa38b7cae78dc351c38077d05f1874481f99451d0a19763b22a57a"
 
 type environmentRootsCompatibilityFixture struct {
 	SchemaVersion       int                                  `json:"schema_version"`
@@ -58,8 +58,8 @@ func loadEnvironmentRootsCompatibility(t *testing.T) environmentRootsCompatibili
 	if len(fixture.RepresentativeCases) != 1 || fixture.RepresentativeCases[0].Name != "ungrouped-json" {
 		t.Fatalf("%s representative cases = %#v, want only ungrouped-json", fixturePath, fixture.RepresentativeCases)
 	}
-	if fixture.FullProfile.FileCount != 453 || len(fixture.FullProfile.Manifest) != 453 {
-		t.Fatalf("%s full-profile file/manifest counts = %d/%d, want 453/453", fixturePath, fixture.FullProfile.FileCount, len(fixture.FullProfile.Manifest))
+	if fixture.FullProfile.FileCount != 456 || len(fixture.FullProfile.Manifest) != 456 {
+		t.Fatalf("%s full-profile file/manifest counts = %d/%d, want 456/456", fixturePath, fixture.FullProfile.FileCount, len(fixture.FullProfile.Manifest))
 	}
 	return fixture
 }
@@ -110,27 +110,26 @@ func TestFullProfileEnvironmentRootCompatibility(t *testing.T) {
 	deployment := loadDeploymentFile(t, deploymentPath)
 	outputRoot := filepath.Join(workspace, "generated")
 	formatter := modulesgen.NewHCLFormatter()
+	root := committedTopologyRoot(t, "full", metadata.PackSelection{
+		Packs:  []string{"aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"},
+		Shared: []string{"zscaler"},
+	})
 	result, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: deployment, FormatHcl: formatter.FormatHCL, OutputRoot: &outputRoot,
-		Root: committedTopologyRoot(t, "full", metadata.PackSelection{
-			Packs:  []string{"aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"},
-			Shared: []string{"zscaler"},
-		}), Selectors: []string{}, Tenant: "full-profile-parity",
+		Root: root, Selectors: []string{}, Tenant: "full-profile-parity",
 	})
 	if err != nil {
 		t.Fatalf("GenerateEnvironmentRoots() error: %v", err)
 	}
-	wantLabelSet := map[string]struct{}{}
-	for _, file := range fixture.FullProfile.Manifest {
-		parts := strings.Split(file.Path, "/")
-		if len(parts) < 3 {
-			t.Fatalf("full-profile compatibility path %q has no tenant/root/file shape", file.Path)
-		}
-		wantLabelSet[parts[1]] = struct{}{}
+	topologyResult, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
+		Deployment: deployment, Root: root, Selectors: []string{}, Tenant: strPtr("full-profile-parity"),
+	})
+	if err != nil {
+		t.Fatalf("LoadedRootTopology() error: %v", err)
 	}
-	wantLabels := make([]string, 0, len(wantLabelSet))
-	for label := range wantLabelSet {
-		wantLabels = append(wantLabels, label)
+	wantLabels := make([]string, len(topologyResult.Topology.Roots))
+	for index, topologyRoot := range topologyResult.Topology.Roots {
+		wantLabels[index] = topologyRoot.Label
 	}
 	sort.Strings(wantLabels)
 	gotLabels := make([]string, len(result.Roots))
@@ -139,7 +138,7 @@ func TestFullProfileEnvironmentRootCompatibility(t *testing.T) {
 	}
 	sort.Strings(gotLabels)
 	if !reflect.DeepEqual(gotLabels, wantLabels) {
-		t.Fatalf("generated root labels = %v, want compatibility fixture labels %v", gotLabels, wantLabels)
+		t.Fatalf("generated root labels = %v, want loaded topology root labels %v", gotLabels, wantLabels)
 	}
 	tree := snapshotTree(t, outputRoot)
 	if got := len(tree); got != fixture.FullProfile.FileCount {

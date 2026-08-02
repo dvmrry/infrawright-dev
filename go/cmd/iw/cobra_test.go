@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -304,8 +306,38 @@ func TestTerraformPreflightUsesResolvedCobraCommandAndEffectiveFlags(t *testing.
 			})
 			root.SetOut(&bytes.Buffer{})
 			root.SetErr(&bytes.Buffer{})
-			root.SetArgs(test.arguments)
+			arguments := append([]string(nil), test.arguments...)
+			if test.name == "modules generate" {
+				packageDirectory, err := os.Getwd()
+				if err != nil {
+					t.Fatalf("os.Getwd() error: %v", err)
+				}
+				packageModules := filepath.Join(packageDirectory, "modules")
+				assertNoPackageModules := func(phase string) {
+					t.Helper()
+					if _, err := os.Lstat(packageModules); err == nil {
+						t.Fatalf("modules generate %s created package-source modules/ at %q", phase, packageModules)
+					} else if !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("Lstat(%q) during %s error: %v", packageModules, phase, err)
+					}
+				}
+				assertNoPackageModules("before execution")
+				t.Cleanup(func() { assertNoPackageModules("test cleanup") })
+				arguments = append(arguments, "--out", t.TempDir())
+			}
+			root.SetArgs(arguments)
 			_, err := cobraExecutionResult(root.Execute())
+			if test.name == "modules generate" {
+				packageDirectory, getwdErr := os.Getwd()
+				if getwdErr != nil {
+					t.Fatalf("os.Getwd() after modules generate error: %v", getwdErr)
+				}
+				if _, statErr := os.Lstat(filepath.Join(packageDirectory, "modules")); statErr == nil {
+					t.Fatalf("modules generate created package-source modules/ after execution")
+				} else if !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("Lstat(package-source modules/) after execution error: %v", statErr)
+				}
+			}
 			if test.wantPreflight {
 				if calls != 1 || !errors.Is(err, preflightFailure) {
 					t.Fatalf("preflight = %d calls, error %T(%v); want one injected rejection", calls, err, err)

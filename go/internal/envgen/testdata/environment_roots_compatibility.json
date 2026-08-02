@@ -11,7 +11,7 @@
     }
   ],
   "full_profile": {
-    "file_count": 453,
+    "file_count": 456,
     "manifest": [
       {
         "path": "full-profile-parity/zcc_device_cleanup/README.md",
@@ -820,6 +820,21 @@
       },
       {
         "path": "full-profile-parity/zia_ips_signature_rules/tests/smoke.tftest.hcl",
+        "length": 248,
+        "sha256": "3ddbddc4b6e26613750534be1552a5f00b8e3ac002ad932999289957f38578af"
+      },
+      {
+        "path": "full-profile-parity/zia_location_groups/README.md",
+        "length": 413,
+        "sha256": "bbe81751365999a41aab3c5625427f966e253da38cbe5da6253276ace4e049f0"
+      },
+      {
+        "path": "full-profile-parity/zia_location_groups/main.tf",
+        "length": 889,
+        "sha256": "90fa9bbbd88110d614e6852376a424726eee36e5c6a9fc90229a34b50efb768d"
+      },
+      {
+        "path": "full-profile-parity/zia_location_groups/tests/smoke.tftest.hcl",
         "length": 248,
         "sha256": "3ddbddc4b6e26613750534be1552a5f00b8e3ac002ad932999289957f38578af"
       },

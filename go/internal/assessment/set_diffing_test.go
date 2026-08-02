@@ -925,6 +925,80 @@ func schemaTypesPackRoot(t *testing.T, resourceSchema any) metadata.LoadedPackRo
 	return root
 }
 
+// schemaTypesDataReferentPackRoot builds a provider-neutral pack whose active
+// type is a data referent and whose schema exists only in the provider's
+// data_source_schemas section. Assessment must use that section for the
+// data-only type; putting it in resource_schemas would let the old
+// resource-only lookup pass while leaving the real installed-pack failure
+// untouched.
+func schemaTypesDataReferentPackRoot(t *testing.T, dataSourceSchema any) metadata.LoadedPackRoot {
+	t.Helper()
+	directory := t.TempDir()
+	pack := filepath.Join(directory, "sample")
+	write := func(path string, value any) {
+		t.Helper()
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("json.Marshal(%q) error = %v, want nil", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("os.MkdirAll(%q) error = %v, want nil", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(%q) error = %v, want nil", path, err)
+		}
+	}
+	write(filepath.Join(pack, "pack.json"), metadata.JsonObject{
+		"lookup_sources":    metadata.JsonObject{"sample_lookup": metadata.JsonObject{"name_field": "name"}},
+		"provider_prefixes": metadata.JsonObject{"sample_": "sample"},
+		"provider_sources":  metadata.JsonObject{"sample": "example/sample"},
+	})
+	write(filepath.Join(pack, "registry.json"), metadata.JsonObject{
+		"sample_lookup": metadata.JsonObject{
+			"data_referent": true,
+			"fetch":         metadata.JsonObject{"pagination": "single", "path": "items"},
+			"product":       "sample",
+		},
+	})
+	write(filepath.Join(pack, "schemas", "provider", "sample.json"), metadata.JsonObject{
+		"data_source_schemas": metadata.JsonObject{"sample_lookup": dataSourceSchema},
+		"resource_schemas":    metadata.JsonObject{},
+	})
+	profile := filepath.Join(directory, "profile.json")
+	write(profile, metadata.JsonObject{
+		"kind": metadata.PackSetKind, "version": 1,
+		"packs": []string{"sample"}, "shared": []string{},
+	})
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot: directory, ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("metadata.LoadPackRoot(data-referent schema-types fixture) error = %v, want nil", err)
+	}
+	return root
+}
+
+// TestNewPlanSchemaTypesReadsDataReferentSchema proves assessment resolves a
+// data-referent type from data_source_schemas, even when resource_schemas has
+// no entry for it. This is the provider-neutral reproducer for the installed
+// ZIA-pack failure.
+func TestNewPlanSchemaTypesReadsDataReferentSchema(t *testing.T) {
+	root := schemaTypesDataReferentPackRoot(t, metadata.JsonObject{
+		"block": metadata.JsonObject{"attributes": metadata.JsonObject{
+			"members": metadata.JsonObject{"type": []any{"set", "string"}},
+			"name":    metadata.JsonObject{"optional": true, "type": "string"},
+		}},
+	})
+	types, err := NewPlanSchemaTypes(root)
+	if err != nil {
+		t.Fatalf("NewPlanSchemaTypes(data-referent-only schema) error = %v, want nil", err)
+	}
+	want := map[string]struct{}{"members": {}}
+	if got := types.SetAttributes("sample_lookup"); !reflect.DeepEqual(got, want) {
+		t.Errorf("SetAttributes(sample_lookup) = %#v, want %#v", got, want)
+	}
+}
+
 // TestNewPlanSchemaTypesRefusesAnUnreadableSchema pins the failure half of the
 // deliberate decision to error rather than fall back to positional comparison.
 //

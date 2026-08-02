@@ -1,6 +1,8 @@
 package assessment
 
 import (
+	"fmt"
+
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
@@ -83,7 +85,7 @@ func NewPlanSchemaTypes(root metadata.LoadedPackRoot) (PlanSchemaTypes, error) {
 	}
 	resourceTypes = canonjson.SortedStrings(resourceTypes)
 	for _, resourceType := range resourceTypes {
-		schema, err := root.LoadResourceSchema(resourceType)
+		schema, err := loadPlanSchema(root, resourceType)
 		if err != nil {
 			return PlanSchemaTypes{}, err
 		}
@@ -121,4 +123,42 @@ func NewPlanSchemaTypes(root metadata.LoadedPackRoot) (PlanSchemaTypes, error) {
 		}
 	}
 	return PlanSchemaTypes{setAttributes: setAttributes}, nil
+}
+
+// loadPlanSchema resolves the schema surface that corresponds to an active
+// plan type. Generated resource types are deliberately kept on
+// resource_schemas; data-referent types are Terraform data sources and must
+// be resolved from data_source_schemas instead. A data referent is never
+// silently retried against the resource surface: a missing or malformed data
+// schema is evidence failure, not permission to compare its arrays
+// positionally.
+func loadPlanSchema(root metadata.LoadedPackRoot, resourceType string) (metadata.JsonObject, error) {
+	resource, ok := root.Resources[resourceType]
+	if !ok {
+		return root.LoadResourceSchema(resourceType)
+	}
+	dataReferent, _ := resource.Registry["data_referent"].(bool)
+	if !dataReferent {
+		return root.LoadResourceSchema(resourceType)
+	}
+
+	providerSchema, err := root.LoadProviderSchema(resource.Provider)
+	if err != nil {
+		return nil, err
+	}
+	dataSourceSchemas, ok := providerSchema.Data["data_source_schemas"].(metadata.JsonObject)
+	if !ok {
+		return nil, fmt.Errorf(
+			"data referent %q not in %s data_source_schemas",
+			resourceType, resource.Provider,
+		)
+	}
+	schema, ok := dataSourceSchemas[resourceType].(metadata.JsonObject)
+	if !ok {
+		return nil, fmt.Errorf(
+			"data referent %q not in %s data_source_schemas",
+			resourceType, resource.Provider,
+		)
+	}
+	return schema, nil
 }
