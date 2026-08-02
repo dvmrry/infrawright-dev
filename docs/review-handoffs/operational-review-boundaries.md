@@ -32,13 +32,16 @@
   timeout 30s -> 60s); the branch merged that tip, resolving the one genuine
   conflict in `go/internal/httptransport/transport.go` in main's favor
   (`DefaultTimeoutMs = 60_000`, now pinned by a regression test).
-- Current refresh base (2026-08-02, supersedes the coordinates above for any
-  new review): `origin/main` at `a9498345`, which carries PR #301 (test-audit
-  cleanup: tfrender batch subsystem and non-discriminating tests removed) and
-  PR #302 (Terraform diagnostics propagated through terraformcmd). The merge
-  was conflict-free; the timeout pin and its regression test are unchanged.
-  Diff command: `git diff origin/main...<exact-review-head>` against current
-  main.
+- Refresh (2026-08-02, supersedes the coordinates above for any new
+  review): the branch merged mainline through `a9498345` (PR #301,
+  test-audit cleanup: tfrender batch subsystem and non-discriminating
+  tests removed; PR #302, Terraform diagnostics propagated through
+  terraformcmd) and subsequently `b364aafd` (PR #303, data-only
+  referents). Both merges were conflict-free for this branch; the timeout
+  pin and its regression test are unchanged. Review coordinates are
+  always `git diff origin/main...<exact-review-head>` against whatever
+  `origin/main` resolves to at review time; this file records merge
+  history, not the current tip of main.
 
 ## Files Changed
 
