@@ -59,10 +59,6 @@ func defaultMetadataCommandDependencies() metadataCommandDependencies {
 	}
 }
 
-func checkPackCommandWithDependencies(arguments []string, dependencies metadataCommandDependencies) (int, error) {
-	return executeStandaloneCobra(newCheckPackCobraCommand(dependencies), arguments)
-}
-
 func newCheckPackCobraCommand(dependencies metadataCommandDependencies) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "check-pack [PACK=<name>]", short: "Validate pack and registry metadata",
@@ -128,10 +124,6 @@ func checkPackInput(parsed commandInput, dependencies metadataCommandDependencie
 	}
 	_, err = fmt.Fprintf(dependencies.stdout, "validated packs: %s\n", validated)
 	return 0, err
-}
-
-func checkPackSetCommandWithDependencies(arguments []string, dependencies metadataCommandDependencies) (int, error) {
-	return executeStandaloneCobra(newCheckPackSetCobraCommand(dependencies), arguments)
 }
 
 func newCheckPackSetCobraCommand(dependencies metadataCommandDependencies) *cobra.Command {
@@ -209,10 +201,6 @@ func checkPackSetInput(parsed commandInput, dependencies metadataCommandDependen
 		strings.Join(result.Active.Shared, ","),
 	)
 	return 0, err
-}
-
-func deploymentCommandWithDependencies(arguments []string, dependencies metadataCommandDependencies) (int, error) {
-	return executeStandaloneCobra(newDeploymentCobraCommand(dependencies), arguments)
 }
 
 func newDeploymentCobraCommand(dependencies metadataCommandDependencies) *cobra.Command {

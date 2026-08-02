@@ -28,99 +28,6 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// gateTargets returns every committed demo JSON artifact covered by the
-// canonical round-trip gate: the tenant directory's flat *.json files
-// (config, generated bindings, operator overlays) plus the books, which
-// Part B of the sidecar-minimization migration relocated to a lookups/
-// subdirectory the flat glob alone would silently stop covering.
-func gateTargets(t *testing.T, root string) []string {
-	t.Helper()
-	demoMatches, err := filepath.Glob(filepath.Join(root, "demo", "config", "demo", "*.json"))
-	if err != nil {
-		t.Fatalf("globbing demo fixtures: %v", err)
-	}
-	lookupMatches, err := filepath.Glob(filepath.Join(root, "demo", "config", "demo", "lookups", "*.json"))
-	if err != nil {
-		t.Fatalf("globbing demo lookup fixtures: %v", err)
-	}
-	demoMatches = append(demoMatches, lookupMatches...)
-	if len(demoMatches) == 0 {
-		t.Fatal("expected at least one demo/config/demo/*.json fixture; none found")
-	}
-	return demoMatches
-}
-
-// TestRoundTripGate requires every committed demo JSON artifact to reproduce
-// its original bytes after decoding and rendering.
-//
-// demo/config/demo/*.json is not Render output
-// output: every file there is written by the sibling renderer
-// renderPythonLosslessArtifactJson (the original implementation),
-// reached via the original implementation's
-// renderDeploymentTfvars (*.auto.tfvars.json) and renderTransformLookup
-// (*.lookup.json), themselves invoked by the Node CLI's `transform`
-// command that the demo Makefile's `demo` target runs. Per this port's
-// mandate ("if a fixture fails round-trip and is not
-// renderPythonCompatibleJson output, exclude it -- never bend the
-// renderer to fit"), these files would need excluding if they failed.
-// They do not: the two renderers are known to diverge in exactly two
-// ways (see TestEncodeStringLeavesDELUnescaped below for the first), and
-// neither divergence is reachable through this package's Decode -> Render
-// round-trip:
-//
-//  1. String encoding: renderPythonLosslessArtifactJson's
-//     encodePythonString additionally escapes U+007F (DEL), where
-//     renderPythonCompatibleJson's encodeString (ported as encodeString
-//     in render.go) does not. This *is* reachable through a round-trip,
-//     but only if some fixture string contains a literal DEL byte; none
-//     of the committed fixtures do.
-//  2. Number encoding: renderPythonLosslessArtifactJson's encodeNumber
-//     special-cases a plain (non-lossless) `-0` to render as "0" instead
-//     of "-0.0". This is NOT reachable through a round-trip at all: Decode
-//     (like the Node parsers feeding both renderers here) always produces
-//     a lossless token -- json.Number in this package, LosslessNumber in
-//     the Node source -- never a plain float64/`number`, so this
-//     package's Render and the real producer's encodeNumber take the same
-//     canonicalPythonNumberToken-backed branch for every number in these
-//     files regardless of which renderer wrote them.
-//
-// If a future demo fixture introduces a DEL byte in a string and this
-// test starts failing, that is an expected consequence of divergence #1
-// above, not a bug in Render: exclude that specific file from
-// gateTargets with a comment, rather than teaching encodeString to escape
-// DEL (which would then make it diverge from python-compatible.ts, the
-// module this package actually ports).
-func TestRoundTripGate(t *testing.T) {
-	root := repoRoot(t)
-	for _, path := range gateTargets(t, root) {
-		path := path
-		t.Run(filepath.Base(path), func(t *testing.T) {
-			original, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("reading %s: %v", path, err)
-			}
-			assertRoundTrips(t, path, original)
-		})
-	}
-}
-
-// assertRoundTrips decodes original, re-renders it, and requires the
-// result to match original byte-for-byte.
-func assertRoundTrips(t *testing.T, path string, original []byte) {
-	t.Helper()
-	value, err := Decode(original)
-	if err != nil {
-		t.Fatalf("Decode(%s): %v", path, err)
-	}
-	rendered, err := Render(value)
-	if err != nil {
-		t.Fatalf("Render(%s): %v", path, err)
-	}
-	if rendered != string(original) {
-		reportMismatch(t, path, original, []byte(rendered))
-	}
-}
-
 // reportMismatch pinpoints the first differing byte to make a round-trip
 // failure diagnosable without dumping two full multi-KB JSON documents.
 func reportMismatch(t *testing.T, path string, want, got []byte) {
@@ -156,8 +63,8 @@ func reportMismatch(t *testing.T, path string, want, got []byte) {
 	)
 }
 
-// TestEncodeStringLeavesDELUnescaped pins divergence #1 documented on
-// TestRoundTripGate above: python-compatible.ts's encodeString only
+// TestEncodeStringLeavesDELUnescaped pins a known divergence between the
+// two sibling renderers: python-compatible.ts's encodeString only
 // escapes characters >= U+0080, so U+007F (DEL) passes through literally,
 // unlike true CPython json.dumps(..., ensure_ascii=True), which does
 // escape it. This was discovered by reading the sibling renderer

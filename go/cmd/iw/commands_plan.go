@@ -177,13 +177,6 @@ func (adapter *lazyPlanTerraform) Plan(request plan.PlanTerraformRequest) error 
 	return adapter.adapter.Plan(request)
 }
 
-func planCommandWithDependencies(
-	arguments []string,
-	dependencies planCommandDependencies,
-) (int, error) {
-	return executeStandaloneCobra(newPlanCobraCommand(dependencies), arguments)
-}
-
 func newPlanCobraCommand(dependencies planCommandDependencies) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "plan", short: "Create Terraform plans",
@@ -241,13 +234,6 @@ func planCommandInput(parsed commandInput, dependencies planCommandDependencies)
 		return 0, err
 	}
 	return 0, nil
-}
-
-func cleanPlansCommandWithDependencies(
-	arguments []string,
-	dependencies planCommandDependencies,
-) (int, error) {
-	return executeStandaloneCobra(newCleanPlansCobraCommand(dependencies), arguments)
 }
 
 func newCleanPlansCobraCommand(dependencies planCommandDependencies) *cobra.Command {

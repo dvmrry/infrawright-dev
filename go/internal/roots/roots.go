@@ -111,27 +111,6 @@ func indexResourceSet(resourceSet metadata.ResourceSet) resourceIndex {
 	}
 }
 
-// isJSObjectLike reports whether value is the sort of JSON value JS's
-// `typeof value === "object" && value !== null` test accepts: a JSON
-// object OR a JSON array (JS's typeof does not distinguish them; only the
-// explicit `!== null` check in the ported source excludes JSON null,
-// separately handled below). loadedResourceShape's `derived` computation
-// below intentionally preserves this JS quirk (an array-valued "derive"
-// registry key would count as "derived" too, exactly as it would under
-// the Node source's literal typeof check) rather than narrowing it to
-// "must be a JSON object", since this is a byte/behavior-parity port, not
-// an improvement pass.
-func isJSObjectLike(value any) bool {
-	switch value.(type) {
-	case map[string]any:
-		return true
-	case []any:
-		return true
-	default:
-		return false
-	}
-}
-
 // matchingPrefix ports the provider-prefix longest-match lookup inline in
 // loadedResourceShape in the original implementation (`Object.entries(...)
 // .filter(...).sort(([left],[right]) => right.length - left.length)`).
@@ -171,8 +150,6 @@ func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) meta
 	}
 	bareName := resourceType[len(prefix):]
 	generated, _ := resource.Registry["generate"].(bool)
-	derive, hasDerive := resource.Registry["derive"]
-	derived := generated && hasDerive && isJSObjectLike(derive)
 
 	return metadata.ResourceDescriptor{
 		Type:      resourceType,
@@ -180,7 +157,6 @@ func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) meta
 		Provider:  resource.Provider,
 		BareName:  bareName,
 		Generated: generated,
-		Derived:   derived,
 	}
 }
 

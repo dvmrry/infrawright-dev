@@ -68,10 +68,6 @@ const (
 	sourceModeUnverified
 )
 
-func sourceOperationMapCommandWithDependencies(arguments []string, dependencies authoringSourceDependencies) (int, error) {
-	return executeStandaloneCobra(newSourceOperationMapCobraCommand(dependencies), arguments)
-}
-
 func newSourceOperationMapCobraCommand(dependencies authoringSourceDependencies) *cobra.Command {
 	spec := authoringCobraSpec("source-operation-map", "Derive source-backed provider operation evidence",
 		[]string{
@@ -114,10 +110,6 @@ func sourceOperationMapCommandInput(parsed commandInput, dependencies authoringS
 		return 0, err
 	}
 	return completeSourceBundle(context.Background(), destination, bundle, parsed, mode, false, dependencies)
-}
-
-func sourceEvidenceEvalCommandWithDependencies(arguments []string, dependencies authoringSourceDependencies) (int, error) {
-	return executeStandaloneCobra(newSourceEvidenceEvalCobraCommand(dependencies), arguments)
 }
 
 func newSourceEvidenceEvalCobraCommand(dependencies authoringSourceDependencies) *cobra.Command {

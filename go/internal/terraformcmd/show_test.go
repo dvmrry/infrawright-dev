@@ -99,6 +99,33 @@ func TestTerraformShowPlanFixedInvocation(t *testing.T) {
 	}
 }
 
+func TestTerraformShowPlanCapturesJSONAndInheritsDiagnostics(t *testing.T) {
+	fixture := newShowFixture(t)
+	executable := fixture.executable(t, strings.Join([]string{
+		`printf '%s' 'show-diagnostic' >&2`,
+		`printf '%s' '{"ok":true}'`,
+	}, "\n"))
+	var hostStderr synchronizedBuffer
+	originalHostOutput := terraformCommandHostOutput
+	terraformCommandHostOutput.stderr = &hostStderr
+	t.Cleanup(func() { terraformCommandHostOutput = originalHostOutput })
+
+	plan, err := TerraformShowPlan(fixture.options(executable))
+	if err != nil {
+		t.Fatalf("TerraformShowPlan(%q) = %v, want nil error", executable, err)
+	}
+	object, ok := plan.(map[string]any)
+	if !ok {
+		t.Fatalf("TerraformShowPlan(%q) = %#v (%T), want object", executable, plan, plan)
+	}
+	if got := object["ok"]; got != true {
+		t.Errorf("TerraformShowPlan(%q) object[ok] = %#v, want true", executable, got)
+	}
+	if got := hostStderr.String(); got != "show-diagnostic" {
+		t.Errorf("TerraformShowPlan(%q) inherited stderr = %q, want %q", executable, got, "show-diagnostic")
+	}
+}
+
 // TestTerraformShowPlanDoesNotApplyPlanContract explicitly pins the current
 // source boundary: terraform-show.ts returns parsed JSON, while complete ===
 // true and object-shape enforcement remain in the downstream plan contract.
