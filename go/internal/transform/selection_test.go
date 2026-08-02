@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
@@ -345,9 +346,9 @@ func TestDataReferentsStayOutOfGeneratedSelectionLane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SelectTransformResources(%v) = error %v, want nil", []string{}, err)
 	}
-	wantDefault := TransformSelection{ResourceTypes: []string{"sample_rule"}, Notes: []string{}}
+	wantDefault := TransformSelection{ResourceTypes: []string{"sample_groups_data", "sample_rule"}, Notes: []string{}}
 	if !reflect.DeepEqual(defaultSelection, wantDefault) {
-		t.Fatalf("SelectTransformResources(%v) = %+v, want %+v; data referents must stay out of the generated lane", []string{}, defaultSelection, wantDefault)
+		t.Fatalf("SelectTransformResources(%v) = %+v, want %+v; the default lane must include data referents before generated referrers", []string{}, defaultSelection, wantDefault)
 	}
 
 	dataSelection, err := SelectTransformResources(root, []string{"sample_groups_data"})
@@ -357,5 +358,33 @@ func TestDataReferentsStayOutOfGeneratedSelectionLane(t *testing.T) {
 	wantData := TransformSelection{ResourceTypes: []string{"sample_groups_data"}, Notes: []string{}}
 	if !reflect.DeepEqual(dataSelection, wantData) {
 		t.Fatalf("SelectTransformResources(%v) = %+v, want %+v; data referents need their own selectable lane", []string{"sample_groups_data"}, dataSelection, wantData)
+	}
+}
+
+func TestReferenceOrderRefusesDataReferentReferrerAtDefensiveBoundary(t *testing.T) {
+	root := unvalidatedSelectionRoot(metadata.JsonObject{
+		"sample_groups_data": metadata.JsonObject{
+			"target": metadata.JsonObject{"name_field": "name", "referent": "sample_rule"},
+		},
+	})
+	root.Resources = map[string]metadata.LoadedResourceMetadata{
+		"sample_groups_data": {
+			Type:     "sample_groups_data",
+			Provider: "sample",
+			Registry: metadata.JsonObject{"data_referent": true},
+		},
+		"sample_rule": {
+			Type:     "sample_rule",
+			Provider: "sample",
+			Registry: metadata.JsonObject{"generate": true},
+		},
+	}
+
+	result, err := ReferenceOrder(root, []string{"sample_groups_data", "sample_rule"})
+	if err == nil || !strings.Contains(err.Error(), "sample_groups_data") {
+		t.Errorf("ReferenceOrder(data referent referrer) error = %v, want a refusal naming sample_groups_data", err)
+	}
+	if !reflect.DeepEqual(result, TransformSelection{}) {
+		t.Errorf("ReferenceOrder(data referent referrer) result = %+v, want no partial result", result)
 	}
 }

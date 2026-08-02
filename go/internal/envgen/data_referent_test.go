@@ -179,6 +179,25 @@ func (f dataReferentEnvironmentFixture) generate(t *testing.T, stateAware bool, 
 	return string(content)
 }
 
+func TestDataReferentExactSelectorReachesGenEnv(t *testing.T) {
+	fixture := newDataReferentEnvironmentFixture(t, true)
+	outputRoot := fixture.outputRoot
+	result, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, fixture.deploymentPath),
+		FormatHcl:  identityFormatter,
+		OutputRoot: &outputRoot,
+		Root:       fixture.root,
+		Selectors:  []string{fixture.referentType},
+		Tenant:     "tenant",
+	})
+	if err != nil {
+		t.Fatalf("GenerateEnvironmentRoots(%s) error = %v, want exact data-root selection", fixture.referentType, err)
+	}
+	if len(result.Roots) != 1 || result.Roots[0].Label != fixture.referentType || len(result.Roots[0].Members) != 1 || result.Roots[0].Members[0] != fixture.referentType {
+		t.Fatalf("GenerateEnvironmentRoots(%s) roots = %#v, want exactly the selected data root", fixture.referentType, result.Roots)
+	}
+}
+
 func normalizeDataReferentName(content, referentType string) string {
 	return strings.ReplaceAll(content, referentType, "sample_groups_referent")
 }

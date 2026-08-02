@@ -10,6 +10,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
@@ -378,6 +379,20 @@ func RunAdoptBatch(options RunAdoptBatchOptions) (AdoptBatchResult, error) {
 	selection, err := transform.SelectTransformResources(options.Root, options.Selectors)
 	if err != nil {
 		return result, err
+	}
+	for _, resourceType := range selection.ResourceTypes {
+		resource, ok := options.Root.Resources[resourceType]
+		if !ok {
+			continue
+		}
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if dataReferent {
+			return result, procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
+				Code:     "UNSUPPORTED_ADOPTION_RESOURCE",
+				Category: procerr.CategoryDomain,
+				Message:  fmt.Sprintf("adoption does not support data referent %s", resourceType),
+			})
+		}
 	}
 	for _, note := range selection.Notes {
 		write(strings.TrimRight(note, " \t\r\n"))

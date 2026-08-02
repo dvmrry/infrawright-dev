@@ -196,9 +196,6 @@ func syntheticRootWithZpaReferencesAndDataReferent(t *testing.T, zpaReferences m
 			"name_field": "name",
 			"referent":   dataReferentType,
 		}
-		ziaReferences[dataReferentType] = metadata.JsonObject{
-			"name": metadata.JsonObject{"name_field": "configured_name", "referent": "zia_url_categories"},
-		}
 	}
 	writeSyntheticTopologyPack(t, packsRoot, "zia", metadata.JsonObject{
 		"pin":               "1.0.0",

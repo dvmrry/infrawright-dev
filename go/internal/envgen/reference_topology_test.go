@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
@@ -171,8 +172,16 @@ func TestCrossStateTopologyAcceptsDataReferent(t *testing.T) {
 	}
 }
 
-func TestCrossStateTopologySkipsDataReferentReferrer(t *testing.T) {
+func TestCrossStateTopologyRefusesDataReferentReferrerAtDefensiveBoundary(t *testing.T) {
 	root := syntheticRootWithDataReferent(t)
+	manifest := &root.Packs.Manifests[1]
+	if manifest.Name != "zia" {
+		t.Fatalf("data referent fixture manifest[1] = %q, want zia", manifest.Name)
+	}
+	references := manifest.Data["references"].(metadata.JsonObject)
+	references["zia_location_groups"] = metadata.JsonObject{
+		"name": metadata.JsonObject{"name_field": "name", "referent": "zia_url_categories"},
+	}
 	dep := deployment.Deployment{Overlay: "."}
 	topologyResult, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
 		Root: root, Deployment: dep, Selectors: []string{},
@@ -180,16 +189,11 @@ func TestCrossStateTopologySkipsDataReferentReferrer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadedRootTopology(data referent fixture) error = %v, want nil", err)
 	}
-	got, err := ResolveCrossStateReferenceTopology(CrossStateReferenceTopologyOptions{
+	_, err = ResolveCrossStateReferenceTopology(CrossStateReferenceTopologyOptions{
 		Deployment: dep, Root: root, Topology: topologyResult.Topology,
 	})
-	if err != nil {
-		t.Fatalf("ResolveCrossStateReferenceTopology(data referent referrer) error = %v, want nil", err)
-	}
-	for _, edge := range got.Edges {
-		if edge.Referrer == "zia_location_groups" {
-			t.Errorf("ResolveCrossStateReferenceTopology(data referent referrer) emitted edge %#v, want no data-referent referrer edges", edge)
-		}
+	if err == nil || !strings.Contains(err.Error(), "zia_location_groups") {
+		t.Errorf("ResolveCrossStateReferenceTopology(data referent referrer) error = %v, want a refusal naming zia_location_groups", err)
 	}
 }
 

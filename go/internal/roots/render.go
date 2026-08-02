@@ -114,7 +114,7 @@ func RenderLegacyChangedPathScope(scope ChangedPathScope) (string, error) {
 
 // RenderLegacyPlanRoots is the authoritative current plan-roots JSON
 // renderer. The legacy name is retained for the established API surface;
-// schema-v1 fields, including data_referents, are emitted here for every
+// schema-v2 fields, including data_referents, are emitted here for every
 // current caller.
 func RenderLegacyPlanRoots(planRoots PlanRoots) (string, error) {
 	rootsValue := make([]any, len(planRoots.Roots))
@@ -141,7 +141,7 @@ func RenderLegacyPlanRoots(planRoots PlanRoots) (string, error) {
 	}
 	return canonjson.Render(map[string]any{
 		"kind":           string(planRoots.Kind),
-		"schema_version": json.Number("1"),
+		"schema_version": json.Number("2"),
 		"request": map[string]any{
 			"tenant":    nullableString(planRoots.Request.Tenant),
 			"selectors": stringsValue(planRoots.Request.Selectors),

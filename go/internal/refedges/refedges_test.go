@@ -1,7 +1,9 @@
 package refedges_test
 
 import (
+	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
@@ -131,6 +133,26 @@ func TestResolveExplicitFalseEmitsEmptyEdges(t *testing.T) {
 	}
 	if len(got.DependenciesByRoot) != 0 || len(got.OutputsByRoot) != 0 {
 		t.Errorf("refedges.Resolve(explicit false) graph = %+v, want empty dependency/output maps", got)
+	}
+}
+
+func TestResolveRefusesDataReferentReferrerAtDefensiveBoundary(t *testing.T) {
+	root, resourceRoots := multiMemberFixture()
+	references := root.Packs.Manifests[0].Data["references"].(metadata.JsonObject)
+	references["sample_data_a"] = metadata.JsonObject{
+		"target": referenceSpec("sample_data_z"),
+	}
+
+	got, err := refedges.Resolve(refedges.Options{
+		Deployment:    deployment.Deployment{Overlay: "."},
+		Root:          root,
+		ResourceRoots: resourceRoots,
+	})
+	if err == nil || !strings.Contains(err.Error(), "sample_data_a") {
+		t.Errorf("refedges.Resolve(data referent referrer) error = %v, want a refusal naming sample_data_a", err)
+	}
+	if !reflect.DeepEqual(got, refedges.Topology{}) {
+		t.Errorf("refedges.Resolve(data referent referrer) topology = %#v, want no partial topology", got)
 	}
 }
 

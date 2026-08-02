@@ -116,17 +116,14 @@ func referenceGraph(root metadata.LoadedPackRoot, resourceTypes []string) (map[s
 	}
 	references := MergedTransformReferences(root)
 	for _, referrer := range canonjson.SortedStrings(mapKeys(selected)) {
-		if resource, ok := root.Resources[referrer]; ok {
-			if dataReferent, _ := resource.Registry["data_referent"].(bool); dataReferent {
-				// A data referent is a transform target, never a referrer. Keep
-				// its lane separate even if an unvalidated pack happens to carry
-				// a references entry under its type.
-				continue
-			}
-		}
 		fields, ok := references[referrer]
 		if !ok {
 			continue
+		}
+		if resource, ok := root.Resources[referrer]; ok {
+			if dataReferent, _ := resource.Registry["data_referent"].(bool); dataReferent {
+				failf("reference order referrer %s is a data referent and cannot declare references", jsonQuote(referrer))
+			}
 		}
 		for _, field := range canonjson.SortedStrings(mapKeys(fields)) {
 			specification, isRecord := fields[field].(map[string]any)
@@ -241,10 +238,24 @@ func SelectTransformResources(root metadata.LoadedPackRoot, selectors []string) 
 		}
 		resourceTypes = append(resourceTypes, expanded...)
 	}
+	if len(selectors) == 0 {
+		resourceTypes = append(resourceTypes, activeDataReferentTypes(root)...)
+	}
 	for resourceType := range dataReferents {
 		resourceTypes = append(resourceTypes, resourceType)
 	}
 	return referenceOrder(root, resourceTypes), nil
+}
+
+func activeDataReferentTypes(root metadata.LoadedPackRoot) []string {
+	resourceTypes := make([]string, 0)
+	for resourceType, resource := range root.Resources {
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if dataReferent {
+			resourceTypes = append(resourceTypes, resourceType)
+		}
+	}
+	return canonjson.SortedStrings(resourceTypes)
 }
 
 // TransformSourceType ports the exported transformSourceType from

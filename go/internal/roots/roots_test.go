@@ -231,7 +231,7 @@ func TestLoadedResourceShapeSurfacesDataReferent(t *testing.T) {
 	}
 }
 
-func TestLoadedRootTopologyIncludesDataReferentButExpansionRemainsGenerated(t *testing.T) {
+func TestLoadedRootTopologyIncludesDataReferentAndExactExpansionSelectsIt(t *testing.T) {
 	root := metadata.LoadedPackRoot{
 		Packs: metadata.PackMetadata{
 			ProviderPrefixes: map[string]string{"sample_": "sample"},
@@ -283,13 +283,12 @@ func TestLoadedRootTopologyIncludesDataReferentButExpansionRemainsGenerated(t *t
 	if !reflect.DeepEqual(generated, []string{"sample_rule"}) {
 		t.Errorf("ExpandLoadedResources(data referent fixture) mismatch:\n got: %#v\nwant: %#v", generated, []string{"sample_rule"})
 	}
-	_, err = ExpandLoadedResources(root, []string{"sample_groups_data"})
-	pf, ok := asProcessFailure(err)
-	if !ok {
-		t.Fatalf("ExpandLoadedResources(%q) error = %v, want a *procerr.ProcessFailure", "sample_groups_data", err)
+	selected, err := ExpandLoadedResources(root, []string{"sample_groups_data"})
+	if err != nil {
+		t.Fatalf("ExpandLoadedResources(%q) error = %v, want nil", "sample_groups_data", err)
 	}
-	if pf.Code != "UNKNOWN_RESOURCE_SELECTOR" {
-		t.Errorf("ExpandLoadedResources(%q) failure code = %q, want %q", "sample_groups_data", pf.Code, "UNKNOWN_RESOURCE_SELECTOR")
+	if !reflect.DeepEqual(selected, []string{"sample_groups_data"}) {
+		t.Errorf("ExpandLoadedResources(%q) = %#v, want exactly the selected data root", "sample_groups_data", selected)
 	}
 }
 

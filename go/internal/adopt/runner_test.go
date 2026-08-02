@@ -11,6 +11,7 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
 
 func runnerTestRoot(t *testing.T, resourceTypes ...string) metadata.LoadedPackRoot {
@@ -212,6 +213,41 @@ func TestRunAdoptBatchUnsupportedPreflightNeverLoadsState(t *testing.T) {
 	}
 	if tree := snapshotRunnerTree(t, workspace); len(tree) != 0 {
 		t.Fatalf("unsupported preflight published files: %#v", tree)
+	}
+}
+
+func TestRunAdoptBatchDataReferentRejectedBeforeSideEffects(t *testing.T) {
+	workspace := t.TempDir()
+	input := t.TempDir()
+	resourceType := "test_data"
+	root := runnerTestRoot(t, resourceType)
+	resource := root.Resources[resourceType]
+	resource.Registry = metadata.JsonObject{
+		"data_referent": true,
+		"fetch":         metadata.JsonObject{"pagination": "single", "path": "items"},
+		"product":       "test",
+	}
+	root.Resources[resourceType] = resource
+	writeRunnerInput(t, input, resourceType, `[{"id":"1","name":"data"}]`)
+	loaderCalls := 0
+	diagnosticCalls := 0
+	result, err := RunAdoptBatch(RunAdoptBatchOptions{
+		Deployment: runnerTestDeployment(workspace, nil), InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root,
+		Selectors: []string{resourceType}, StateLoader: func(AdoptionStateRequest) (map[string]OracleStateObject, error) {
+			loaderCalls++
+			return map[string]OracleStateObject{"data": {Values: map[string]any{"name": "data"}}}, nil
+		},
+		OnDiagnostic: func(string) { diagnosticCalls++ }, Tenant: "tenant",
+	})
+	var failure *procerr.ProcessFailure
+	if !errors.As(err, &failure) || failure.Code != "UNSUPPORTED_ADOPTION_RESOURCE" || !strings.Contains(failure.Message, resourceType) {
+		t.Fatalf("RunAdoptBatch(data referent) error = %v, want classified refusal naming %s", err, resourceType)
+	}
+	if loaderCalls != 0 || diagnosticCalls != 0 || !reflect.DeepEqual(result, AdoptBatchResult{Failed: []string{}, Processed: []string{}, Skipped: []string{}}) {
+		t.Fatalf("RunAdoptBatch(data referent) side effects/result = loader=%d diagnostics=%d result=%#v, want zero callbacks and empty result", loaderCalls, diagnosticCalls, result)
+	}
+	if tree := snapshotRunnerTree(t, workspace); len(tree) != 0 {
+		t.Fatalf("data referent adoption published files: %#v", tree)
 	}
 }
 

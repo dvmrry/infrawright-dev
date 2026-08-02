@@ -14,7 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-const qualificationGeneratedResourceCount = 152
+const qualificationRootBearingResourceCount = 152
 
 const qualificationBackendKeysSHA256 = "5e070d3da4320c0f4a1023fd438e0d62765f6ab3d0c896fda526bd227c0e78cc"
 
@@ -44,8 +44,8 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadPackRoot(full profile) = %v, want nil", err)
 	}
-	if got := len(loaded.Resources); got != qualificationGeneratedResourceCount {
-		t.Fatalf("LoadPackRoot(full profile) generated resource count = %d, want %d", got, qualificationGeneratedResourceCount)
+	if got := len(loaded.Resources); got != qualificationRootBearingResourceCount {
+		t.Fatalf("LoadPackRoot(full profile) root-bearing resource count = %d, want %d", got, qualificationRootBearingResourceCount)
 	}
 
 	result, err := LoadedRootTopology(LoadedRootTopologyOptions{
@@ -58,8 +58,8 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 	if got := len(result.Diagnostics); got != 0 {
 		t.Errorf("LoadedRootTopology(full profile) diagnostics = %#v, want none", result.Diagnostics)
 	}
-	if got := len(result.Topology.Roots); got != qualificationGeneratedResourceCount {
-		t.Fatalf("LoadedRootTopology(full profile) root count = %d, want %d", got, qualificationGeneratedResourceCount)
+	if got := len(result.Topology.Roots); got != qualificationRootBearingResourceCount {
+		t.Fatalf("LoadedRootTopology(full profile) root-bearing resource count = %d, want %d", got, qualificationRootBearingResourceCount)
 	}
 
 	currentBackendKeys := make([]string, 0, len(result.Topology.Roots))
@@ -101,8 +101,8 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 	if !sort.StringsAreSorted(labels) {
 		t.Errorf("LoadedRootTopology(full profile) root labels = %v, want sorted labels", labels)
 	}
-	if got := len(result.Topology.ResourceRoots); got != qualificationGeneratedResourceCount {
-		t.Errorf("LoadedRootTopology(full profile) resource_roots count = %d, want %d identity mappings", got, qualificationGeneratedResourceCount)
+	if got := len(result.Topology.ResourceRoots); got != qualificationRootBearingResourceCount {
+		t.Errorf("LoadedRootTopology(full profile) root-bearing resource_roots count = %d, want %d identity mappings", got, qualificationRootBearingResourceCount)
 	}
 	for resourceType, label := range result.Topology.ResourceRoots {
 		if resourceType != label {
@@ -150,7 +150,7 @@ func TestSelectedPackSingletonTopologyMatchesSelectedResources(t *testing.T) {
 		t.Errorf("LoadedRootTopology(synthetic pack) diagnostics = %#v, want none", result.Diagnostics)
 	}
 	if got := len(result.Topology.Roots); got != len(wantResourceTypes) {
-		t.Fatalf("LoadedRootTopology(synthetic pack) root count = %d, want selected generated resource count %d", got, len(wantResourceTypes))
+		t.Fatalf("LoadedRootTopology(synthetic pack) root count = %d, want selected root-bearing resource count %d", got, len(wantResourceTypes))
 	}
 
 	labels := make([]string, 0, len(result.Topology.Roots))

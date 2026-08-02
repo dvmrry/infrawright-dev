@@ -52,15 +52,19 @@ func Resolve(options Options) (Topology, error) {
 	references := mergedReferences(options.Root)
 	for _, referrer := range canonjson.SortedStrings(mapKeysOfReferences(references)) {
 		referrerResource, ok := options.Root.Resources[referrer]
-		if !ok || deployment.DeploymentReferenceBindingMode(options.Deployment, referrerResource.Provider) != deployment.ReferenceBindingCrossState {
+		if !ok {
+			continue
+		}
+		if dataReferent(options.Root, referrer) {
+			return Topology{}, fmt.Errorf(
+				"cross-state reference referrer %s is a data referent and cannot declare references",
+				referrer,
+			)
+		}
+		if deployment.DeploymentReferenceBindingMode(options.Deployment, referrerResource.Provider) != deployment.ReferenceBindingCrossState {
 			continue
 		}
 		if !generatedNonDerived(options.Root, referrer) {
-			// Data referents are never referrers: a reference declared FROM
-			// one mints no edge and is skipped rather than refused.
-			if dataReferent(options.Root, referrer) {
-				continue
-			}
 			return Topology{}, fmt.Errorf(
 				"cross-state reference referrer %s must be a generated non-derived resource",
 				referrer,

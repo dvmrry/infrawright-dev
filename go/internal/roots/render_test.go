@@ -7,7 +7,7 @@ func TestRenderLegacyPlanRootsPinsEmptyAndNonEmptyDataReferents(t *testing.T) {
 	provider := "sample"
 	got, err := RenderLegacyPlanRoots(PlanRoots{
 		Kind:          "infrawright.plan_roots",
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Request:       PlanRootsRequest{Tenant: &tenant, Selectors: []string{}},
 		Roots: []MaterializedPlanRoot{
 			{
@@ -85,7 +85,7 @@ func TestRenderLegacyPlanRootsPinsEmptyAndNonEmptyDataReferents(t *testing.T) {
       "tenant": "tenant"
     }
   ],
-  "schema_version": 1
+  "schema_version": 2
 }
 `
 	if got != want {

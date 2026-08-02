@@ -341,7 +341,7 @@ func planRootsFromTopologies(options planRootsFromTopologiesOptions) PlanRootsRe
 	return PlanRootsResult{
 		Result: PlanRoots{
 			Kind:          "infrawright.plan_roots",
-			SchemaVersion: 1,
+			SchemaVersion: 2,
 			Request:       PlanRootsRequest{Tenant: options.tenant, Selectors: selectors},
 			Roots:         roots,
 		},

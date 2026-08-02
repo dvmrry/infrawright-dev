@@ -273,7 +273,8 @@ func resolveRoots(dep deployment.Deployment, index resourceIndex) resolution {
 	return res
 }
 
-// expandResources resolves type and product selectors to generated resources.
+// expandResources resolves type selectors to generated or data-referent
+// resources, while product and provider/bare selectors remain generated-only.
 func expandResources(selectors []string, index resourceIndex) []string {
 	if len(selectors) == 0 {
 		generatedTypes := make([]string, 0, len(index.generated))
@@ -286,6 +287,10 @@ func expandResources(selectors []string, index resourceIndex) []string {
 	var unknown []string
 	for _, selector := range selectors {
 		if _, ok := index.generated[selector]; ok {
+			selected[selector] = struct{}{}
+			continue
+		}
+		if _, ok := index.dataReferents[selector]; ok {
 			selected[selector] = struct{}{}
 			continue
 		}

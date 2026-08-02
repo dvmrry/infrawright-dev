@@ -92,6 +92,42 @@ func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
 	}
 }
 
+func TestLoadPackRootRejectsDataReferentReferenceReferrer(t *testing.T) {
+	directory := t.TempDir()
+	writeJSONFile(t, filepath.Join(directory, "sample", "pack.json"), JsonObject{
+		"pin":               "1.0.0",
+		"provider_prefixes": JsonObject{"sample_": "sample"},
+		"provider_sources":  JsonObject{"sample": "example/sample"},
+		"lookup_sources": JsonObject{
+			"sample_data": JsonObject{"name_field": "name"},
+		},
+		"references": JsonObject{
+			"sample_data": JsonObject{
+				"target_id": JsonObject{"name_field": "name", "referent": "sample_target"},
+			},
+		},
+	})
+	writeJSONFile(t, filepath.Join(directory, "sample", "registry.json"), JsonObject{
+		"sample_data": JsonObject{
+			"data_referent": true,
+			"fetch":         JsonObject{"pagination": "single", "path": "items"},
+			"product":       "sample",
+		},
+		"sample_target": JsonObject{"product": "sample"},
+	})
+	writeJSONFile(t, filepath.Join(directory, "sample", "schemas", "provider", "sample.json"), JsonObject{
+		"resource_schemas": JsonObject{},
+		"data_source_schemas": JsonObject{
+			"sample_data": JsonObject{},
+		},
+	})
+
+	_, err := LoadPackRoot(LoadPackRootOptions{PacksRoot: directory})
+	if err == nil || !strings.Contains(err.Error(), "references.sample_data.target_id") || !strings.Contains(err.Error(), "sample_data") {
+		t.Fatalf("LoadPackRoot(data referent referrer) error = %v, want a refusal naming references.sample_data.target_id and sample_data", err)
+	}
+}
+
 // TestProviderSchemasResolveThroughPackOwnership ports "provider schemas
 // resolve through pack ownership and fail on misspellings".
 func TestProviderSchemasResolveThroughPackOwnership(t *testing.T) {

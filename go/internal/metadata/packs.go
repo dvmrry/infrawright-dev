@@ -384,6 +384,57 @@ func validateDataReferentSurfaces(packMetadata PackMetadata, resources map[strin
 	}
 }
 
+// validateDataReferentReferences rejects the effective merged reference table
+// when a data referent appears as a referrer. Data referents are lookup/input
+// producers, never Terraform configuration owners, so allowing a declaration
+// here would make downstream topology and transform ordering silently drop an
+// edge. The merge follows active manifest order and field overwrite semantics
+// used by refedges and transform.
+func validateDataReferentReferences(packMetadata PackMetadata, activePacks []string, resources map[string]LoadedResourceMetadata) {
+	active := make(map[string]struct{}, len(activePacks))
+	for _, pack := range activePacks {
+		active[pack] = struct{}{}
+	}
+	effective := make(map[string]map[string]struct{})
+	for _, manifest := range packMetadata.Manifests {
+		if _, ok := active[manifest.Name]; !ok {
+			continue
+		}
+		references, ok := manifest.Data["references"].(JsonObject)
+		if !ok {
+			continue
+		}
+		for _, referrer := range sortedKeys(references) {
+			fields, ok := references[referrer].(JsonObject)
+			if !ok {
+				continue
+			}
+			if effective[referrer] == nil {
+				effective[referrer] = make(map[string]struct{})
+			}
+			for _, field := range sortedKeys(fields) {
+				effective[referrer][field] = struct{}{}
+			}
+		}
+	}
+	for _, referrer := range sortedMapKeys(effective) {
+		resource, ok := resources[referrer]
+		if !ok {
+			continue
+		}
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if !dataReferent {
+			continue
+		}
+		for _, field := range sortedMapKeys(effective[referrer]) {
+			failf(
+				"references.%s.%s: %s is a data referent and cannot declare references",
+				referrer, field, jsonQuote(referrer),
+			)
+		}
+	}
+}
+
 func validateReferences(value JsonObject, source string) {
 	for _, resourceType := range sortedKeys(value) {
 		rawFields := value[resourceType]
