@@ -188,22 +188,85 @@ func (adapter *planTerraformAdapter) Initialize(request PlanTerraformRequest) er
 // policy from the original implementation.
 func (adapter *planTerraformAdapter) Plan(request PlanTerraformRequest) error {
 	request = clonePlanTerraformRequest(request)
-	argv := []string{"plan", "-input=false"}
+	argv := []string{"plan", "-input=false", "-refresh=true"}
 	for _, file := range request.VarFiles {
 		argv = append(argv, "-var-file="+file)
 	}
 	if request.Save {
 		argv = append(argv, "-out=tfplan")
 	}
-	_, err := adapter.run(terraformcmd.TerraformCommandOptions{
+	if _, err := adapter.run(terraformcmd.TerraformCommandOptions{
 		TerraformExecutable: adapter.terraformExecutable,
 		Argv:                argv,
 		CWD:                 request.Directory,
 		Environment:         adapter.commandEnvironment(request.Environment),
 		Limits:              cloneTerraformLimits(adapter.limits),
 		Output:              terraformcmd.TerraformCommandOutputInherit,
+	}); err != nil {
+		return err
+	}
+	if !request.Save {
+		return nil
+	}
+
+	saved := savedLifecyclePaths(request.Directory)
+	planSHA256, err := planFileSHA256(saved.plan)
+	if err != nil {
+		return lifecycleFailure(
+			"MISSING_SAVED_PLAN",
+			"Terraform did not write a regular tfplan for attestation",
+			procerr.CategoryDomain,
+		)
+	}
+	versionResult, err := adapter.run(terraformcmd.TerraformCommandOptions{
+		TerraformExecutable: adapter.terraformExecutable,
+		Argv:                []string{"version"},
+		CWD:                 request.Directory,
+		Environment:         adapter.commandEnvironment(request.Environment),
+		Limits:              cloneTerraformLimits(adapter.limits),
+		Output:              terraformcmd.TerraformCommandOutputCapture,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	terraformVersion, err := terraformVersionFromOutput(versionResult.Stdout)
+	if err != nil {
+		return lifecycleFailure(
+			"UNQUALIFIED_TERRAFORM_VERSION",
+			err.Error(),
+			procerr.CategoryDomain,
+		)
+	}
+	if err := WritePlanCreationAttestation(saved.attestation, PlanCreationAttestation{
+		FormatVersion:    PlanCreationAttestationVersion,
+		TerraformVersion: terraformVersion,
+		PlanArgv:         argv,
+		Refresh:          true,
+		PlanSHA256:       planSHA256,
+	}); err != nil {
+		return lifecycleFailure(
+			"WRITE_PLAN_ATTESTATION_FAILED",
+			"unable to write the saved-plan creation attestation",
+			procerr.CategoryIO,
+		)
+	}
+	return nil
+}
+
+func terraformVersionFromOutput(output []byte) (string, error) {
+	lines := normalizedLifecycleLines(string(output))
+	if len(lines) == 0 {
+		return "", errors.New("Terraform version output is empty")
+	}
+	line := strings.TrimSpace(lines[0])
+	if !strings.HasPrefix(line, "Terraform v") {
+		return "", errors.New("Terraform version output does not begin with Terraform v")
+	}
+	version := strings.TrimPrefix(line, "Terraform v")
+	if !qualifiedTerraformVersions[version] {
+		return "", fmt.Errorf("Terraform version %q is not capture-qualified (qualified: 1.15.4)", version)
+	}
+	return version, nil
 }
 
 func lifecycleExists(candidate string) bool {
@@ -350,14 +413,16 @@ func lifecycleFingerprintText(fingerprint PlanFingerprintV2) string {
 }
 
 type lifecycleSavedPaths struct {
-	plan    string
-	sources string
+	plan        string
+	sources     string
+	attestation string
 }
 
 func savedLifecyclePaths(directory string) lifecycleSavedPaths {
 	return lifecycleSavedPaths{
-		plan:    filepath.Join(directory, "tfplan"),
-		sources: filepath.Join(directory, "tfplan.sources"),
+		plan:        filepath.Join(directory, "tfplan"),
+		sources:     filepath.Join(directory, "tfplan.sources"),
+		attestation: SavedPlanAttestationPath(filepath.Join(directory, "tfplan")),
 	}
 }
 
@@ -373,7 +438,11 @@ func RemoveSavedPlanArtifacts(directory string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return planRemoved || sourcesRemoved, nil
+	attestationRemoved, err := removeLifecycleFileIfPresent(saved.attestation)
+	if err != nil {
+		return false, err
+	}
+	return planRemoved || sourcesRemoved || attestationRemoved, nil
 }
 
 func noteWholeRoot(diagnostic roots.WholeRootDiagnostic, onDiagnostic func(string)) {
@@ -683,8 +752,8 @@ func PlanEnvironmentRoots(options PlanEnvironmentRootsOptions) (PlanRunResult, e
 	return PlanRunResult{Planned: planned}, nil
 }
 
-// CleanPlans ports cleanPlans from the original implementation and
-// removes only tfplan/tfplan.sources pairs from selected materialized roots.
+// CleanPlans ports cleanPlans from the original implementation and removes
+// only saved-plan artifacts from selected materialized roots.
 func CleanPlans(options CleanPlansOptions) (CleanPlansResult, error) {
 	if options.Tenant != nil {
 		if err := roots.ValidateTenant(*options.Tenant); err != nil {
@@ -716,7 +785,7 @@ func CleanPlans(options CleanPlansOptions) (CleanPlansResult, error) {
 			noteWholeRoot(diagnostic, onDiagnostic)
 		}
 		removedAny := false
-		for _, name := range []string{"tfplan", "tfplan.sources"} {
+		for _, name := range []string{"tfplan", "tfplan.sources", "tfplan.attestation"} {
 			logical := path.Join(selectedRoot.EnvDir, name)
 			wasRemoved, err := removeLifecycleFileIfPresent(
 				lifecycleWorkspacePath(options.Workspace, logical),

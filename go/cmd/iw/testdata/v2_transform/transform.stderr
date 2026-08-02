@@ -48,6 +48,7 @@ skip zia_forwarding_control_zpa_gateway (no <REPOSITORY>/packs/_shared/zscaler/d
 skip zia_http_header_action_profile (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_http_header_action_profile.json)
 skip zia_http_header_profile (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_http_header_profile.json)
 skip zia_ips_signature_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_ips_signature_rules.json)
+skip zia_location_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_location_groups.json)
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_location_management.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_location_management_imports.tf
 skip zia_mobile_malware_protection_policy (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_mobile_malware_protection_policy.json)

@@ -120,6 +120,11 @@ func referenceGraph(root metadata.LoadedPackRoot, resourceTypes []string) (map[s
 		if !ok {
 			continue
 		}
+		if resource, ok := root.Resources[referrer]; ok {
+			if dataReferent, _ := resource.Registry["data_referent"].(bool); dataReferent {
+				failf("reference order referrer %s is a data referent and cannot declare references", jsonQuote(referrer))
+			}
+		}
 		for _, field := range canonjson.SortedStrings(mapKeys(fields)) {
 			specification, isRecord := fields[field].(map[string]any)
 			if !isRecord {
@@ -206,11 +211,87 @@ func ReferenceOrder(root metadata.LoadedPackRoot, resourceTypes []string) (resul
 // selectors, then order referents before referrers."
 func SelectTransformResources(root metadata.LoadedPackRoot, selectors []string) (result TransformSelection, err error) {
 	defer recoverErr(&err)
-	resourceTypes, expandErr := roots.ExpandLoadedResources(root, selectors)
-	if expandErr != nil {
-		return TransformSelection{}, expandErr
+	// roots.ExpandLoadedResources intentionally exposes only the generated
+	// lane. Data referents are explicit transform targets, but they must not
+	// enter that lane (or become selectable as referrers) merely because their
+	// root exists. Partition exact data-referent selectors before asking roots
+	// to expand the ordinary generated selectors.
+	dataReferents := map[string]struct{}{}
+	generatedSelectors := selectors
+	if len(selectors) > 0 {
+		generatedSelectors = make([]string, 0, len(selectors))
+		for _, selector := range selectors {
+			resource, ok := root.Resources[selector]
+			dataReferent, isDataReferent := resource.Registry["data_referent"].(bool)
+			if ok && isDataReferent && dataReferent {
+				dataReferents[selector] = struct{}{}
+				continue
+			}
+			generatedSelectors = append(generatedSelectors, selector)
+		}
+	}
+	resourceTypes := []string{}
+	if len(selectors) == 0 || len(generatedSelectors) > 0 {
+		expanded, expandErr := roots.ExpandLoadedResources(root, generatedSelectors)
+		if expandErr != nil {
+			return TransformSelection{}, expandErr
+		}
+		resourceTypes = append(resourceTypes, expanded...)
+	}
+	if len(selectors) == 0 {
+		resourceTypes = append(resourceTypes, activeDataReferentTypes(root)...)
+	}
+	for resourceType := range dataReferents {
+		resourceTypes = append(resourceTypes, resourceType)
 	}
 	return referenceOrder(root, resourceTypes), nil
+}
+
+// SelectAdoptionResources expands the adoption lane. Its implicit batch is
+// generated-only: data referents are root targets and transform inputs, but
+// they are never adoption candidates. An explicit exact data selector is
+// retained in the result so adopt can issue its classified refusal before any
+// state, diagnostic, or artifact side effect; mixed explicit selectors are
+// therefore whole-request refusals as well.
+func SelectAdoptionResources(root metadata.LoadedPackRoot, selectors []string) (result TransformSelection, err error) {
+	defer recoverErr(&err)
+	dataReferents := map[string]struct{}{}
+	generatedSelectors := selectors
+	if len(selectors) > 0 {
+		generatedSelectors = make([]string, 0, len(selectors))
+		for _, selector := range selectors {
+			resource, ok := root.Resources[selector]
+			dataReferent, isDataReferent := resource.Registry["data_referent"].(bool)
+			if ok && isDataReferent && dataReferent {
+				dataReferents[selector] = struct{}{}
+				continue
+			}
+			generatedSelectors = append(generatedSelectors, selector)
+		}
+	}
+	resourceTypes := []string{}
+	if len(selectors) == 0 || len(generatedSelectors) > 0 {
+		expanded, expandErr := roots.ExpandLoadedResources(root, generatedSelectors)
+		if expandErr != nil {
+			return TransformSelection{}, expandErr
+		}
+		resourceTypes = append(resourceTypes, expanded...)
+	}
+	for resourceType := range dataReferents {
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+	return referenceOrder(root, resourceTypes), nil
+}
+
+func activeDataReferentTypes(root metadata.LoadedPackRoot) []string {
+	resourceTypes := make([]string, 0)
+	for resourceType, resource := range root.Resources {
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		if dataReferent {
+			resourceTypes = append(resourceTypes, resourceType)
+		}
+	}
+	return canonjson.SortedStrings(resourceTypes)
 }
 
 // TransformSourceType ports the exported transformSourceType from
@@ -220,8 +301,12 @@ func TransformSourceType(root metadata.LoadedPackRoot, resourceType string) (sou
 	defer recoverErr(&err)
 	resource, ok := root.Resources[resourceType]
 	generate, _ := resource.Registry["generate"].(bool)
-	if !ok || !generate {
+	dataReferent, _ := resource.Registry["data_referent"].(bool)
+	if !ok || (!generate && !dataReferent) {
 		failf("unknown or non-generated transform resource %s", jsonQuote(resourceType))
+	}
+	if dataReferent {
+		return resourceType, nil
 	}
 	if derive, isRecord := resource.Registry["derive"].(map[string]any); isRecord {
 		if from, isString := derive["from"].(string); isString {

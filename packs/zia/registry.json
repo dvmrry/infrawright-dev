@@ -473,6 +473,14 @@
     "generate": true,
     "product": "zia"
   },
+  "zia_location_groups": {
+    "data_referent": true,
+    "fetch": {
+      "pagination": "zia",
+      "path": "locations/groups"
+    },
+    "product": "zia"
+  },
   "zia_location_management": {
     "fetch": {
       "pagination": "zia",

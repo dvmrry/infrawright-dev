@@ -29,7 +29,7 @@ export INFRAWRIGHT_DEPLOYMENT
 # One declaration. The two that were here had drifted -- only the first listed
 # `refresh`, only the second listed `check-config` -- and neither listed
 # `check-schema-parity`, which is a real target.
-.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-schema-parity check-distribution check-retired-runtime v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env refresh transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-schema-parity check-distribution check-retired-runtime v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go regen-plan-captures fetch fetch-diag gen-env refresh transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/iw: $(GO_BUILD_INPUTS)
 	@mkdir -p dist
@@ -141,6 +141,51 @@ test: test-go ## Default repository tests use the current Go authority
 
 test-go: ## Run the complete Go authority suite
 	cd go && $(GO) test -count=1 ./...
+
+CAPTURE_DIR := go/internal/plan/testdata/provider_double_capture
+
+regen-plan-captures: ## Regenerate provider-double capture fixtures (needs Terraform v1.15.4; the Go plan suite is the gate of record)
+	@test "$$(terraform version | sed -n 1p)" = "Terraform v1.15.4" || \
+		{ echo "regen-plan-captures requires Terraform v1.15.4"; exit 1; }
+	@mkdir -p .provider-double-bin
+	@cd go/internal/plan/testdata/provider-double && \
+		$(GO) build -o "$(CURDIR)/.provider-double-bin/terraform-provider-capture" .
+	@set -eu; work="$$(mktemp -d)"; trap 'rm -rf "$$work"' EXIT; \
+	sed "s|/PROVIDER_DOUBLE_BIN_DIR|$(CURDIR)/.provider-double-bin|" \
+		"$(CAPTURE_DIR)/dev_overrides.tfrc" > "$$work/dev.tfrc"; \
+	export TF_CLI_CONFIG_FILE="$$work/dev.tfrc" TF_IN_AUTOMATION=1 TF_INPUT=0 \
+		CHECKPOINT_DISABLE=1 TZ=UTC LANG=C LC_ALL=C INFRAWRIGHT_CAPTURE_ID_VERSION=v1; \
+	unset TF_CLI_ARGS TF_CLI_ARGS_init TF_CLI_ARGS_plan TF_CLI_ARGS_apply \
+		TF_WORKSPACE TF_DATA_DIR TF_LOG TF_LOG_PATH || true; \
+	prepare() { rm -rf "$$work/$$1"; cp -R "$(CURDIR)/$(CAPTURE_DIR)/$$1" "$$work/$$1"; \
+		cd "$$work/$$1"; terraform init -backend=false -input=false -no-color > init.log 2>&1; }; \
+	prepare initial_create; \
+	terraform plan -input=false -no-color -refresh=true -out=p.tfplan > p.log 2>&1; \
+	terraform show -json p.tfplan > "$(CURDIR)/$(CAPTURE_DIR)/initial_create/show.json"; \
+	prepare no_op; \
+	terraform apply -auto-approve -input=false -no-color > a.log 2>&1; \
+	terraform plan -input=false -no-color -refresh=true -out=p.tfplan > p.log 2>&1; \
+	terraform show -json p.tfplan > "$(CURDIR)/$(CAPTURE_DIR)/no_op/show.json"; \
+	prepare refresh_id_change; \
+	terraform apply -auto-approve -input=false -no-color > a.log 2>&1; \
+	INFRAWRIGHT_CAPTURE_ID_VERSION=v2 terraform plan -input=false -no-color -refresh=true -out=p.tfplan > p.log 2>&1; \
+	INFRAWRIGHT_CAPTURE_ID_VERSION=v2 terraform show -json p.tfplan > "$(CURDIR)/$(CAPTURE_DIR)/refresh_id_change/show.json"; \
+	prepare rekey_refusal; \
+	terraform apply -auto-approve -input=false -no-color > a.log 2>&1; \
+	terraform plan -input=false -no-color -refresh=true -var output_prefix=changed- -out=p.tfplan > p.log 2>&1; \
+	terraform show -json p.tfplan > "$(CURDIR)/$(CAPTURE_DIR)/rekey_refusal/show.json"; \
+	prepare empty_for_each; \
+	terraform plan -input=false -no-color -refresh=true -out=p.tfplan > p.log 2>&1; \
+	terraform show -json p.tfplan > "$(CURDIR)/$(CAPTURE_DIR)/empty_for_each/show.json"; \
+	prepare refresh_false; \
+	terraform apply -auto-approve -input=false -no-color > a.log 2>&1; \
+	INFRAWRIGHT_CAPTURE_ID_VERSION=v2 terraform plan -input=false -no-color -refresh=false -out=p.tfplan > p.log 2>&1; \
+	INFRAWRIGHT_CAPTURE_ID_VERSION=v2 terraform show -json p.tfplan > "$(CURDIR)/$(CAPTURE_DIR)/refresh_false/show.json"; \
+	prepare refresh_true; \
+	terraform apply -auto-approve -input=false -no-color > a.log 2>&1; \
+	INFRAWRIGHT_CAPTURE_ID_VERSION=v2 terraform plan -input=false -no-color -refresh=true -out=p.tfplan > p.log 2>&1; \
+	terraform show -json p.tfplan > "$(CURDIR)/$(CAPTURE_DIR)/refresh_true/show.json"; \
+	echo ALL-CAPTURED
 
 fetch: dist/iw ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }

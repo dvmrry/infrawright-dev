@@ -61,6 +61,9 @@
     }
   },
   "lookup_sources": {
+    "zia_location_groups": {
+      "name_field": "name"
+    },
     "zia_url_categories": {
       "name_field": "configured_name"
     }
@@ -109,6 +112,10 @@
       "labels.id": {
         "referent": "zia_rule_labels",
         "name_field": "name"
+      },
+      "location_groups.id": {
+        "referent": "zia_location_groups",
+        "name_field": "name"
       }
     },
     "zia_cloud_nss_feed": {
@@ -136,6 +143,10 @@
       },
       "labels.id": {
         "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "location_groups.id": {
+        "referent": "zia_location_groups",
         "name_field": "name"
       },
       "url_categories.id": {
@@ -308,6 +319,10 @@
         "referent": "zia_rule_labels",
         "name_field": "name"
       },
+      "location_groups.id": {
+        "referent": "zia_location_groups",
+        "name_field": "name"
+      },
       "url_categories": {
         "referent": "zia_url_categories",
         "name_field": "configured_name"
@@ -358,6 +373,10 @@
       },
       "labels.id": {
         "referent": "zia_rule_labels",
+        "name_field": "name"
+      },
+      "location_groups.id": {
+        "referent": "zia_location_groups",
         "name_field": "name"
       },
       "url_categories": {

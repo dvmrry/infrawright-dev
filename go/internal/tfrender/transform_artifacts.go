@@ -196,6 +196,30 @@ type TransformLookupData struct {
 	KeyByID map[string]string
 }
 
+// TransformLookupShape selects the on-disk shape emitted for a transform
+// lookup sidecar. The legacy shape preserves the generated lane's historical
+// empty/flat output; the nested shape is required by data-referent consumers.
+type TransformLookupShape uint8
+
+const (
+	// TransformLookupShapeLegacy preserves the generated lane's existing bytes.
+	TransformLookupShapeLegacy TransformLookupShape = iota
+	// TransformLookupShapeNested always emits by_id, id_by_key, and key_by_id.
+	TransformLookupShapeNested
+)
+
+// TransformArtifactMode selects the artifact lane compiled and published for
+// one resource. The zero value is the generated lane for compatibility with
+// existing callers that predate the data-referent lane.
+type TransformArtifactMode uint8
+
+const (
+	// TransformArtifactModeGenerated publishes the ordinary resource artifacts.
+	TransformArtifactModeGenerated TransformArtifactMode = iota
+	// TransformArtifactModeDataReferent publishes config and lookup only.
+	TransformArtifactModeDataReferent
+)
+
 // TransformArtifactCompileOptions is the Go analogue of the
 // TransformArtifactCompileOptions interface in
 // the original implementation.
@@ -219,6 +243,7 @@ type TransformLookupData struct {
 // against injected lookup data without writing sidecars to disk. Production
 // callers leave it nil and resolve lookups from the config directory.
 type TransformArtifactCompileOptions struct {
+	ArtifactMode           TransformArtifactMode
 	BindingContext         BindingContext
 	Deployment             deployment.Deployment
 	LookupNameField        *string
@@ -238,6 +263,7 @@ type TransformArtifactCompileOptions struct {
 // the original implementation: "fully preflighted transform
 // output; pass this to the publish functions."
 type CompiledTransformArtifacts struct {
+	ArtifactMode           TransformArtifactMode
 	Binding                GeneratedBindingsResult
 	ConfigText             string
 	ExistingMoves          *string
@@ -395,11 +421,24 @@ func lookupIdentity(value any) (*string, error) {
 
 // RenderTransformLookup ports renderTransformLookup from
 // the original implementation: "render Python's transform
-// lookup sidecar, including last-key-wins IDs."
+// lookup sidecar, including last-key-wins IDs." It preserves the generated
+// lane's legacy empty/flat shape.
 func RenderTransformLookup(items, originals map[string]map[string]any, nameField string) (string, error) {
+	return RenderTransformLookupWithShape(items, originals, nameField, TransformLookupShapeLegacy)
+}
+
+// RenderTransformLookupWithShape renders a lookup sidecar with an explicit
+// shape. Data-referent publication uses TransformLookupShapeNested so an
+// empty successful fetch still has all three resolver maps.
+func RenderTransformLookupWithShape(
+	items, originals map[string]map[string]any,
+	nameField string,
+	shape TransformLookupShape,
+) (string, error) {
 	byID := map[string]any{}
 	idByKey := map[string]any{}
 	keyByID := map[string]any{}
+	seenDataIDs := map[string]string{}
 	for _, key := range canonjson.SortedStrings(mapKeys(items)) {
 		projected, ok := items[key]
 		if !ok {
@@ -417,7 +456,30 @@ func RenderTransformLookup(items, originals map[string]map[string]any, nameField
 			return "", err
 		}
 		if ident == nil {
+			if shape == TransformLookupShapeNested {
+				return "", fmt.Errorf(
+					"data referent lookup key %s has an empty canonical ID",
+					jsonQuote(key),
+				)
+			}
 			continue
+		}
+		if shape == TransformLookupShapeNested && strings.TrimSpace(*ident) == "" {
+			return "", fmt.Errorf(
+				"data referent lookup key %s has an empty canonical ID",
+				jsonQuote(key),
+			)
+		}
+		// Nested shape is the data-referent lane. Keep the legacy flat
+		// renderer's last-key-wins behavior unchanged.
+		if shape == TransformLookupShapeNested {
+			if previousKey, exists := seenDataIDs[*ident]; exists {
+				return "", fmt.Errorf(
+					"duplicate data referent canonical ID %s for keys %s and %s; IDs must be unique",
+					jsonQuote(*ident), jsonQuote(previousKey), jsonQuote(key),
+				)
+			}
+			seenDataIDs[*ident] = key
 		}
 		display, isString := merged[nameField].(string)
 		text := "<unknown>"
@@ -429,7 +491,7 @@ func RenderTransformLookup(items, originals map[string]map[string]any, nameField
 		keyByID[*ident] = key
 	}
 	var payload map[string]any
-	if len(keyByID) == 0 {
+	if shape != TransformLookupShapeNested && len(keyByID) == 0 {
 		payload = byID
 	} else {
 		payload = map[string]any{"by_id": byID, "id_by_key": idByKey, "key_by_id": keyByID}
@@ -1736,9 +1798,9 @@ func tokenKeyDependents(
 // publication transaction, and this repository has no such invocation path:
 // the transform and adopt runners compile and publish each type immediately
 // and independently and continue past a later member that skips or fails
-// (round-3 re-review's deterministic repro). A selection-scoped exemption
-// therefore published the new lookup and then simply did not repair the
-// dependent.
+// (round-3 re-review's deterministic repro), and even the batch helper's
+// rollback is best-effort. A selection-scoped exemption therefore published
+// the new lookup and then simply did not repair the dependent.
 //
 // The compiling type's OWN config is scanned too, on both sides of the write.
 // It was briefly skipped on the argument that a type never mints a token
@@ -2120,9 +2182,10 @@ func lookupKeyMaps(
 
 // LookupKeyMaps exposes lookupKeyMaps to render-time binding derivation
 // (gen-env, once the committed generated-bindings cache became optional).
-// Only the on-disk arm is offered: the override map is a test seam (see
-// TransformArtifactCompileOptions.LookupOverrides), and the renderer must
-// read exactly the lookups that are committed. Keeping this a delegation rather
+// Only the on-disk arm is offered: the override map exists for a compile
+// batch whose members' fresh lookups are authoritative for same-batch
+// references, and no such batch exists at render time -- the renderer reads
+// exactly the lookups that are committed. Keeping this a delegation rather
 // than a second lookup reader is what guarantees the derivation gen-env runs
 // sees byte-identical key maps to the one transform ran, including a
 // referent whose lookup is absent (a nil entry, which the deriver reports as
@@ -2140,7 +2203,13 @@ func compileLookup(options TransformArtifactCompileOptions) (*TransformLookupDat
 	if options.LookupNameField == nil {
 		return nil, nil, nil
 	}
-	text, err := RenderTransformLookup(options.Result.Items, options.Result.Originals, *options.LookupNameField)
+	shape := TransformLookupShapeLegacy
+	if options.ArtifactMode == TransformArtifactModeDataReferent {
+		shape = TransformLookupShapeNested
+	}
+	text, err := RenderTransformLookupWithShape(
+		options.Result.Items, options.Result.Originals, *options.LookupNameField, shape,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2167,6 +2236,34 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	freshLookup, lookupText, err := compileLookup(options)
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
+	}
+	if options.ArtifactMode == TransformArtifactModeDataReferent {
+		configText, err := renderDeploymentTfvars(
+			options.Deployment, options.Result.Items, options.References,
+			options.ResourceType, options.Tenant, options.VariableName, options.LookupOverrides,
+		)
+		if err != nil {
+			return CompiledTransformArtifacts{}, err
+		}
+		// Data-referent items cannot contain generated reference tokens, but the
+		// existing lookup-shrinkage guard still protects committed dependents
+		// when a data lookup retires a previously published key.
+		if lookupText != nil && freshLookup != nil {
+			if err := assertNoLookupKeyStranding(
+				path.Dir(paths.Config), options.ResourceType, paths.Config, configText, freshLookup,
+			); err != nil {
+				return CompiledTransformArtifacts{}, err
+			}
+		}
+		return CompiledTransformArtifacts{
+			ArtifactMode:           options.ArtifactMode,
+			ConfigText:             configText,
+			LookupText:             lookupText,
+			RemoveLookupWhenAbsent: options.RemoveLookupWhenAbsent,
+			OnDiagnostic:           options.OnDiagnostic,
+			Paths:                  paths,
+			ResourceType:           options.ResourceType,
+		}, nil
 	}
 	// Once committed configs reference this type by token, its lookup is the
 	// only decoder those tokens have: inferred-lifecycle removal must refuse
@@ -2278,6 +2375,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	}
 
 	return CompiledTransformArtifacts{
+		ArtifactMode:           options.ArtifactMode,
 		Binding:                binding,
 		ConfigText:             configText,
 		ExistingMoves:          existingMoves,
@@ -2295,28 +2393,45 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 // PublishCompiledTransformArtifacts ports
 // publishCompiledTransformArtifacts from
 // the original implementation: "publish one fully compiled
-// artifact set with the legacy file lifecycle." This writes each file
-// directly (os.WriteFile, matching the TS source's plain, non-atomic
-// node:fs/promises writeFile) rather than through a temp-file/rename
-// transaction.
+// artifact set with the legacy file lifecycle." Unlike the batch publish
+// path below, this writes each file directly (os.WriteFile, matching the
+// TS source's plain, non-atomic node:fs/promises writeFile) rather than
+// through a temp-file/rename transaction -- the TS source itself makes
+// this same distinction (only publishCompiledTransformArtifactBatch stages
+// through mkdtemp/rename), not something this port smooths over.
 func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (TransformArtifactWriteResult, error) {
 	note := func(string) {}
 	if compiled.OnDiagnostic != nil {
 		note = compiled.OnDiagnostic
 	}
 	var written, removed []string
+	dataLane := compiled.ArtifactMode == TransformArtifactModeDataReferent
 
 	configDirectory := path.Dir(compiled.Paths.Config)
 	if err := os.MkdirAll(configDirectory, 0o777); err != nil {
 		return TransformArtifactWriteResult{}, err
 	}
-	importsDirectory := path.Dir(compiled.Paths.Imports)
-	if err := os.MkdirAll(importsDirectory, 0o777); err != nil {
-		return TransformArtifactWriteResult{}, err
+	if !dataLane {
+		importsDirectory := path.Dir(compiled.Paths.Imports)
+		if err := os.MkdirAll(importsDirectory, 0o777); err != nil {
+			return TransformArtifactWriteResult{}, err
+		}
 	}
 	lookupDirectory := path.Dir(compiled.Paths.Lookup)
 	if err := os.MkdirAll(lookupDirectory, 0o777); err != nil {
 		return TransformArtifactWriteResult{}, err
+	}
+	if dataLane {
+		for _, stalePath := range []string{compiled.Paths.Imports, compiled.Paths.Moves} {
+			removedNow, err := removeIfPresent(stalePath)
+			if err != nil {
+				return TransformArtifactWriteResult{}, err
+			}
+			if removedNow {
+				removed = append(removed, stalePath)
+				note("removed stale " + stalePath)
+			}
+		}
 	}
 
 	if compiled.LookupText != nil {
@@ -2356,7 +2471,7 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		}
 	}
 
-	if compiled.ExistingMoves == nil && compiled.RenderedMoves != nil {
+	if !dataLane && compiled.ExistingMoves == nil && compiled.RenderedMoves != nil {
 		if err := os.WriteFile(compiled.Paths.Moves, []byte(*compiled.RenderedMoves), 0o666); err != nil {
 			return TransformArtifactWriteResult{}, err
 		}
@@ -2365,19 +2480,21 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 			"RENAME(S) DETECTED: %d item(s) re-keyed — moved blocks staged in %s; copy into the env root alongside the imports file before plan/apply (RUNBOOK: Drift)",
 			len(compiled.Moves.Moves), compiled.Paths.Moves,
 		))
-	} else if compiled.ExistingMoves != nil {
+	} else if !dataLane && compiled.ExistingMoves != nil {
 		if compiled.RenderedMoves == nil {
 			note("preserved unresolved move evidence " + compiled.Paths.Moves + " (no newly derived moves this run)")
 		} else {
 			note("preserved byte-identical unresolved move evidence " + compiled.Paths.Moves)
 		}
 	}
-	for _, suppression := range compiled.Moves.Suppressed {
-		note(fmt.Sprintf(
-			"SUPPRESSED RENAME CANDIDATE: %s %s -> %s (import_id %s, reason=%s); no moved block emitted",
-			compiled.ResourceType, jsonQuote(suppression.OldKey), jsonQuote(suppression.NewKey),
-			jsonQuote(suppression.ImportID), suppression.Reason,
-		))
+	if !dataLane {
+		for _, suppression := range compiled.Moves.Suppressed {
+			note(fmt.Sprintf(
+				"SUPPRESSED RENAME CANDIDATE: %s %s -> %s (import_id %s, reason=%s); no moved block emitted",
+				compiled.ResourceType, jsonQuote(suppression.OldKey), jsonQuote(suppression.NewKey),
+				jsonQuote(suppression.ImportID), suppression.Reason,
+			))
+		}
 	}
 
 	removedStale, err := removeIfPresent(compiled.Paths.StaleConfig)
@@ -2413,12 +2530,16 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		note("removed stale " + compiled.Paths.GeneratedBindings)
 	}
 
-	if err := os.WriteFile(compiled.Paths.Imports, []byte(compiled.NewImports), 0o666); err != nil {
-		return TransformArtifactWriteResult{}, err
+	if dataLane {
+		note("wrote " + compiled.Paths.Config)
+	} else {
+		if err := os.WriteFile(compiled.Paths.Imports, []byte(compiled.NewImports), 0o666); err != nil {
+			return TransformArtifactWriteResult{}, err
+		}
+		written = append(written, compiled.Paths.Imports)
+		note("wrote " + compiled.Paths.Config)
+		note("wrote " + compiled.Paths.Imports)
 	}
-	written = append(written, compiled.Paths.Imports)
-	note("wrote " + compiled.Paths.Config)
-	note("wrote " + compiled.Paths.Imports)
 
 	if written == nil {
 		written = []string{}

@@ -1,0 +1,267 @@
+# Builder Review Handoff: data-only referents refreshed-prior-state recut
+
+This handoff follows `docs/review-handoff-template.md`. It covers the
+uncommitted recheck-fix working tree plus the contract recut requested after
+the five provider-double captures arrived. The builder stops here for a fresh
+adversarial review and does not self-approve the changes.
+
+## Intent
+
+- What problem does this change solve?
+
+  It makes saved-plan data-kind reference-output authorization follow the
+  observed Terraform 1.15.4 plan shape. Data reads during plan are authorized
+  from refreshed `prior_state.values.root_module` instances, while managed
+  evidence remains on `planned_values.root_module`. It also removes the
+  fixture-only configured-value escape hatch and wires the five raw
+  provider-double captures into production-shaped contract tests.
+
+- What user-visible or maintainer-visible behavior should change?
+
+  A changed `iw_reference_ids` output for a data root is accepted only when
+  exact data instances under the refreshed prior-state root reconstruct the
+  output IDs. The data instances must use the canonical module/type/name/index
+  address shape and expose a scalar string-or-number `values.id`. A no-op
+  output needs no new authorization; an empty data root may authorize an empty
+  created map. The output-only capture’s changed key projection is retained
+  only after its scalar values match the provider-observed IDs one-for-one.
+
+- What behavior must stay unchanged?
+
+  Managed evidence remains on the planned `<type>.this` resource shape.
+  Selector split, generated-only enumeration, adoption safety, empty-string ID
+  refusal, case-insensitive data keying, and schema-v2 behavior remain as in the
+  prior recheck fixes. The builtin `terraform_remote_state.defaults.id`
+  capture remains a negative configured-value fixture.
+
+## Base / Head
+
+- Base: `49c72ae6c22d0b3af31f53e68375cdcc330ed2a2`
+  (`claude/data-only-referents`)
+- Head: uncommitted working tree on `claude/data-only-referents`; no commit,
+  stage, push, or other git write was performed
+- Diff command: `git diff 49c72ae6c22d0b3af31f53e68375cdcc330ed2a2 --` plus
+  inspection of untracked provider-double, capture, and handoff files
+
+## Files Changed
+
+- Files:
+
+  - `docs/integration-validation.md`
+  - `docs/superpowers/specs/2026-08-01-data-only-referents-design.md`
+  - `docs/terraform-expression-bindings.md`
+  - `docs/reviews/2026-08-01-data-only-referents-recheck-handoff.md`
+  - `go/cmd/iw/data_referent_lifecycle_test.go`
+  - `go/internal/adopt/{runner.go,runner_test.go}`
+  - `go/internal/assessment/{data_referent_test.go,inputs_test.go}`
+  - `go/internal/plan/{contract.go,contract_test.go,contract_data_referent_test.go}`
+  - `go/internal/plan/testdata/provider-double/{main.go,provider.go,unsupported.go,go.mod,go.sum}`
+  - `go/internal/plan/testdata/provider_double_capture/` including the five
+    raw captures, scenario HCL, `dev_overrides.tfrc`, `gen-captures.sh`, and
+    `README.md`
+  - `go/internal/roots/{roots.go,roots_test.go,planroots.go,planroots_test.go}`
+  - `go/internal/tfrender/{transform_artifacts.go,transform_artifacts_test.go}`
+  - `go/internal/transform/{data_referent.go,data_referent_test.go,selection.go,selection_test.go}`
+
+- Files intentionally left untouched:
+
+  - Provider packs, OpenAPI material, provider adapters, and generated module
+    trees.
+  - The five capture `show.json` bytes; tests consume them without rewriting,
+    transplanting, or renaming fields.
+  - `.gocache`, `.gotmp`, and `.provider-double-bin`; these are local build or
+    provider artifacts and are not staged.
+
+## Source Inputs Consulted
+
+- Provider schemas: The test-only provider-double schema has one required
+  string `name` and one computed string `id` attribute.
+- OpenAPI/API contracts: None changed. No provider-pack contract was extended.
+- Provider source files: `go/internal/plan/testdata/provider-double/`; the
+  double uses `terraform-plugin-go v0.31.0` and derives deterministic IDs from
+  `INFRAWRIGHT_CAPTURE_ID_VERSION` plus the requested name.
+- Pack metadata: Existing data-referent registry and production assessment
+  materialization; production creates only `Type` and `Kind` on
+  `ReferenceOutputType`.
+- Existing docs or design records: The five supplied Terraform 1.15.4
+  captures, the coordinator’s regeneration recipe at
+  `/private/tmp/claude-501/-Users-dm-src-gh-dvmrry-infrawright-dev--claude-worktrees-provider-sdk-openapi-lineage-be2449/5fb83b2b-ce7d-4bae-b46d-aedc395902c6/scratchpad/gen-captures.sh`,
+  `AGENTS.md`, the adversarial-review documents, and the data-only referents
+  design spec.
+- Other source evidence: Direct `jq` inspection confirmed zero planned child
+  resources in all five captures; refreshed prior-state data instances in the
+  three nonempty cases; the v2 ID in `refresh_id_change`; and the configured
+  `defaults.id`/empty prior root in the builtin negative.
+
+## Generated Artifacts
+
+- Reports: None generated by the engine.
+- Schemas: None changed.
+- Fixtures: Five raw provider-double `show.json` captures and their five
+  scenario source trees.
+- Snapshots: No snapshot regeneration beyond the supplied raw captures.
+- Demo or lab outputs: The provider binary is under local, un-staged
+  `.provider-double-bin/`; Go caches and temporary Terraform workspaces are
+  under ignored/local temporary paths.
+- Artifact drift intentionally expected: None. The capture regeneration
+  script writes only the five named `show.json` files and does not alter their
+  shape.
+
+## Expected Delta
+
+- Expected behavior change:
+
+  - Data-kind changed-output authorization reads refreshed
+    `prior_state.values.root_module`.
+  - Data-kind IDs are always read from plain `values.id`; no contract field can
+    redirect identity to configured or nested values.
+  - A data output’s evaluated prior-state key projection is accepted only when
+    its scalar IDs match root-module provider observations one-for-one.
+
+- Expected report/count/coverage changes: None.
+- Expected generated-output changes: None outside the supplied raw capture
+  fixtures.
+- Expected no-op areas: Managed plan evidence and all prior-round selector,
+  adoption, transform identity, and schema-v2 behavior.
+
+## Invariants Claimed
+
+- Evidence must not be silently dropped: Non-no-op data output changes must
+  equal the map reconstructed from refreshed prior-state data instances; an
+  empty prior-state set cannot authorize a nonempty output.
+- Generic matcher evidence must not outrank source-backed evidence: No generic
+  matcher or provider-source mapping changed.
+- Source precedence/provenance must remain explicit: managed kinds use planned
+  values; data kinds use refreshed prior-state data instances; planned data
+  resources and `resource_changes` cannot authorize data IDs.
+- Ambiguity must stay classified instead of being coerced to success: Exact
+  data address/name/mode/index checks, scalar ID checks, duplicate-key checks,
+  and one-for-one output-ID matching remain fail-closed.
+- Provider-readiness counts must stay explainable: No provider readiness or
+  generated-resource count changes.
+- Adoption safety invariants: The no-selector adoption lane remains
+  generated-only; explicit data adoption refuses before side effects.
+
+## Tests Run
+
+- Commands:
+
+  - Pre-fix proof, with the old planned-values implementation:
+    `go test ./internal/plan -run '^TestValidateAssessmentPlanAcceptsProviderDoubleInitialCreate$' -count=1 -v`
+    failed as required with `planned engine reference output does not match
+    provider-observed resource IDs` because the planned root reconstructed an
+    empty map against the nonempty capture `after`.
+  - Corrected capture matrix:
+    `go test ./internal/plan -run '^TestValidateAssessmentPlanAcceptsProviderDoubleCaptures$' -count=1 -v`
+    passed all five subtests: `initial_create`, `refresh_id_change`,
+    `output_only_change`, `no_op`, and `empty_for_each`.
+  - No-op/evidence-boundary regressions:
+    `go test ./internal/plan -run 'TestValidateAssessmentPlan(AcceptsProviderDoubleCaptures|DataNoOpDoesNotRequireAuthorization|RejectsOfflineTerraformConfiguredDefaults|DoesNotAuthorizePlannedValuesOrResourceChanges|AcceptsOfflineTerraformPriorStateOnlyNoOp)' -count=1 -v`
+    passed, including the no-op case after removing `prior_state`.
+  - Corrected plan package: `go test ./internal/plan -count=1` — pass.
+  - Corrected focused implementation suite:
+    `go test ./internal/plan ./internal/assessment ./internal/roots ./internal/transform ./internal/tfrender ./internal/adopt -count=1` — all six packages pass.
+  - `go test ./cmd/iw -skip 'TestFetchRecordedTransport' -count=1` — pass.
+  - `gofmt -l` over every Go file in the engine and nested provider module —
+    clean.
+  - `go build ./...` — pass.
+  - `go vet ./...` — pass.
+  - `go build .` from `go/internal/plan/testdata/provider-double/` — pass.
+  - `git diff --check` — clean.
+  - Required promotion gate: `go test ./... -count=1` — all implementation
+    packages pass; it exits nonzero only for the two listener-blocked tests
+    listed below.
+  - `sh -n go/internal/plan/testdata/provider_double_capture/gen-captures.sh` —
+    pass. The capture script itself was not rerun in this sandbox after the
+    coordinator supplied the raw results.
+
+- Relevant output summary:
+
+  The focused provider-double matrix prints `PASS` for every capture. The
+  builtin configured-default test prints `PASS` while requiring the
+  `engine reference output does not match provider-observed resource IDs`
+  refusal. Existing managed and prior-round package tests remain green in the
+  focused plan run. The full-gate tails include `ok` for `internal/plan`,
+  `internal/assessment`, `internal/roots`, `internal/transform`,
+  `internal/tfrender`, `internal/adopt`, `internal/envgen`,
+  `internal/modulesgen`, `internal/terraformcmd`, and the other non-network
+  packages.
+
+  The only full-gate failures are sandbox listener restrictions:
+
+  - `cmd/iw/TestFetchRecordedTransport`: `httptest: failed to listen on a
+    port: listen tcp6 [::1]:0: bind: operation not permitted`.
+  - `internal/httptransport/TestConfiguredCABundleAddsToSystemTrustAndRealTLSRequestSucceeds`:
+    the same `httptest` listener bind failure.
+
+- Focused regression and pre-fix/unsafe-mutation proof: The initial-create
+  capture fails before the container recut and passes after it. The exact data
+  scalar/address tests were moved from planned values to prior state. The
+  planned-values/resource-changes negative proves those containers cannot
+  authorize a data output. The evidence-free no-op regression proves that a
+  no-op output does not invoke authorization. The five supplied captures pin
+  the refresh, output, no-op, and empty-map policies.
+
+- Promotion efficiency: Wall-clock elapsed time was not measured. One focused
+  pre-fix attempt and one corrected focused capture run were made before one
+  repository-wide gate; no duplicate full corpus sweep was run. The generated
+  `go/cmd/iw/modules/` test output was moved to ignored
+  `.gotmp/modules-from-full-test/` after the gate.
+- Tests not run and why: The provider-double regeneration script was not
+  rerun because the captures were supplied by the coordinator and the current
+  managed sandbox has historically denied Terraform provider IPC listener
+  creation. The script remains reproducible in a listener-capable host. The
+  two loopback-dependent tests were run by the full gate and are the only
+  reported failures; the coordinator can rerun them locally.
+
+## Known Deferrals
+
+- Deferred work: Fresh-context adversarial review of this handoff and the
+  changed evidence contract.
+- Reason it is safe to defer: This is the mandated builder stop point; the
+  change is not self-approved. The capture evidence, focused regressions, and
+  repository gates are supplied for the reviewer to verify independently.
+- Follow-up owner or trigger: Adversarial reviewer; any accepted finding must
+  map from finding to root cause, fix, regression, and verification before
+  acceptance.
+
+## Review Focus
+
+- Highest-risk files or paths:
+
+  - `go/internal/plan/contract.go`: kind-specific evidence container,
+    prior-state output key projection, no-op bypass, and empty-map handling.
+  - `go/internal/plan/contract_data_referent_test.go`: unmodified capture
+    loading, exact data shape, negative configured-value evidence, and
+    planned/resource-change refusal.
+  - `go/internal/plan/testdata/provider_double_capture/{show.json,gen-captures.sh,README.md}`:
+    raw artifact integrity and reproducibility.
+  - `go/internal/assessment/inputs.go` plus its materialization test: the
+    production `{Type, Kind}` contract shape.
+  - Prior-round selector, adoption, transform, and rendering files listed
+    above; verify they were not weakened by this recut.
+
+- Specific assumptions to attack:
+
+  - Terraform 1.15.4’s refreshed `prior_state.values.root_module` is the
+    authoritative data-resource container for these plan captures.
+  - Prior-state data resource IDs are checked at the exact canonical address,
+    with matching `index`, `mode = data`, `name = items`, and scalar `id`.
+  - The output-only key projection is not being used as provider evidence: its
+    values are accepted only after one-for-one matching to root data IDs.
+  - A no-op output cannot accidentally require or bypass generic output-change
+    validation.
+  - The configured `terraform_remote_state.defaults.id` value cannot become a
+    data identity because its refreshed prior-state root is empty.
+
+- Source evidence the reviewer should verify: all five raw `show.json` files,
+  the provider-double `ReadDataSource` implementation, the exact production
+  materialization branch, and the contract comment citing the capture facts.
+- Generated artifacts the reviewer should compare: raw capture bytes versus
+  the scenario HCL and the regeneration script; no generated engine output is
+  intentionally changed.
+- Edge cases that could silently overclaim, remap, drop, or weaken evidence:
+  planned-only data instances, `resource_changes`-only data instances,
+  missing/empty prior state with nonempty `after`, output-only key remapping,
+  duplicate keys, forged address/index pairs, wrong mode/name/type, scalar
+  versus composite IDs, no-op data output, and empty `for_each`.

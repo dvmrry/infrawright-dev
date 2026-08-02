@@ -953,6 +953,15 @@ func buildModuleContext(root metadata.LoadedPackRoot, resourceType string) (modu
 // RenderModuleFiles ports renderModuleFiles from
 // the original implementation.
 func RenderModuleFiles(root metadata.LoadedPackRoot, resourceType string) (RenderedModule, error) {
+	return renderModuleFilesWithDataSample(root, resourceType, nil)
+}
+
+func renderModuleFilesWithDataSample(root metadata.LoadedPackRoot, resourceType string, sampleItems metadata.JsonObject) (RenderedModule, error) {
+	if resource, ok := root.Resources[resourceType]; ok {
+		if dataReferent, _ := resource.Registry["data_referent"].(bool); dataReferent {
+			return renderDataModuleWithSample(root, resourceType, sampleItems)
+		}
+	}
 	context, err := buildModuleContext(root, resourceType)
 	if err != nil {
 		return RenderedModule{}, err
@@ -996,6 +1005,28 @@ func ActiveGeneratedResourceTypes(root metadata.LoadedPackRoot) []string {
 			types = append(types, resource.Type)
 		}
 	}
+	return canonjson.SortedStrings(types)
+}
+
+// ActiveDataReferentResourceTypes returns active data-only referent types in
+// sorted order. Data referents are roots and module inputs, but are not
+// generated resource types and must remain out of generated-resource callers.
+func ActiveDataReferentResourceTypes(root metadata.LoadedPackRoot) []string {
+	var types []string
+	for _, resource := range root.Resources {
+		if dataReferent, _ := resource.Registry["data_referent"].(bool); dataReferent {
+			types = append(types, resource.Type)
+		}
+	}
+	return canonjson.SortedStrings(types)
+}
+
+// ActiveModuleResourceTypes returns every active generated-resource and
+// data-referent type in sorted order. It is the shared selection contract for
+// module generation and default module-tree validation.
+func ActiveModuleResourceTypes(root metadata.LoadedPackRoot) []string {
+	types := append([]string{}, ActiveGeneratedResourceTypes(root)...)
+	types = append(types, ActiveDataReferentResourceTypes(root)...)
 	return canonjson.SortedStrings(types)
 }
 
@@ -1062,7 +1093,7 @@ func GenerateModule(root metadata.LoadedPackRoot, resourceType string, options G
 // the original implementation.
 func GenerateActiveModules(root metadata.LoadedPackRoot, options GenerateModuleOptions) ([]GeneratedModule, error) {
 	var generated []GeneratedModule
-	for _, resourceType := range ActiveGeneratedResourceTypes(root) {
+	for _, resourceType := range ActiveModuleResourceTypes(root) {
 		module, err := GenerateModule(root, resourceType, options)
 		if err != nil {
 			return nil, err
@@ -1073,7 +1104,8 @@ func GenerateActiveModules(root metadata.LoadedPackRoot, options GenerateModuleO
 }
 
 // ValidateGeneratedModuleTree ports validateGeneratedModuleTree from
-// the original implementation.
+// the original implementation. It validates the common module-file contract
+// for both generated resource and data-referent modules.
 func ValidateGeneratedModuleTree(moduleRoot string, resourceTypes []string) ([]string, error) {
 	var missing []string
 	for _, resourceType := range resourceTypes {

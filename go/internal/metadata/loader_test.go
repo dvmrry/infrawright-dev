@@ -92,6 +92,42 @@ func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
 	}
 }
 
+func TestLoadPackRootRejectsDataReferentReferenceReferrer(t *testing.T) {
+	directory := t.TempDir()
+	writeJSONFile(t, filepath.Join(directory, "sample", "pack.json"), JsonObject{
+		"pin":               "1.0.0",
+		"provider_prefixes": JsonObject{"sample_": "sample"},
+		"provider_sources":  JsonObject{"sample": "example/sample"},
+		"lookup_sources": JsonObject{
+			"sample_data": JsonObject{"name_field": "name"},
+		},
+		"references": JsonObject{
+			"sample_data": JsonObject{
+				"target_id": JsonObject{"name_field": "name", "referent": "sample_target"},
+			},
+		},
+	})
+	writeJSONFile(t, filepath.Join(directory, "sample", "registry.json"), JsonObject{
+		"sample_data": JsonObject{
+			"data_referent": true,
+			"fetch":         JsonObject{"pagination": "single", "path": "items"},
+			"product":       "sample",
+		},
+		"sample_target": JsonObject{"product": "sample"},
+	})
+	writeJSONFile(t, filepath.Join(directory, "sample", "schemas", "provider", "sample.json"), JsonObject{
+		"resource_schemas": JsonObject{},
+		"data_source_schemas": JsonObject{
+			"sample_data": JsonObject{},
+		},
+	})
+
+	_, err := LoadPackRoot(LoadPackRootOptions{PacksRoot: directory})
+	if err == nil || !strings.Contains(err.Error(), "references.sample_data.target_id") || !strings.Contains(err.Error(), "sample_data") {
+		t.Fatalf("LoadPackRoot(data referent referrer) error = %v, want a refusal naming references.sample_data.target_id and sample_data", err)
+	}
+}
+
 // TestProviderSchemasResolveThroughPackOwnership ports "provider schemas
 // resolve through pack ownership and fail on misspellings".
 func TestProviderSchemasResolveThroughPackOwnership(t *testing.T) {
@@ -285,6 +321,120 @@ func TestRegistryResourceKeysRequireCanonicalTerraformTypes(t *testing.T) {
 			}, "registry.json")
 			if err == nil || !strings.Contains(err.Error(), "must match ^[a-z][a-z0-9_]*$") {
 				t.Errorf("ValidateRegistry(resourceType=%q) error = %v, want canonical-resource-type error", resourceType, err)
+			}
+		})
+	}
+}
+
+func TestRegistryDataReferent(t *testing.T) {
+	tests := []struct {
+		name      string
+		entry     JsonObject
+		wantError string
+	}{
+		{
+			name: "valid",
+			entry: JsonObject{
+				"data_referent": true,
+				"fetch":         JsonObject{"pagination": "zia", "path": "locations/groups"},
+				"product":       "sample",
+			},
+		},
+		{
+			name: "requires fetch",
+			entry: JsonObject{
+				"data_referent": true,
+				"product":       "sample",
+			},
+			wantError: "data_referent=true requires registry.json.sample_resource.fetch",
+		},
+		{
+			name: "requires a fetch object, not a declared-unfetchable entry",
+			entry: JsonObject{
+				"data_referent":     true,
+				"fetch":             false,
+				"fetch_skip_reason": "no list endpoint",
+				"product":           "sample",
+			},
+			wantError: "data_referent=true requires registry.json.sample_resource.fetch",
+		},
+		{
+			name: "allows explicit generate false",
+			entry: JsonObject{
+				"data_referent": true,
+				"fetch":         JsonObject{"pagination": "zia", "path": "locations/groups"},
+				"generate":      false,
+				"product":       "sample",
+			},
+		},
+		{
+			name: "false leaves generate and adopt unconstrained",
+			entry: JsonObject{
+				"adopt":         JsonObject{"key_field": "name"},
+				"data_referent": false,
+				"fetch":         JsonObject{"pagination": "zia", "path": "locations"},
+				"generate":      true,
+				"product":       "sample",
+			},
+		},
+		{
+			name: "forbids generated resource",
+			entry: JsonObject{
+				"data_referent": true,
+				"fetch":         JsonObject{"pagination": "zia", "path": "locations/groups"},
+				"generate":      true,
+				"product":       "sample",
+			},
+			wantError: "data_referent=true forbids registry.json.sample_resource.generate=true",
+		},
+		{
+			name: "forbids adoption",
+			entry: JsonObject{
+				"adopt":         JsonObject{"key_field": "name"},
+				"data_referent": true,
+				"fetch":         JsonObject{"pagination": "zia", "path": "locations/groups"},
+				"product":       "sample",
+			},
+			wantError: "data_referent=true forbids registry.json.sample_resource.adopt",
+		},
+		{
+			name: "forbids derivation",
+			entry: JsonObject{
+				"data_referent": true,
+				"derive":        JsonObject{"from": "sample_source"},
+				"fetch":         JsonObject{"pagination": "zia", "path": "locations/groups"},
+				"product":       "sample",
+			},
+			wantError: "data_referent=true forbids registry.json.sample_resource.derive",
+		},
+		{
+			name: "requires boolean",
+			entry: JsonObject{
+				"data_referent": "yes",
+				"product":       "sample",
+			},
+			wantError: "registry.json.sample_resource.data_referent must be a boolean",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := ValidateRegistry(JsonObject{"sample_resource": testCase.entry}, "registry.json")
+			if testCase.wantError == "" {
+				if err != nil {
+					t.Fatalf("ValidateRegistry(%q) error = %v, want nil", testCase.name, err)
+				}
+				resource, ok := got["sample_resource"].(JsonObject)
+				if !ok {
+					t.Fatalf("ValidateRegistry(%q) resource = %T, want JsonObject", testCase.name, got["sample_resource"])
+				}
+				if want, present := testCase.entry["data_referent"]; present && resource["data_referent"] != want {
+					t.Errorf("ValidateRegistry(%q)[data_referent] = %v, want %v", testCase.name, resource["data_referent"], want)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Errorf("ValidateRegistry(%q) error = %v, want error containing %q", testCase.name, err, testCase.wantError)
 			}
 		})
 	}
