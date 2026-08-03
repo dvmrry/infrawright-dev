@@ -651,18 +651,38 @@ func TestApplyExactSavedPlansDestroyAndBlockedOverrideMatrix(t *testing.T) {
 	}
 }
 
-func exactApplyRefreshDriftPlan() map[string]any {
+func exactApplyRefreshDriftPlan(importOnly bool, driftActions ...string) map[string]any {
+	if len(driftActions) == 0 {
+		driftActions = []string{"update"}
+	}
+	rawDriftActions := make([]any, len(driftActions))
+	for index, action := range driftActions {
+		rawDriftActions[index] = action
+	}
+	changes := []any{}
+	if importOnly {
+		changes = append(changes, map[string]any{
+			"address": `zia_url_categories.this["imported"]`,
+			"type":    "zia_url_categories",
+			"change": map[string]any{
+				"actions":   []any{"no-op"},
+				"importing": map[string]any{"id": "imported"},
+				"before":    map[string]any{"status": "same"},
+				"after":     map[string]any{"status": "same"},
+			},
+		})
+	}
 	return map[string]any{
 		"format_version":    "1.2",
 		"terraform_version": "1.15.4",
 		"complete":          true,
 		"errored":           false,
-		"resource_changes":  []any{},
+		"resource_changes":  changes,
 		"resource_drift": []any{map[string]any{
 			"address": `zia_url_categories.this["one"]`,
 			"type":    "zia_url_categories",
 			"change": map[string]any{
-				"actions": []any{"update"},
+				"actions": rawDriftActions,
 				"before":  map[string]any{"status": "old"},
 				"after":   map[string]any{"status": "new"},
 			},
@@ -671,12 +691,26 @@ func exactApplyRefreshDriftPlan() map[string]any {
 	}
 }
 
-// TestApplyExactSavedPlansMatchesAssertStanceOnRefreshDrift pins the stance
-// agreement between apply and the assert gate: a supplied drift policy is the
-// adoption path (AssertAdoptable is one-to-one with policy presence), where
-// refresh drift is tolerated because only the apply can settle it; without a
-// policy the same drift blocks, and a real resource_changes change blocks
-// either way.
+func exactApplyImportWithConfigChangePlan() map[string]any {
+	value := exactApplyRefreshDriftPlan(true)
+	value["resource_changes"] = append(value["resource_changes"].([]any), map[string]any{
+		"address": `zia_url_categories.this["edited"]`,
+		"type":    "zia_url_categories",
+		"change": map[string]any{
+			"actions": []any{"update"},
+			"before":  map[string]any{"status": "old"},
+			"after":   map[string]any{"status": "new"},
+		},
+	})
+	return value
+}
+
+// TestApplyExactSavedPlansMatchesAssertStanceOnRefreshDrift pins apply's
+// refresh-drift stance to the plan itself: an import-only plan tolerates the
+// drift only the import can settle; the same drift without an import blocks;
+// a real config change blocks even beside an import; a drift-sourced delete
+// still trips the destroy refusal because that guard reads the strict
+// classification; and supplying a policy path never selects the tolerance.
 func TestApplyExactSavedPlansMatchesAssertStanceOnRefreshDrift(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -685,9 +719,11 @@ func TestApplyExactSavedPlansMatchesAssertStanceOnRefreshDrift(t *testing.T) {
 		wantCode   string
 		wantApply  bool
 	}{
-		{name: "drift_with_policy_applies", plan: exactApplyRefreshDriftPlan(), withPolicy: true, wantApply: true},
-		{name: "drift_without_policy_blocks", plan: exactApplyRefreshDriftPlan(), wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
-		{name: "config_change_with_policy_blocks", plan: exactApplyBlockedPlan("update"), withPolicy: true, wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
+		{name: "import_only_with_drift_applies", plan: exactApplyRefreshDriftPlan(true), wantApply: true},
+		{name: "drift_without_import_blocks", plan: exactApplyRefreshDriftPlan(false), wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
+		{name: "drift_with_policy_still_blocks", plan: exactApplyRefreshDriftPlan(false), withPolicy: true, wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
+		{name: "import_with_config_change_blocks", plan: exactApplyImportWithConfigChangePlan(), wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
+		{name: "import_only_drift_delete_refuses_destroy", plan: exactApplyRefreshDriftPlan(true, "delete"), wantCode: "APPLY_DESTROY_REFUSED"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

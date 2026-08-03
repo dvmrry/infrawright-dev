@@ -346,6 +346,41 @@ func pythonApplyStringRepr(value string) string {
 	return "'" + value + "'"
 }
 
+// exactApplyImportOnlyPlan reports whether every planned resource change is
+// an import: at least one record carries a non-empty importing block, and
+// each record is either a no-op or the classifier's own Clean import shape
+// (importing plus a single create action, eval.go's importing case). Only
+// such plans select the adoption refresh-drift tolerance at apply; any
+// actionable non-import change keeps the strict stance.
+func exactApplyImportOnlyPlan(planValue any) bool {
+	planObject, _ := planValue.(map[string]any)
+	records, _ := planObject["resource_changes"].([]any)
+	imports := 0
+	for _, rawRecord := range records {
+		record, _ := rawRecord.(map[string]any)
+		change, _ := record["change"].(map[string]any)
+		importing, _ := change["importing"].(map[string]any)
+		actions, _ := change["actions"].([]any)
+		noOp := true
+		for _, action := range actions {
+			if action != "no-op" {
+				noOp = false
+			}
+		}
+		if len(importing) > 0 {
+			if noOp || (len(actions) == 1 && actions[0] == "create") {
+				imports++
+				continue
+			}
+			return false
+		}
+		if !noOp {
+			return false
+		}
+	}
+	return imports > 0
+}
+
 func exactApplyDestroyCount(planValue any) int {
 	planObject, ok := planValue.(map[string]any)
 	if !ok {
@@ -564,34 +599,48 @@ func applyExactPlanRoot(
 	if err := requireExactApplyTypedComplete(shownPlan); err != nil {
 		return false, err
 	}
-	// The same stance the assert gate classified under. Apply refusing a
-	// plan the gate passed, or the reverse, would make the two gates
-	// disagree about the same saved plan for no reason a reader could see,
-	// so every ClassifyPlanOptions field derives from the same inputs the
-	// gate derived it from: the provider schema types, and the adoption
-	// stance. The gate sets TolerateRefreshDrift exactly when its mode is
-	// AssertAdoptable, and that mode is one-to-one with a supplied drift
-	// policy (INVALID_ASSESSMENT_REQUEST refuses any disagreement), so a
-	// bound policy path selects the same tolerance here. Steady-state
-	// deliveries pass no policy and stay strict.
+	// The schema types the assert gate classified under, plus a refresh-
+	// drift stance derived from the plan itself. eval.go documents why
+	// adoption tolerates refresh drift: an import-only plan is refused for
+	// drift that only the import can settle. That rationale is a property
+	// of the PLAN -- every resource change is an import -- not of which
+	// command inspects it or which flags the invocation carries, so the
+	// tolerance here keys on exactly that predicate. Policy presence and
+	// assertion mode never select the stance: a steady-state apply cannot
+	// be loosened by supplying POLICY (its rules still match findings
+	// explicitly, nothing more), and the destroy refusal below reads the
+	// STRICT classification so a drift-sourced delete keeps refusing
+	// without --allow-destroy whatever the stance demoted.
 	contract := exactApplyContract(root)
 	if contract != nil {
 		contract.PlanAttestation = evidence.PlanAttestation
 	}
-	classification, err := ClassifyPlanWithOptions(
+	strict, err := ClassifyPlanWithOptions(
 		shownPlan.Raw,
 		policy.Policy,
 		contract,
-		ClassifyPlanOptions{
-			SchemaTypes:          schemaTypes,
-			TolerateRefreshDrift: policy.Path != nil,
-		},
+		ClassifyPlanOptions{SchemaTypes: schemaTypes},
 	)
 	if err != nil {
 		return false, err
 	}
+	classification := strict
+	if exactApplyImportOnlyPlan(shownPlan.Raw) {
+		classification, err = ClassifyPlanWithOptions(
+			shownPlan.Raw,
+			policy.Policy,
+			contract,
+			ClassifyPlanOptions{
+				SchemaTypes:          schemaTypes,
+				TolerateRefreshDrift: true,
+			},
+		)
+		if err != nil {
+			return false, err
+		}
+	}
 	destroys := exactApplyDestroyCount(shownPlan.Raw)
-	if classification.Status == Blocked && destroys > 0 && !options.AllowDestroy {
+	if strict.Status == Blocked && destroys > 0 && !options.AllowDestroy {
 		return false, exactPlanApplyFailure(
 			"APPLY_DESTROY_REFUSED",
 			fmt.Sprintf(
