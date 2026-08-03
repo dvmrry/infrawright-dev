@@ -503,6 +503,29 @@ func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 		noteWholeRoot(diagnostic, onDiagnostic)
 	}
 
+	// A selection made up entirely of data referents is a reasoned no-op, not
+	// a NO_IMPORT_ARTIFACTS failure: data referents have no import identity,
+	// so no transform or adopt run could ever produce artifacts to stage.
+	// Mixed selections keep the fail-closed behavior below.
+	dataReferentOnly := len(selected.Topology.Roots) > 0
+	for _, selectedRoot := range selected.Topology.Roots {
+		for _, resourceType := range selectedRoot.Members {
+			resource, ok := options.Root.Resources[resourceType]
+			dataReferent, _ := resource.Registry["data_referent"].(bool)
+			if !ok || !dataReferent {
+				dataReferentOnly = false
+			}
+		}
+	}
+	if dataReferentOnly {
+		for _, selectedRoot := range selected.Topology.Roots {
+			for _, resourceType := range selectedRoot.Members {
+				onDiagnostic("skip " + resourceType + " (data referent - no imports or moves to stage)")
+			}
+		}
+		return StageImportsResult{}, nil
+	}
+
 	var backendConfig *string
 	if options.BackendConfig != nil && *options.BackendConfig != "" {
 		resolved := workspacePath(options.Workspace, *options.BackendConfig)
