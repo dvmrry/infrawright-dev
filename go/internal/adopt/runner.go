@@ -10,7 +10,6 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
-	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
@@ -380,20 +379,6 @@ func RunAdoptBatch(options RunAdoptBatchOptions) (AdoptBatchResult, error) {
 	if err != nil {
 		return result, err
 	}
-	for _, resourceType := range selection.ResourceTypes {
-		resource, ok := options.Root.Resources[resourceType]
-		if !ok {
-			continue
-		}
-		dataReferent, _ := resource.Registry["data_referent"].(bool)
-		if dataReferent {
-			return result, procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
-				Code:     "UNSUPPORTED_ADOPTION_RESOURCE",
-				Category: procerr.CategoryDomain,
-				Message:  fmt.Sprintf("adoption does not support data referent %s", resourceType),
-			})
-		}
-	}
 	for _, note := range selection.Notes {
 		write(strings.TrimRight(note, " \t\r\n"))
 	}
@@ -421,7 +406,12 @@ func RunAdoptBatch(options RunAdoptBatchOptions) (AdoptBatchResult, error) {
 			write(fmt.Sprintf("error: %s: unknown resource %s", resourceType, resourceType))
 			continue
 		}
-		if _, derived := resource.Registry["derive"].(map[string]any); derived {
+		dataReferent, _ := resource.Registry["data_referent"].(bool)
+		_, derived := resource.Registry["derive"].(map[string]any)
+		// Data referents carry no import identity, so like derived types they
+		// delegate to the transform lane, which mints config plus the lookup
+		// sidecar and never writes imports or moves.
+		if derived || dataReferent {
 			if pendingErr := assertNoPendingMoves(options.Deployment, resourceType, options.Tenant); pendingErr != nil {
 				result.Failed = appendUnique(result.Failed, resourceType)
 				write(fmt.Sprintf("error: %s: %s", resourceType, pendingErr))
