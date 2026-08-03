@@ -11,7 +11,6 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
-	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
 
 func runnerTestRoot(t *testing.T, resourceTypes ...string) metadata.LoadedPackRoot {
@@ -216,7 +215,7 @@ func TestRunAdoptBatchUnsupportedPreflightNeverLoadsState(t *testing.T) {
 	}
 }
 
-func TestRunAdoptBatchDataReferentRejectedBeforeSideEffects(t *testing.T) {
+func TestRunAdoptBatchDataReferentDelegatesToTransform(t *testing.T) {
 	workspace := t.TempDir()
 	input := t.TempDir()
 	resourceType := "test_data"
@@ -228,30 +227,41 @@ func TestRunAdoptBatchDataReferentRejectedBeforeSideEffects(t *testing.T) {
 		"product":       "test",
 	}
 	root.Resources[resourceType] = resource
+	root.Packs.Manifests[0].Data["lookup_sources"] = metadata.JsonObject{
+		resourceType: metadata.JsonObject{"name_field": "name"},
+	}
 	writeRunnerInput(t, input, resourceType, `[{"id":"1","name":"data"}]`)
 	loaderCalls := 0
-	diagnosticCalls := 0
 	result, err := RunAdoptBatch(RunAdoptBatchOptions{
 		Deployment: runnerTestDeployment(workspace, nil), InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root,
 		Selectors: []string{resourceType}, StateLoader: func(AdoptionStateRequest) (map[string]OracleStateObject, error) {
 			loaderCalls++
 			return map[string]OracleStateObject{"data": {Values: map[string]any{"name": "data"}}}, nil
 		},
-		OnDiagnostic: func(string) { diagnosticCalls++ }, Tenant: "tenant",
+		Tenant: "tenant",
 	})
-	var failure *procerr.ProcessFailure
-	if !errors.As(err, &failure) || failure.Code != "UNSUPPORTED_ADOPTION_RESOURCE" || !strings.Contains(failure.Message, resourceType) {
-		t.Fatalf("RunAdoptBatch(data referent) error = %v, want classified refusal naming %s", err, resourceType)
+	if err != nil {
+		t.Fatalf("RunAdoptBatch(data referent) error = %v, want transform delegation", err)
 	}
-	if loaderCalls != 0 || diagnosticCalls != 0 || !reflect.DeepEqual(result, AdoptBatchResult{Failed: []string{}, Processed: []string{}, Skipped: []string{}}) {
-		t.Fatalf("RunAdoptBatch(data referent) side effects/result = loader=%d diagnostics=%d result=%#v, want zero callbacks and empty result", loaderCalls, diagnosticCalls, result)
+	if loaderCalls != 0 {
+		t.Fatalf("RunAdoptBatch(data referent) loader calls = %d, want 0 (no import identity)", loaderCalls)
 	}
-	if tree := snapshotRunnerTree(t, workspace); len(tree) != 0 {
-		t.Fatalf("data referent adoption published files: %#v", tree)
+	want := AdoptBatchResult{Failed: []string{}, Processed: []string{resourceType}, Skipped: []string{}}
+	if !reflect.DeepEqual(result, want) {
+		t.Fatalf("RunAdoptBatch(data referent) result = %#v, want %#v", result, want)
+	}
+	tree := snapshotRunnerTree(t, workspace)
+	if len(tree) == 0 {
+		t.Fatalf("RunAdoptBatch(data referent) published no artifacts, want transform config + lookup")
+	}
+	for path := range tree {
+		if strings.Contains(path, "imports") || strings.Contains(path, "moves") {
+			t.Fatalf("RunAdoptBatch(data referent) published state artifact %s, want none", path)
+		}
 	}
 }
 
-func TestRunAdoptBatchDefaultSelectionIsGeneratedOnlyWithDataReferent(t *testing.T) {
+func TestRunAdoptBatchDefaultSelectionDelegatesDataReferent(t *testing.T) {
 	workspace := t.TempDir()
 	input := t.TempDir()
 	generatedTypes := []string{"test_alpha", "test_beta"}
@@ -266,6 +276,9 @@ func TestRunAdoptBatchDefaultSelectionIsGeneratedOnlyWithDataReferent(t *testing
 			"product":       "test",
 		},
 	}
+	root.Packs.Manifests[0].Data["lookup_sources"] = metadata.JsonObject{
+		"test_data": metadata.JsonObject{"name_field": "name"},
+	}
 	for _, resourceType := range append(append([]string{}, generatedTypes...), "test_data") {
 		writeRunnerInput(t, input, resourceType, "[{\"id\":\"1\",\"name\":\""+resourceType+"\"}]")
 	}
@@ -275,7 +288,7 @@ func TestRunAdoptBatchDefaultSelectionIsGeneratedOnlyWithDataReferent(t *testing
 		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: nil,
 		StateLoader: func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
 			if request.ResourceType == "test_data" {
-				t.Fatalf("default adoption selection touched data referent %s", request.ResourceType)
+				t.Fatalf("adoption loaded provider state for data referent %s", request.ResourceType)
 			}
 			loaded = append(loaded, request.ResourceType)
 			return stateForRunnerRequest(request), nil
@@ -283,13 +296,14 @@ func TestRunAdoptBatchDefaultSelectionIsGeneratedOnlyWithDataReferent(t *testing
 		Tenant: "tenant",
 	})
 	if err != nil {
-		t.Fatalf("RunAdoptBatch(default generated-only selection) error = %v, want nil", err)
+		t.Fatalf("RunAdoptBatch(default selection) error = %v, want nil", err)
 	}
-	if !reflect.DeepEqual(loaded, generatedTypes) || !reflect.DeepEqual(result.Processed, generatedTypes) {
-		t.Fatalf("RunAdoptBatch(default generated-only selection) loaded/result = %v/%#v, want generated types only %v", loaded, result, generatedTypes)
+	wantProcessed := append(append([]string{}, generatedTypes...), "test_data")
+	if !reflect.DeepEqual(loaded, generatedTypes) || !reflect.DeepEqual(result.Processed, wantProcessed) {
+		t.Fatalf("RunAdoptBatch(default selection) loaded/result = %v/%#v, want state loads %v and processed %v", loaded, result, generatedTypes, wantProcessed)
 	}
 	if len(result.Failed) != 0 || len(result.Skipped) != 0 {
-		t.Fatalf("RunAdoptBatch(default generated-only selection) failed/skipped = %v/%v, want empty", result.Failed, result.Skipped)
+		t.Fatalf("RunAdoptBatch(default selection) failed/skipped = %v/%v, want empty", result.Failed, result.Skipped)
 	}
 }
 

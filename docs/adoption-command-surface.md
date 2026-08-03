@@ -36,6 +36,13 @@ Command responsibilities:
 | `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Refresh drift (`resource_drift`) is reported as tolerated rather than blocking, because only the guarded apply can settle it. Guidance annotations never make a blocked plan clean. |
 | `make apply` | Reclassify saved plans and apply only when they are clean/import-only or fully tolerated by explicit policy; destructive or non-main workflows still require explicit safety flags. |
 
+Data-only referents (`"data_referent": true`) have no import identity, so
+`make adopt` delegates them to the transform lane exactly as it delegates
+`derive` types: the batch mints their config and lookup sidecar and never
+writes imports or moves for them. The implicit adoption batch matches the
+transform lane's selection, covering generated types plus active data
+referents; a data type whose fetch output is absent is skipped, not failed.
+
 Adopt's provider Oracle may execute a mechanically verified import-only plan
 against ephemeral local scratch state so provider Read can supply projected
 configuration. That local-only transaction cannot create, update, replace, or

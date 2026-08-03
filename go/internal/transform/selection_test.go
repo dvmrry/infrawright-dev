@@ -364,17 +364,15 @@ func TestDataReferentsStayOutOfGeneratedSelectionLane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SelectAdoptionResources(%v) = error %v, want nil", []string{}, err)
 	}
-	wantAdoption := TransformSelection{ResourceTypes: []string{"sample_rule"}, Notes: []string{}}
-	if !reflect.DeepEqual(defaultAdoption, wantAdoption) {
-		t.Fatalf("SelectAdoptionResources(%v) = %+v, want generated-only %v", []string{}, defaultAdoption, wantAdoption)
+	if !reflect.DeepEqual(defaultAdoption, wantDefault) {
+		t.Fatalf("SelectAdoptionResources(%v) = %+v, want transform-lane parity %v", []string{}, defaultAdoption, wantDefault)
 	}
 	explicitAdoption, err := SelectAdoptionResources(root, []string{"sample_groups_data"})
 	if err != nil {
-		t.Fatalf("SelectAdoptionResources(data referent) = error %v, want the runner boundary to classify it", err)
+		t.Fatalf("SelectAdoptionResources(data referent) = error %v, want nil", err)
 	}
-	wantExplicitAdoption := TransformSelection{ResourceTypes: []string{"sample_groups_data"}, Notes: []string{}}
-	if !reflect.DeepEqual(explicitAdoption, wantExplicitAdoption) {
-		t.Fatalf("SelectAdoptionResources(data referent) = %+v, want explicit boundary candidate %v", explicitAdoption, wantExplicitAdoption)
+	if !reflect.DeepEqual(explicitAdoption, wantData) {
+		t.Fatalf("SelectAdoptionResources(data referent) = %+v, want delegated transform target %v", explicitAdoption, wantData)
 	}
 }
 
