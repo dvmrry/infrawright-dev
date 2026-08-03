@@ -14,11 +14,10 @@ import (
 
 func writeConfig(t *testing.T, workspace, tenant, name string) {
 	t.Helper()
-	directory := filepath.Join(workspace, "config", tenant)
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", directory, err)
+	target := filepath.Join(workspace, "config", tenant, name)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", filepath.Dir(target), err)
 	}
-	target := filepath.Join(directory, name)
 	if err := os.WriteFile(target, []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v, want nil", target, err)
 	}
@@ -184,6 +183,44 @@ func TestCheckFetchableCatchesCommittedConfigWithNoFetchBlock(t *testing.T) {
 	}
 	want := []FetchableViolation{{
 		Tenant: "zs2", Type: "zia_tenant_restriction_profile",
+		Detail: "registry entry has no fetch block; " +
+			"add one, or declare \"fetch\": false with a fetch_skip_reason",
+	}}
+	if !reflect.DeepEqual(result.Violations, want) {
+		t.Errorf("CheckFetchable().Violations = %#v, want %#v", result.Violations, want)
+	}
+	var failure *procerr.ProcessFailure
+	if err := FetchableFailure(result); !errors.As(err, &failure) ||
+		failure.Code != "COMMITTED_CONFIG_NOT_FETCHABLE" {
+		t.Errorf("FetchableFailure() = %v, want COMMITTED_CONFIG_NOT_FETCHABLE", err)
+	}
+}
+
+// The data-referent lane publishes committed config one directory down, in
+// config/<tenant>/data/. The same if-we-manage-it-we-must-see-it contract
+// covers it: a nested config whose registry entry loses its fetch block must
+// be reported, not silently skipped. The faithful mutation this kills is the
+// pre-split enumeration that discarded directory entries and never read
+// data/.
+func TestCheckFetchableCoversNestedDataReferentConfig(t *testing.T) {
+	workspace := t.TempDir()
+	writeConfig(t, workspace, "zs2", "zia_url_categories.auto.tfvars.json")
+	writeConfig(t, workspace, "zs2", "data/zia_location_groups.auto.tfvars.json")
+	// The migration window: the superseded flat file still on disk beside
+	// the nested one, in the other tfvars format. One type, one check --
+	// duplicated sightings must not inflate counts or duplicate violations.
+	writeConfig(t, workspace, "zs2", "zia_location_groups.auto.tfvars")
+	root := fetchableRoot(map[string]map[string]any{
+		"zia_url_categories":  {"product": "zia", "fetch": map[string]any{"path": "/urlCategories"}},
+		"zia_location_groups": {"product": "zia", "data_referent": true},
+	})
+
+	result := runCheck(t, workspace, root)
+	if result.Checked != 2 || result.Skipped != 0 {
+		t.Errorf("CheckFetchable() checked/skipped = %d/%d, want 2/0", result.Checked, result.Skipped)
+	}
+	want := []FetchableViolation{{
+		Tenant: "zs2", Type: "zia_location_groups",
 		Detail: "registry entry has no fetch block; " +
 			"add one, or declare \"fetch\": false with a fetch_skip_reason",
 	}}

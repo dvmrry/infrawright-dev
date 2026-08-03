@@ -262,7 +262,9 @@ func AdoptResourceItems(policy *metadata.DriftPolicy, rawItems []any, resource m
 }
 
 func pendingMovesPath(dep deployment.Deployment, resourceType, tenant string) (string, error) {
-	paths, err := tfrender.ComputeTransformArtifactPaths(dep, resourceType, tenant)
+	paths, err := tfrender.ComputeTransformArtifactPaths(
+		dep, resourceType, tenant, tfrender.TransformArtifactModeGenerated,
+	)
 	if err != nil {
 		return "", err
 	}

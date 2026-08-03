@@ -370,10 +370,15 @@ func RefreshEnvironmentRoots(options RefreshEnvironmentRootsOptions) (RefreshRun
 		varFiles := make([]string, 0, len(selectedRoot.Members))
 		missing := make([]string, 0)
 		for _, resourceType := range selectedRoot.Members {
+			artifactMode, err := artifactModeForResource(options.Root, resourceType)
+			if err != nil {
+				return RefreshRunResult{}, err
+			}
 			paths, err := tfrender.ComputeTransformArtifactPaths(
 				options.Deployment,
 				resourceType,
 				options.Tenant,
+				artifactMode,
 			)
 			if err != nil {
 				return RefreshRunResult{}, err

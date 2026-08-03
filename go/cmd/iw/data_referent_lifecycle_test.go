@@ -61,7 +61,9 @@ func prepareExactDataRootLifecycleWorkspace(t *testing.T) defaultTransformDataFi
 	fixture := newDefaultTransformDataFixture(t)
 	rootDirectory := filepath.Join(fixture.workspace, "envs", "tenant", "sample_groups_data")
 	writeBlockC4File(t, filepath.Join(rootDirectory, "main.tf"), []byte("# data root\n"), 0o600)
-	config, err := filepath.Abs(filepath.Join(fixture.workspace, "config", "tenant", "sample_groups_data.auto.tfvars.json"))
+	config, err := filepath.Abs(filepath.Join(
+		fixture.workspace, "config", "tenant", "data", "sample_groups_data.auto.tfvars.json",
+	))
 	if err != nil {
 		t.Fatalf("filepath.Abs(data root config): %v", err)
 	}
@@ -88,7 +90,9 @@ func TestPlanLifecycleExactDataSelectorPlansOnlyDataRoot(t *testing.T) {
 	if fake.planned[0].Directory != wantDirectory {
 		t.Errorf("Plan exact data selector directory = %q, want %q", fake.planned[0].Directory, wantDirectory)
 	}
-	wantConfig := filepath.Join(fixture.workspace, "config", "tenant", "sample_groups_data.auto.tfvars.json")
+	wantConfig := filepath.Join(
+		fixture.workspace, "config", "tenant", "data", "sample_groups_data.auto.tfvars.json",
+	)
 	if !reflect.DeepEqual(fake.planned[0].VarFiles, []string{wantConfig}) {
 		t.Errorf("Plan exact data selector var files = %#v, want [%q]", fake.planned[0].VarFiles, wantConfig)
 	}
@@ -113,7 +117,9 @@ func TestRefreshLifecycleExactDataSelectorRefreshesOnlyDataRoot(t *testing.T) {
 	if fake.planned[0].Directory != wantDirectory {
 		t.Errorf("Refresh exact data selector directory = %q, want %q", fake.planned[0].Directory, wantDirectory)
 	}
-	wantConfig := filepath.Join(fixture.workspace, "config", "tenant", "sample_groups_data.auto.tfvars.json")
+	wantConfig := filepath.Join(
+		fixture.workspace, "config", "tenant", "data", "sample_groups_data.auto.tfvars.json",
+	)
 	if !reflect.DeepEqual(fake.planned[0].VarFiles, []string{wantConfig}) {
 		t.Errorf("Refresh exact data selector var files = %#v, want [%q]", fake.planned[0].VarFiles, wantConfig)
 	}

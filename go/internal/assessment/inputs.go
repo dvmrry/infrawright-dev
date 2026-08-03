@@ -100,6 +100,23 @@ type SavedPlanAssessmentOptions struct {
 	TerraformShowLimits *terraformcmd.TerraformShowLimits
 }
 
+func artifactModeForResource(root metadata.LoadedPackRoot, resourceType string) (tfrender.TransformArtifactMode, error) {
+	resource, ok := root.Resources[resourceType]
+	if !ok {
+		return tfrender.TransformArtifactModeGenerated, fmt.Errorf("unknown active resource %s", resourceType)
+	}
+	if raw, present := resource.Registry["data_referent"]; present {
+		dataReferent, ok := raw.(bool)
+		if !ok {
+			return tfrender.TransformArtifactModeGenerated, fmt.Errorf("resource %s has non-boolean data_referent metadata", resourceType)
+		}
+		if dataReferent {
+			return tfrender.TransformArtifactModeDataReferent, nil
+		}
+	}
+	return tfrender.TransformArtifactModeGenerated, nil
+}
+
 // ResolvedSavedPlanAssessment pairs materialized inputs with whole-root
 // selection diagnostics.
 type ResolvedSavedPlanAssessment struct {
@@ -416,10 +433,15 @@ func MaterializeLoadedSavedPlanAssessmentRoots(
 		}
 		varFiles := make([]string, len(root.Members))
 		for index, resourceType := range root.Members {
+			artifactMode, err := artifactModeForResource(context.Root, resourceType)
+			if err != nil {
+				return nil, nil, err
+			}
 			paths, err := tfrender.ComputeTransformArtifactPaths(
 				context.Deployment,
 				resourceType,
 				root.Tenant,
+				artifactMode,
 			)
 			if err != nil {
 				return nil, nil, err

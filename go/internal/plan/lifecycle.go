@@ -99,6 +99,23 @@ func lifecycleFailure(code, message string, category procerr.Category) *procerr.
 	})
 }
 
+func artifactModeForResource(root metadata.LoadedPackRoot, resourceType string) (tfrender.TransformArtifactMode, error) {
+	resource, ok := root.Resources[resourceType]
+	if !ok {
+		return tfrender.TransformArtifactModeGenerated, fmt.Errorf("unknown active resource %s", resourceType)
+	}
+	if raw, present := resource.Registry["data_referent"]; present {
+		dataReferent, ok := raw.(bool)
+		if !ok {
+			return tfrender.TransformArtifactModeGenerated, fmt.Errorf("resource %s has non-boolean data_referent metadata", resourceType)
+		}
+		if dataReferent {
+			return tfrender.TransformArtifactModeDataReferent, nil
+		}
+	}
+	return tfrender.TransformArtifactModeGenerated, nil
+}
+
 func cloneEnvironment(environment map[string]string) map[string]string {
 	cloned := make(map[string]string, len(environment))
 	for key, value := range environment {
@@ -670,10 +687,15 @@ func PlanEnvironmentRoots(options PlanEnvironmentRootsOptions) (PlanRunResult, e
 		varFiles := make([]string, 0, len(selectedRoot.Members))
 		missing := make([]string, 0)
 		for _, resourceType := range selectedRoot.Members {
+			artifactMode, err := artifactModeForResource(options.Root, resourceType)
+			if err != nil {
+				return PlanRunResult{}, err
+			}
 			paths, err := tfrender.ComputeTransformArtifactPaths(
 				options.Deployment,
 				resourceType,
 				options.Tenant,
+				artifactMode,
 			)
 			if err != nil {
 				return PlanRunResult{}, err

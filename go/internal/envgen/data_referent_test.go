@@ -120,6 +120,13 @@ func newDataReferentEnvironmentFixture(t *testing.T, dataOnly bool) dataReferent
 		},
 	})
 	configDirectory := filepath.Join(workspace, "config", "tenant")
+	if dataOnly {
+		writeJSONFile(t, filepath.Join(configDirectory, "data", referentType+".auto.tfvars.json"), metadata.JsonObject{
+			"items": metadata.JsonObject{
+				"group_one": metadata.JsonObject{"name": "Group One"},
+			},
+		})
+	}
 	writeJSONFile(t, filepath.Join(configDirectory, "sample_rule.auto.tfvars.json"), metadata.JsonObject{
 		"items": metadata.JsonObject{
 			"rule_one": metadata.JsonObject{
@@ -195,6 +202,17 @@ func TestDataReferentExactSelectorReachesGenEnv(t *testing.T) {
 	}
 	if len(result.Roots) != 1 || result.Roots[0].Label != fixture.referentType || len(result.Roots[0].Members) != 1 || result.Roots[0].Members[0] != fixture.referentType {
 		t.Fatalf("GenerateEnvironmentRoots(%s) roots = %#v, want exactly the selected data root", fixture.referentType, result.Roots)
+	}
+	smokePath := filepath.Join(fixture.outputRoot, "tenant", fixture.referentType, "tests", "smoke.tftest.hcl")
+	smoke, err := os.ReadFile(smokePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v, want data-root smoke test", smokePath, err)
+	}
+	if !strings.Contains(string(smoke), "config/tenant/data/sample_groups_data.auto.tfvars.json") {
+		t.Errorf("GenerateEnvironmentRoots(%s) smoke test = %q, want nested data config reference", fixture.referentType, smoke)
+	}
+	if strings.Contains(string(smoke), "config/tenant/sample_groups_data.auto.tfvars.json") {
+		t.Errorf("GenerateEnvironmentRoots(%s) smoke test = %q, want no flat data config reference", fixture.referentType, smoke)
 	}
 }
 

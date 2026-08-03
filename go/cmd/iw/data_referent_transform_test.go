@@ -123,11 +123,15 @@ func TestDefaultFetchAndTransformProcessesDataReferentBeforeReferrer(t *testing.
 		t.Fatalf("RunTransformBatch result = %#v, want both processed with no failures or skips", result)
 	}
 
-	dataPaths, err := tfrender.ComputeTransformArtifactPaths(fixture.dep, "sample_groups_data", "tenant")
+	dataPaths, err := tfrender.ComputeTransformArtifactPaths(
+		fixture.dep, "sample_groups_data", "tenant", tfrender.TransformArtifactModeDataReferent,
+	)
 	if err != nil {
 		t.Fatalf("ComputeTransformArtifactPaths(data referent): %v", err)
 	}
-	rulePaths, err := tfrender.ComputeTransformArtifactPaths(fixture.dep, "sample_rule", "tenant")
+	rulePaths, err := tfrender.ComputeTransformArtifactPaths(
+		fixture.dep, "sample_rule", "tenant", tfrender.TransformArtifactModeGenerated,
+	)
 	if err != nil {
 		t.Fatalf("ComputeTransformArtifactPaths(referrer): %v", err)
 	}

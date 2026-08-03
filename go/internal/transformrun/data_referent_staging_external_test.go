@@ -86,13 +86,16 @@ func TestDataReferentTransformRetiresArtifactsBeforeImportStaging(t *testing.T) 
 	writeExternalJSON(t, filepath.Join(pulls, "sample_groups_data.json"), []any{
 		map[string]any{"id": json.Number("101"), "name": "Head Office"},
 	})
-	paths, err := tfrender.ComputeTransformArtifactPaths(dep, "sample_groups_data", "tenant")
+	paths, err := tfrender.ComputeTransformArtifactPaths(
+		dep, "sample_groups_data", "tenant", tfrender.TransformArtifactModeDataReferent,
+	)
 	if err != nil {
 		t.Fatalf("ComputeTransformArtifactPaths(data referent) = error %v, want nil", err)
 	}
 	allManaged := []string{
 		paths.Config, paths.Lookup, paths.Imports, paths.Moves,
 		paths.StaleConfig, paths.GeneratedBindings, paths.LegacyLookup,
+		paths.LegacyConfig, paths.LegacyStaleConfig,
 	}
 	for _, file := range allManaged {
 		if err := os.MkdirAll(filepath.Dir(file), 0o777); err != nil {
@@ -149,6 +152,7 @@ func TestDataReferentTransformRetiresArtifactsBeforeImportStaging(t *testing.T) 
 	for _, file := range []string{
 		paths.Imports, paths.Moves, paths.StaleConfig,
 		paths.GeneratedBindings, paths.LegacyLookup,
+		paths.LegacyConfig, paths.LegacyStaleConfig,
 	} {
 		if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("RunTransformBatch(stale data artifacts) Stat(%q) = %v, want absent", file, err)
