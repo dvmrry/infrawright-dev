@@ -9,10 +9,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/adopt"
+	"github.com/dvmrry/infrawright-dev/go/internal/fixtureupdate"
 	"github.com/dvmrry/infrawright-dev/go/internal/textcompat"
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
@@ -33,13 +35,15 @@ type parityCompatibilitySource struct {
 	Note           string `json:"note"`
 }
 
+// Field order is marshal order: the update mode re-encodes this struct, and
+// the committed snapshot keeps its keys alphabetical.
 type parityCompatibilityResult struct {
+	AdoptImports    string   `json:"adopt_imports"`
+	AdoptTFVars     string   `json:"adopt_tfvars"`
+	Drops           []string `json:"drops"`
 	Name            string   `json:"name"`
 	ResourceType    string   `json:"resource_type"`
 	TransformTFVars string   `json:"transform_tfvars"`
-	AdoptTFVars     string   `json:"adopt_tfvars"`
-	AdoptImports    string   `json:"adopt_imports"`
-	Drops           []string `json:"drops"`
 }
 
 func decodeParityCompatibilityFixture(data []byte) (parityCompatibilityFixture, error) {
@@ -58,11 +62,108 @@ func decodeParityCompatibilityFixture(data []byte) (parityCompatibilityFixture, 
 	return fixture, nil
 }
 
+// updateParityCompatibility is the IW_UPDATE_FIXTURES=1 refresh path. It
+// reloads the committed parity fixtures - whose provenance validation
+// fail-closes against the active pack pins, so stale provenance must be
+// re-verified and hand-updated in the fixtures FIRST - then recomputes the
+// retained outputs and the rendered report through the same production
+// kernels the comparing test uses, and rewrites the snapshot plus its pinned
+// constant. Fixture membership stays a reviewed hand edit.
+func updateParityCompatibility(t *testing.T, fixturePath string, fixtureBytes []byte) {
+	t.Helper()
+	compatibility, err := decodeParityCompatibilityFixture(fixtureBytes)
+	if err != nil {
+		t.Fatalf("decodeParityCompatibilityFixture(%q) error: %v", fixturePath, err)
+	}
+	context := committedTestContext(t)
+	fixtures := make([]Fixture, 0, len(compatibility.Results))
+	for index := range compatibility.Results {
+		result := &compatibility.Results[index]
+		loaded := loadCommittedFixture(t, context, result.Name)
+		result.ResourceType = loaded.ResourceType
+		resource := context.Root.Resources[loaded.ResourceType]
+		identities, err := adopt.DeriveAdoptionIdentities(loaded.RawItems, resource)
+		if err != nil {
+			t.Fatalf("DeriveAdoptionIdentities(%q) error: %v", result.Name, err)
+		}
+		pairs := make([]tfrender.GeneratedImportPair, len(identities.Identities))
+		for i, identity := range identities.Identities {
+			pairs[i] = tfrender.GeneratedImportPair{Key: identity.Key, ImportID: identity.ImportID}
+		}
+		if result.AdoptImports, err = tfrender.RenderGeneratedImports(loaded.ResourceType, pairs); err != nil {
+			t.Fatalf("RenderGeneratedImports(%q) error: %v", result.Name, err)
+		}
+		schema, err := context.Root.LoadResourceSchema(loaded.ResourceType)
+		if err != nil {
+			t.Fatalf("LoadResourceSchema(%q) error: %v", result.Name, err)
+		}
+		transformed, err := transform.TransformLoadedItems(transform.TransformLoadedItemsOptions{
+			Resource:     resource,
+			Schema:       schema,
+			RawItems:     loaded.RawItems,
+			HTMLUnescape: textcompat.HTMLUnescape,
+			UnescapeHTML: transformrun.ShouldUnescapeForTransform(context.Root, loaded.ResourceType),
+		})
+		if err != nil {
+			t.Fatalf("TransformLoadedItems(%q) error: %v", result.Name, err)
+		}
+		result.Drops = append([]string{}, transformed.Drops...)
+		if result.TransformTFVars, _, err = renderedItems(transformed.Items); err != nil {
+			t.Fatalf("renderedItems(transform %q) error: %v", result.Name, err)
+		}
+		policy, err := adopt.LoadAdoptionPolicy(context.Root, nil)
+		if err != nil {
+			t.Fatalf("LoadAdoptionPolicy(%q) error: %v", result.Name, err)
+		}
+		tracker := newFixtureStateTracker(loaded)
+		adopted, err := adopt.AdoptResourceItems(policy, loaded.RawItems, resource, context.Root, tracker.loader, nil)
+		if err != nil {
+			t.Fatalf("AdoptResourceItems(%q) error: %v", result.Name, err)
+		}
+		if err := tracker.checkCoverage(); err != nil {
+			t.Fatalf("provider-state coverage (%q): %v", result.Name, err)
+		}
+		if result.AdoptTFVars, _, err = renderedItems(adopted.Items); err != nil {
+			t.Fatalf("renderedItems(adopt %q) error: %v", result.Name, err)
+		}
+		fixtures = append(fixtures, loaded)
+	}
+	report, err := Build(fixtures, context)
+	if err != nil {
+		t.Fatalf("Build(compatibility fixtures) error: %v", err)
+	}
+	if compatibility.Report, err = Render(report); err != nil {
+		t.Fatalf("Render(compatibility report) error: %v", err)
+	}
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(compatibility); err != nil {
+		t.Fatalf("encode parity compatibility fixture: %v", err)
+	}
+	if err := os.WriteFile(fixturePath, encoded.Bytes(), 0o644); err != nil {
+		t.Fatalf("os.WriteFile(%q) error: %v", fixturePath, err)
+	}
+	digest := sha256.Sum256(encoded.Bytes())
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	if err := fixtureupdate.ReplaceConst(sourcePath, "parityCompatibilitySHA256", hex.EncodeToString(digest[:])); err != nil {
+		t.Fatalf("fixtureupdate.ReplaceConst error: %v", err)
+	}
+	t.Skipf("parity compatibility snapshot regenerated; review the diff before committing")
+}
+
 func TestTransformAdoptParityCompatibility(t *testing.T) {
 	fixturePath := filepath.Join("testdata", "parity_compatibility.json")
 	fixtureBytes, err := os.ReadFile(fixturePath)
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error: %v", fixturePath, err)
+	}
+	if fixtureupdate.Requested() {
+		updateParityCompatibility(t, fixturePath, fixtureBytes)
+		return
 	}
 	digest := sha256.Sum256(fixtureBytes)
 	if got := hex.EncodeToString(digest[:]); got != parityCompatibilitySHA256 {

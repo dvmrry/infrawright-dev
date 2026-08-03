@@ -29,7 +29,7 @@ export INFRAWRIGHT_DEPLOYMENT
 # One declaration. The two that were here had drifted -- only the first listed
 # `refresh`, only the second listed `check-config` -- and neither listed
 # `check-schema-parity`, which is a real target.
-.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-schema-parity check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go regen-plan-captures fetch fetch-diag gen-env refresh transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-config check-schema-parity check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go regen-compatibility-fixtures regen-plan-captures fetch fetch-diag gen-env refresh transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/iw: $(GO_BUILD_INPUTS)
 	@mkdir -p dist
@@ -140,6 +140,12 @@ test-go: ## Run the complete Go authority suite
 	cd go && $(GO) test -count=1 ./...
 
 CAPTURE_DIR := go/internal/plan/testdata/provider_double_capture
+
+regen-compatibility-fixtures: ## Regenerate pin-derived compatibility snapshots after a provider pin bump (see docs/pack-authoring.md, Provider Pin Bumps)
+	cd go && \
+		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestCommittedModuleHCLCompatibility' ./internal/modulesgen && \
+		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestTransformAdoptParityCompatibility$$' ./internal/authoring/transformadoptparity && \
+		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestFrozenZPAMatrixIsCurrentAndFailClosed' ./internal/authoring/zpacorpus
 
 regen-plan-captures: ## Regenerate provider-double capture fixtures (needs Terraform v1.15.4; the Go plan suite is the gate of record)
 	@test "$$(terraform version | sed -n 1p)" = "Terraform v1.15.4" || \

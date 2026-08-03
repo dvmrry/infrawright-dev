@@ -379,6 +379,44 @@ the same provider token, and two packs may not claim the same provider prefix.
 Pack validation, exact profile validation, and collector resolution reject the
 conflict with both pack names rather than selecting code by directory order.
 
+## Provider Pin Bumps
+
+Bumping a pack's `pin` invalidates every committed claim and snapshot that is
+version-bound to it. The supported refresh order is:
+
+1. **Re-verify the human claims at the new tag.** Registry
+   `adopt.unsupported_if` entries pin `provider.version`; each one is a
+   source-verified claim and must be re-checked against the new provider
+   source before its version string moves. The committed parity fixtures
+   (`tests/fixtures/parity/*.json` and the in-tree
+   `zpa_application_segment_microtenant`) carry `provenance` blocks with
+   `provider_version` and blob-ref source URLs pinned to the tag; re-read the
+   cited ranges at the new tag, then update the version strings and URL tags
+   (and line anchors, if the source moved). Fixture validation fail-closes
+   until these match the active pin.
+2. **Regenerate the derived snapshots.** `make regen-compatibility-fixtures`
+   reruns the three compatibility gates in their explicit update mode
+   (`IW_UPDATE_FIXTURES=1`): the module HCL hash snapshot
+   (`go/internal/modulesgen/testdata/module_hcl_compatibility.json`), the
+   parity compatibility capture
+   (`go/internal/authoring/transformadoptparity/testdata/parity_compatibility.json`),
+   and the frozen ZPA matrix's effective-input bindings. Each gate rewrites
+   its snapshot plus the paired SHA-256 constant in its own test source, so
+   evidence changes always surface as reviewable Go diffs. Update mode is
+   byte-idempotent when nothing changed; review the diff before committing.
+3. **ZPA is special.** The frozen matrix
+   (`packs/zpa/evidence/zpa-provider-v4.4.9.json`) is a reviewed evidence
+   corpus for one exact provider version, and its gate asserts currency
+   against the active pin. The update mode refuses to re-bind it when the zpa
+   pin has moved past the reviewed version: either hold the zpa pin at the
+   reviewed version, or perform the matrix re-capture described in
+   [ZPA Provider Evidence](zpa-provider-evidence.md) (new ref/commit,
+   source-file bindings, anchors, and re-reviewed claims). A hash refresh is
+   never a substitute for that review.
+
+Snapshot membership never regenerates: adding resources, files, or fixtures
+to any of these snapshots stays a reviewed hand edit.
+
 ## Boundaries
 
 Pack metadata configures provider identity, resource enumeration metadata,

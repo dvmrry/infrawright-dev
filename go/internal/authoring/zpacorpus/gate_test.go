@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
+	"github.com/dvmrry/infrawright-dev/go/internal/fixtureupdate"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
@@ -376,7 +377,98 @@ func digest(data []byte) string {
 	return hex.EncodeToString(value[:])
 }
 
+// updateFrozenZPAMatrix is the IW_UPDATE_FIXTURES=1 refresh path for the
+// matrix's MECHANICAL half only: it re-binds the local_inputs hashes to the
+// working tree and rewrites the pinned constant. It refuses outright when the
+// active zpa pack pin has moved past the reviewed provider version - currency
+// against the active pin is the point of this gate, and restoring it then
+// requires the reviewed matrix re-capture documented in
+// docs/zpa-provider-evidence.md (provider ref/commit, source-file bindings,
+// anchors, and claims), not a hash refresh.
+func updateFrozenZPAMatrix(t *testing.T) {
+	t.Helper()
+	repository := repositoryRoot(t)
+	packBytes, err := os.ReadFile(filepath.Join(repository, "packs", "zpa", "pack.json"))
+	if err != nil {
+		t.Fatalf("os.ReadFile(zpa pack.json) error = %v", err)
+	}
+	var pack struct {
+		Pin string `json:"pin"`
+	}
+	if err := json.Unmarshal(packBytes, &pack); err != nil {
+		t.Fatalf("json.Unmarshal(zpa pack.json) error = %v", err)
+	}
+	if "v"+pack.Pin != providerRef {
+		t.Fatalf(
+			"active zpa pin %s has moved past the reviewed provider version %s; the frozen matrix cannot be mechanically re-bound - re-capture the matrix per docs/zpa-provider-evidence.md (or hold the zpa pin at the reviewed version)",
+			pack.Pin, providerRef,
+		)
+	}
+	filename := filepath.Join(repository, "packs", "zpa", "evidence", "zpa-provider-v4.4.9.json")
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v", filename, err)
+	}
+	value, err := canonjson.ParseControlJSON(string(data))
+	if err != nil {
+		t.Fatalf("ParseControlJSON(ZPA matrix) error = %v", err)
+	}
+	roundTrip, err := canonjson.Render(value)
+	if err != nil {
+		t.Fatalf("Render(ZPA matrix) error = %v", err)
+	}
+	if roundTrip != string(data) {
+		t.Fatal("ZPA matrix is not in canonical rendering; refusing to rewrite it")
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		t.Fatal("ZPA matrix root is not an object")
+	}
+	inputs, ok := root["local_inputs"].([]any)
+	if !ok {
+		t.Fatal("ZPA matrix local_inputs is not a list")
+	}
+	for _, entry := range inputs {
+		binding, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatal("ZPA matrix local_inputs entry is not an object")
+		}
+		path, _ := binding["path"].(string)
+		content, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatalf("os.ReadFile(local input %q) error = %v", path, err)
+		}
+		binding["sha256"] = digest(content)
+	}
+	rendered, err := canonjson.Render(value)
+	if err != nil {
+		t.Fatalf("Render(updated ZPA matrix) error = %v", err)
+	}
+	report, err := decodeReport([]byte(rendered))
+	if err != nil {
+		t.Fatalf("decodeReport(updated ZPA matrix) error = %v", err)
+	}
+	if err := validateLocalCorpus(report, repository, filepath.Join(repository, "packs")); err != nil {
+		t.Fatalf("validateLocalCorpus(updated ZPA matrix) error = %v", err)
+	}
+	if err := os.WriteFile(filename, []byte(rendered), 0o644); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v", filename, err)
+	}
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	if err := fixtureupdate.ReplaceConst(sourcePath, "matrixSHA256", digest([]byte(rendered))); err != nil {
+		t.Fatalf("fixtureupdate.ReplaceConst error = %v", err)
+	}
+	t.Skipf("ZPA matrix local-input bindings re-bound; review the diff before committing")
+}
+
 func TestFrozenZPAMatrixIsCurrentAndFailClosed(t *testing.T) {
+	if fixtureupdate.Requested() {
+		updateFrozenZPAMatrix(t)
+		return
+	}
 	data, report := readMatrix(t)
 	if got := digest(data); got != matrixSHA256 {
 		t.Fatalf("digest(ZPA matrix) = %q, want frozen %q", got, matrixSHA256)
