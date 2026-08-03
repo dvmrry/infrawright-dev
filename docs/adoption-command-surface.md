@@ -45,7 +45,10 @@ referents; a data type whose fetch output is absent is skipped, not failed.
 `make resources` shares the same membership, so downstream pipelines that
 treat its output as the authoritative type list can discover and scope data
 referents; product and provider/bare selectors remain generated-only
-enumeration selectors on every surface.
+enumeration selectors on every surface. `make stage-imports` on a selection
+made up entirely of data referents is a reasoned no-op — it reports a
+per-type skip instead of failing with `NO_IMPORT_ARTIFACTS`, since no run
+could ever produce import artifacts for those types.
 
 Adopt's provider Oracle may execute a mechanically verified import-only plan
 against ephemeral local scratch state so provider Read can supply projected

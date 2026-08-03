@@ -5,12 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/adopt"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
-	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
@@ -159,16 +159,21 @@ func TestDataReferentTransformRetiresArtifactsBeforeImportStaging(t *testing.T) 
 		}
 	}
 
+	var diagnostics []string
 	staged, err := adopt.StageImports(adopt.StageImportsOptions{
-		Deployment: dep, Root: root,
+		Deployment: dep, OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
+		Root:      root,
 		Selectors: []string{}, Tenant: "tenant",
 		Workspace: workspace,
 	})
-	var failure *procerr.ProcessFailure
-	if !errors.As(err, &failure) || failure.Code != "NO_IMPORT_ARTIFACTS" {
-		t.Fatalf("StageImports(data root after transform) error = %v, want NO_IMPORT_ARTIFACTS", err)
+	if err != nil {
+		t.Fatalf("StageImports(data root after transform) error = %v, want reasoned no-op", err)
 	}
 	if staged != (adopt.StageImportsResult{}) {
 		t.Errorf("StageImports(data root after transform) = %#v, want no sources or staged artifacts", staged)
+	}
+	wantDiagnostics := []string{"skip sample_groups_data (data referent - no imports or moves to stage)"}
+	if !reflect.DeepEqual(diagnostics, wantDiagnostics) {
+		t.Errorf("StageImports(data root after transform) diagnostics = %#v, want %#v", diagnostics, wantDiagnostics)
 	}
 }
