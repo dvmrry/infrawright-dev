@@ -14,7 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-const moduleHCLCompatibilitySHA256 = "5fb57177483130e360ccf5ccc20fe5c0f30eeaecbf700121b918cb1a159d7a37"
+const moduleHCLCompatibilitySHA256 = "927010aa6d3ab3eb3a0c67a7fdf68fb543f78cdb4a7659e0a9b20342757868c5"
 
 type moduleHCLCompatibilityFixture struct {
 	SchemaVersion int                              `json:"schema_version"`
