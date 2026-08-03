@@ -651,6 +651,68 @@ func TestApplyExactSavedPlansDestroyAndBlockedOverrideMatrix(t *testing.T) {
 	}
 }
 
+func exactApplyRefreshDriftPlan() map[string]any {
+	return map[string]any{
+		"format_version":    "1.2",
+		"terraform_version": "1.15.4",
+		"complete":          true,
+		"errored":           false,
+		"resource_changes":  []any{},
+		"resource_drift": []any{map[string]any{
+			"address": `zia_url_categories.this["one"]`,
+			"type":    "zia_url_categories",
+			"change": map[string]any{
+				"actions": []any{"update"},
+				"before":  map[string]any{"status": "old"},
+				"after":   map[string]any{"status": "new"},
+			},
+		}},
+		"output_changes": map[string]any{},
+	}
+}
+
+// TestApplyExactSavedPlansMatchesAssertStanceOnRefreshDrift pins the stance
+// agreement between apply and the assert gate: a supplied drift policy is the
+// adoption path (AssertAdoptable is one-to-one with policy presence), where
+// refresh drift is tolerated because only the apply can settle it; without a
+// policy the same drift blocks, and a real resource_changes change blocks
+// either way.
+func TestApplyExactSavedPlansMatchesAssertStanceOnRefreshDrift(t *testing.T) {
+	tests := []struct {
+		name       string
+		plan       map[string]any
+		withPolicy bool
+		wantCode   string
+		wantApply  bool
+	}{
+		{name: "drift_with_policy_applies", plan: exactApplyRefreshDriftPlan(), withPolicy: true, wantApply: true},
+		{name: "drift_without_policy_blocks", plan: exactApplyRefreshDriftPlan(), wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
+		{name: "config_change_with_policy_blocks", plan: exactApplyBlockedPlan("update"), withPolicy: true, wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newExactApplyFixture(t)
+			fixture.restoreSavedPair(t, fixture.roots[0])
+			fake := &fakeExactPlanApplyTerraform{currentPlan: test.plan}
+			options := exactApplyOptions(fixture, fake)
+			if test.withPolicy {
+				policyPath := filepath.Join(fixture.workspace, "policy.json")
+				writeAssessmentTransactionFile(t, policyPath, []byte(`{"version":1,"resource_types":{}}`), 0o600)
+				options.PolicyPath = &policyPath
+			}
+			_, err := applyExactSavedPlans(options, exactApplyTestHooks(fixture))
+			if test.wantCode != "" {
+				requireExactApplyFailure(t, err, test.wantCode)
+			} else if err != nil {
+				t.Fatalf("applyExactSavedPlans(%s) error = %v, want nil", test.name, err)
+			}
+			if got := len(fake.applied) > 0; got != test.wantApply {
+				t.Errorf("Apply called = %t, want %t", got, test.wantApply)
+			}
+		})
+	}
+}
+
 func TestApplyExactSavedPlansRejectsEveryFreshnessClassBeforeApply(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -564,9 +564,16 @@ func applyExactPlanRoot(
 	if err := requireExactApplyTypedComplete(shownPlan); err != nil {
 		return false, err
 	}
-	// The same schema types the assert gate classified under. Apply refusing a
-	// plan assert-clean passed, or the reverse, would make the two gates
-	// disagree about the same saved plan for no reason a reader could see.
+	// The same stance the assert gate classified under. Apply refusing a
+	// plan the gate passed, or the reverse, would make the two gates
+	// disagree about the same saved plan for no reason a reader could see,
+	// so every ClassifyPlanOptions field derives from the same inputs the
+	// gate derived it from: the provider schema types, and the adoption
+	// stance. The gate sets TolerateRefreshDrift exactly when its mode is
+	// AssertAdoptable, and that mode is one-to-one with a supplied drift
+	// policy (INVALID_ASSESSMENT_REQUEST refuses any disagreement), so a
+	// bound policy path selects the same tolerance here. Steady-state
+	// deliveries pass no policy and stay strict.
 	contract := exactApplyContract(root)
 	if contract != nil {
 		contract.PlanAttestation = evidence.PlanAttestation
@@ -575,7 +582,10 @@ func applyExactPlanRoot(
 		shownPlan.Raw,
 		policy.Policy,
 		contract,
-		ClassifyPlanOptions{SchemaTypes: schemaTypes},
+		ClassifyPlanOptions{
+			SchemaTypes:          schemaTypes,
+			TolerateRefreshDrift: policy.Path != nil,
+		},
 	)
 	if err != nil {
 		return false, err
