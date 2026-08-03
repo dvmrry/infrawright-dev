@@ -42,6 +42,10 @@ Data-only referents (`"data_referent": true`) have no import identity, so
 writes imports or moves for them. The implicit adoption batch matches the
 transform lane's selection, covering generated types plus active data
 referents; a data type whose fetch output is absent is skipped, not failed.
+`make resources` shares the same membership, so downstream pipelines that
+treat its output as the authoritative type list can discover and scope data
+referents; product and provider/bare selectors remain generated-only
+enumeration selectors on every surface.
 
 Adopt's provider Oracle may execute a mechanically verified import-only plan
 against ephemeral local scratch state so provider Read can supply projected

@@ -35,7 +35,7 @@ Available Commands:
   provider-probe         Run the provider-readiness probe
   reconcile              Compare API JSON with a Terraform schema
   refresh                Reconcile recorded state with reality without changing anything remote
-  resources              List generated resources
+  resources              List transformable resources (generated and data referents)
   roots                  Emit root topology
   scope-paths            Map changed paths to affected roots
   source-evidence-eval   Evaluate source-backed provider evidence
@@ -564,7 +564,7 @@ Flags:
 ## `iw resources`
 
 ```text
-List generated resources
+List transformable resources (generated and data referents)
 
 Usage:
   iw resources [flags]

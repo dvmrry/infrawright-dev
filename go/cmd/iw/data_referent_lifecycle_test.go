@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -118,7 +119,7 @@ func TestRefreshLifecycleExactDataSelectorRefreshesOnlyDataRoot(t *testing.T) {
 	}
 }
 
-func TestResourcesCommandSelectorBoundaryDoesNotAdmitDataRoots(t *testing.T) {
+func TestResourcesCommandMatchesTransformLaneSelection(t *testing.T) {
 	fixture := newDefaultTransformDataFixture(t)
 	profile := filepath.Join(fixture.workspace, "packs", "sample.packset.json")
 	t.Setenv("INFRAWRIGHT_PACKAGE_ROOT", fixture.workspace)
@@ -126,46 +127,58 @@ func TestResourcesCommandSelectorBoundaryDoesNotAdmitDataRoots(t *testing.T) {
 		"--root":    {filepath.Join(fixture.workspace, "packs")},
 		"--profile": {profile},
 	}
+	run := func(t *testing.T, selectors []string) (string, error) {
+		t.Helper()
+		options := map[string][]string{}
+		for key, values := range baseOptions {
+			options[key] = append([]string(nil), values...)
+		}
+		if selectors != nil {
+			options["--resource"] = selectors
+		}
+		read, write, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+		saved := os.Stdout
+		os.Stdout = write
+		_, runErr := resourcesInput(commandInput{Options: options})
+		os.Stdout = saved
+		write.Close()
+		captured, err := io.ReadAll(read)
+		if err != nil {
+			t.Fatalf("io.ReadAll: %v", err)
+		}
+		return string(captured), runErr
+	}
 	tests := []struct {
 		name      string
 		selectors []string
-		wantCode  string
-		wantText  string
+		want      string
 	}{
-		{
-			name:      "exact_data_selector",
-			selectors: []string{"sample_groups_data"},
-			wantCode:  "UNKNOWN_RESOURCE_SELECTOR",
-			wantText:  "non-generated resource selector",
-		},
-		{
-			name:      "mixed_generated_and_data_selectors",
-			selectors: []string{"sample_rule", "sample_groups_data"},
-			wantCode:  "UNKNOWN_RESOURCE_SELECTOR",
-			wantText:  "non-generated resource selector",
-		},
+		{name: "exact_data_selector", selectors: []string{"sample_groups_data"}, want: "sample_groups_data\n"},
+		{name: "mixed_generated_and_data_selectors", selectors: []string{"sample_rule", "sample_groups_data"}, want: "sample_groups_data\nsample_rule\n"},
+		{name: "implicit_batch_includes_data_referents", selectors: nil, want: "sample_groups_data\nsample_rule\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			options := map[string][]string{}
-			for key, values := range baseOptions {
-				options[key] = append([]string(nil), values...)
+			output, err := run(t, test.selectors)
+			if err != nil {
+				t.Fatalf("resourcesInput(%v) error = %v, want transform-lane admission", test.selectors, err)
 			}
-			options["--resource"] = test.selectors
-			_, err := resourcesInput(commandInput{Options: options})
-			if err == nil {
-				t.Fatalf("resourcesInput(%v) error = nil, want generated-only selector refusal", test.selectors)
-			}
-			var failure *procerr.ProcessFailure
-			if !errors.As(err, &failure) {
-				t.Fatalf("resourcesInput(%v) error = %T(%v), want ProcessFailure", test.selectors, err, err)
-			}
-			if failure.Code != test.wantCode {
-				t.Errorf("resourcesInput(%v) ProcessFailure.Code = %q, want %q", test.selectors, failure.Code, test.wantCode)
-			}
-			if !strings.Contains(failure.Message, test.wantText) {
-				t.Errorf("resourcesInput(%v) ProcessFailure.Message = %q, want substring %q", test.selectors, failure.Message, test.wantText)
+			if output != test.want {
+				t.Errorf("resourcesInput(%v) output = %q, want %q", test.selectors, output, test.want)
 			}
 		})
 	}
+	t.Run("unknown_selector_stays_classified", func(t *testing.T) {
+		_, err := run(t, []string{"sample_missing"})
+		var failure *procerr.ProcessFailure
+		if !errors.As(err, &failure) {
+			t.Fatalf("resourcesInput(unknown) error = %T(%v), want ProcessFailure", err, err)
+		}
+		if failure.Code != "UNKNOWN_RESOURCE_SELECTOR" || !strings.Contains(failure.Message, "sample_missing") {
+			t.Errorf("resourcesInput(unknown) = %q %q, want UNKNOWN_RESOURCE_SELECTOR naming sample_missing", failure.Code, failure.Message)
+		}
+	})
 }
