@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -373,5 +374,16 @@ func TestMixedDataReferentAndGeneratedReferrerPublishesReferentFirst(t *testing.
 		if _, err := os.Stat(file); err != nil {
 			t.Errorf("RunTransformBatch(mixed selection) Stat(%q) = %v, want published artifact", file, err)
 		}
+	}
+	ruleConfig, err := os.ReadFile(rulePaths.Config)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q referrer config) = error %v, want published config", rulePaths.Config, err)
+	}
+	wantToken := `"group_id": "sample_groups_data.head_office"`
+	if !strings.Contains(string(ruleConfig), wantToken) {
+		t.Errorf("RunTransformBatch(mixed selection) referrer config = %q, want minted data-referent token %s", ruleConfig, wantToken)
+	}
+	if strings.Contains(string(ruleConfig), `"group_id": "101"`) {
+		t.Errorf("RunTransformBatch(mixed selection) referrer config = %q, want no raw tenant ID for the referenced field", ruleConfig)
 	}
 }

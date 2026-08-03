@@ -342,12 +342,16 @@ func transformBindingContext(
 ) (tfrender.BindingContext, error) {
 	generated := map[string]bool{}
 	derived := map[string]bool{}
+	dataReferents := map[string]bool{}
 	for _, loaded := range root.Resources {
 		if loaded.Registry["generate"] == true {
 			generated[loaded.Type] = true
 			if _, ok := loaded.Registry["derive"].(map[string]any); ok {
 				derived[loaded.Type] = true
 			}
+		}
+		if dataReferent, _ := loaded.Registry["data_referent"].(bool); dataReferent {
+			dataReferents[loaded.Type] = true
 		}
 	}
 	setBlockFields, err := setBlockFieldIndexes(schema, resource.Type, references)
@@ -358,6 +362,7 @@ func transformBindingContext(
 		Mode:           deployment.DeploymentReferenceBindingMode(dep, resource.Provider),
 		Generated:      generated,
 		Derived:        derived,
+		DataReferents:  dataReferents,
 		ResourceRoots:  resourceRoots,
 		References:     references,
 		SetBlockFields: setBlockFields,

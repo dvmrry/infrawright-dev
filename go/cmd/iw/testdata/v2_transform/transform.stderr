@@ -96,8 +96,9 @@ wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/lookups/zia_workload_groups.looku
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_workload_groups.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_workload_groups_imports.tf
 NOTE bindings: zia_dlp_web_rules.dlp_engines.id skipped; lookup for zia_dlp_engines is missing
+NOTE bindings: zia_dlp_web_rules.location_groups.id skipped; lookup for zia_location_groups is missing
 NOTE bindings: zia_dlp_web_rules.fictional_dlp_web_rule.url_categories.id[0] value "6001" skipped; id is absent from zia_url_categories lookup
-NOTE bindings: zia_dlp_web_rules: 0 bound, 2 skipped (id_absent=1, missing_lookup=1)
+NOTE bindings: zia_dlp_web_rules: 0 bound, 3 skipped (id_absent=1, missing_lookup=2)
 wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_dlp_web_rules.auto.tfvars.json
 wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_dlp_web_rules_imports.tf
 skip zia_firewall_filtering_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_firewall_filtering_rule.json)
