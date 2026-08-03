@@ -56,8 +56,9 @@ Supporting adoption commands:
 
 `make apply` uses the same saved-plan classification semantics as
 `make assert-adoptable` with one deliberate narrowing: apply tolerates refresh
-drift only when the saved plan is import-only (every resource change is an
-import), because that drift is exactly what the import persists and nothing
+drift only when the saved plan is import-only (at least one resource change
+is an import and every other one is a no-op, so the plan acts through its
+imports alone), because that drift is exactly what the import persists and nothing
 else in the plan could act on it. Any other plan stays strict about refresh
 drift: a steady-state plan that `assert-adoptable` reported as tolerated only
 because of `resource_drift` is still refused by `make apply`. The destroy
