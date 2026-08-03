@@ -283,6 +283,23 @@ func CheckFetchable(options CheckFetchableOptions) (CheckFetchableResult, error)
 				names = append(names, entry.Name())
 			}
 		}
+		// The data-referent lane publishes its config one level down, in
+		// <configDir>/data/; a committed nested config is held to the same
+		// fetchability contract as a flat one, so enumerate that directory
+		// too. Anything else nested (lookups/, unknown dirs) stays ignored.
+		dataEntries, err := os.ReadDir(workspacePath(options.Workspace, filepath.Join(configDir, "data")))
+		if err != nil && !os.IsNotExist(err) {
+			return CheckFetchableResult{}, checkFailure(
+				"CONFIG_DIR_UNREADABLE",
+				"unable to read committed data-referent config for tenant "+tenant,
+				procerr.CategoryIO,
+			)
+		}
+		for _, entry := range dataEntries {
+			if !entry.IsDir() {
+				names = append(names, entry.Name())
+			}
+		}
 		sort.Strings(names)
 		for _, name := range names {
 			resourceType, ok := resourceTypeFromConfigName(name)

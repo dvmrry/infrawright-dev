@@ -291,6 +291,15 @@ func TestMaterializeLoadedSavedPlanAssessmentRootsDataReferenceUsesPlainID(t *te
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("production materialized data ReferenceOutputType = %#v, want %#v", got, want)
 	}
+	// The assessment constructs VarFiles independently of plan/refresh, so
+	// the nested data-lane path needs its own pin: a data referent's config
+	// resolves under config/<tenant>/data/, never the flat path. The
+	// faithful mutation this kills is artifactModeForResource always
+	// returning the generated mode.
+	wantVarFiles := []string{filepath.Join(workspace, "config", "tenant", "data", "capture_item.auto.tfvars.json")}
+	if !reflect.DeepEqual(roots[0].VarFiles, wantVarFiles) {
+		t.Errorf("data referent VarFiles = %#v, want %#v", roots[0].VarFiles, wantVarFiles)
+	}
 }
 
 func installedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
