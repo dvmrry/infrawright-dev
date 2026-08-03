@@ -627,7 +627,9 @@ func enumerateCommittedReferenceTokens(
 	var leaves []committedTokenLeaf
 	var scanned []scannedMember
 	for _, resourceType := range members {
-		config, err := configFile(dep, tenant, resourceType)
+		config, err := configFile(
+			dep, tenant, resourceType, transformArtifactMode(root, resourceType),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -1246,7 +1248,9 @@ func referenceLookupLocals(
 	}
 	lines := []string{"locals {"}
 	for _, referent := range referentTypes {
-		paths, err := tfrender.ComputeTransformArtifactPaths(dep, referent, tenant)
+		paths, err := tfrender.ComputeTransformArtifactPaths(
+			dep, referent, tenant, tfrender.TransformArtifactModeGenerated,
+		)
 		if err != nil {
 			return "", err
 		}
@@ -1286,8 +1290,14 @@ func referenceLookupLocals(
 
 // configFile ports the local configFile helper from
 // the original implementation.
-func configFile(dep deployment.Deployment, tenant, resourceType string) (string, error) {
-	paths, err := tfrender.ComputeTransformArtifactPaths(dep, resourceType, tenant)
+func configFile(
+	dep deployment.Deployment,
+	tenant, resourceType string,
+	artifactMode tfrender.TransformArtifactMode,
+) (string, error) {
+	paths, err := tfrender.ComputeTransformArtifactPaths(
+		dep, resourceType, tenant, artifactMode,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -1296,12 +1306,23 @@ func configFile(dep deployment.Deployment, tenant, resourceType string) (string,
 
 // configReference ports the local configReference helper from
 // the original implementation.
-func configReference(dep deployment.Deployment, tenant, resourceType, environmentDirectory string) (string, error) {
-	file, err := configFile(dep, tenant, resourceType)
+func configReference(
+	dep deployment.Deployment,
+	tenant, resourceType, environmentDirectory string,
+	artifactMode tfrender.TransformArtifactMode,
+) (string, error) {
+	file, err := configFile(dep, tenant, resourceType, artifactMode)
 	if err != nil {
 		return "", err
 	}
 	return nodePathRelative(environmentDirectory, file), nil
+}
+
+func transformArtifactMode(root metadata.LoadedPackRoot, resourceType string) tfrender.TransformArtifactMode {
+	if dataReferent(root, resourceType) {
+		return tfrender.TransformArtifactModeDataReferent
+	}
+	return tfrender.TransformArtifactModeGenerated
 }
 
 // operatorBindingsFile ports the local operatorBindingsFile helper from
@@ -1317,7 +1338,9 @@ func operatorBindingsFile(dep deployment.Deployment, tenant, resourceType string
 // generatedBindingsFile ports the local generatedBindingsFile helper from
 // the original implementation.
 func generatedBindingsFile(dep deployment.Deployment, tenant, resourceType string) (string, error) {
-	paths, err := tfrender.ComputeTransformArtifactPaths(dep, resourceType, tenant)
+	paths, err := tfrender.ComputeTransformArtifactPaths(
+		dep, resourceType, tenant, tfrender.TransformArtifactModeGenerated,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -1720,7 +1743,9 @@ func deriveGeneratedBindingLayer(
 	// tfrender.BindingContext.TokensOnly for why resolving one at render would
 	// make an unchanged tree's emitted root a function of lookup contents.
 	context.TokensOnly = true
-	config, err := configFile(dep, tenant, resource.Type)
+	config, err := configFile(
+		dep, tenant, resource.Type, transformArtifactMode(root, resource.Type),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1934,6 +1959,7 @@ type RenderEnvironmentReadmeOptions struct {
 	EnvironmentDirectory string
 	Label                string
 	Members              []string
+	Root                 metadata.LoadedPackRoot
 	Tenant               string
 	Topology             roots.RootTopology
 }
@@ -1944,7 +1970,10 @@ func RenderEnvironmentReadme(options RenderEnvironmentReadmeOptions) (string, er
 	members := canonjson.SortedStrings(options.Members)
 	if len(members) == 1 && options.Topology.ResourceRoots[members[0]] == members[0] {
 		resourceType := members[0]
-		config, err := configReference(options.Deployment, options.Tenant, resourceType, options.EnvironmentDirectory)
+		config, err := configReference(
+			options.Deployment, options.Tenant, resourceType, options.EnvironmentDirectory,
+			transformArtifactMode(options.Root, resourceType),
+		)
 		if err != nil {
 			return "", err
 		}
@@ -1959,7 +1988,10 @@ func RenderEnvironmentReadme(options RenderEnvironmentReadmeOptions) (string, er
 	}
 	references := make([]string, len(members))
 	for i, resourceType := range members {
-		config, err := configReference(options.Deployment, options.Tenant, resourceType, options.EnvironmentDirectory)
+		config, err := configReference(
+			options.Deployment, options.Tenant, resourceType, options.EnvironmentDirectory,
+			transformArtifactMode(options.Root, resourceType),
+		)
 		if err != nil {
 			return "", err
 		}
@@ -2110,7 +2142,10 @@ func RenderEnvironmentSmokeTest(options RenderEnvironmentSmokeTestOptions) (stri
 		lines = append(lines, "", `run "config_plan" {`, "  command = plan", "", "  variables {")
 		for _, resourceType := range configured {
 			name := variableName(options.Topology, resourceType)
-			reference, err := configReference(options.Deployment, options.Tenant, resourceType, options.EnvironmentDirectory)
+			reference, err := configReference(
+				options.Deployment, options.Tenant, resourceType, options.EnvironmentDirectory,
+				transformArtifactMode(options.Root, resourceType),
+			)
 			if err != nil {
 				return "", err
 			}
@@ -2327,7 +2362,10 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			if err := ValidateExpressionBindingSchemaPaths(schema, resourceType, bindings); err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
-			config, err := configFile(options.Deployment, options.Tenant, resourceType)
+			config, err := configFile(
+				options.Deployment, options.Tenant, resourceType,
+				transformArtifactMode(options.Root, resourceType),
+			)
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
@@ -2509,7 +2547,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 
 		readme, err := RenderEnvironmentReadme(RenderEnvironmentReadmeOptions{
 			Deployment: options.Deployment, EnvironmentDirectory: directory, Label: selectedRoot.Label,
-			Members: members, Tenant: options.Tenant, Topology: topology,
+			Members: members, Root: options.Root, Tenant: options.Tenant, Topology: topology,
 		})
 		if err != nil {
 			return EnvironmentGenerationResult{}, err
@@ -2525,7 +2563,10 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		}
 		hasConfig := map[string]bool{}
 		for _, resourceType := range members {
-			config, err := configFile(options.Deployment, options.Tenant, resourceType)
+			config, err := configFile(
+				options.Deployment, options.Tenant, resourceType,
+				transformArtifactMode(options.Root, resourceType),
+			)
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
 			}
@@ -2562,7 +2603,10 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			if hasConfig[resourceType] {
 				continue
 			}
-			file, err := configFile(options.Deployment, options.Tenant, resourceType)
+			file, err := configFile(
+				options.Deployment, options.Tenant, resourceType,
+				transformArtifactMode(options.Root, resourceType),
+			)
 			if err != nil {
 				return EnvironmentGenerationResult{}, err
 			}

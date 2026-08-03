@@ -329,7 +329,7 @@ func TestResourceSetRootTopologyIncludesDataReferent(t *testing.T) {
 }
 
 func TestChangedPathScopeMapsDataReferentConfigToRoot(t *testing.T) {
-	const changedPath = "config/acme/zpa_data_only.auto.tfvars.json"
+	const changedPath = "config/acme/data/zpa_data_only.auto.tfvars.json"
 	scope, err := ChangedPathScopeFromResourceSet(ChangedPathScopeOptions{
 		Paths:          []string{changedPath},
 		Workspace:      "/workspace",

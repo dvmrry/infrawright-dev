@@ -789,7 +789,9 @@ func TestPlanEnvironmentRootsDataReferentImportsOnlyPlansOnce(t *testing.T) {
 	const resourceType = "zia_location_groups"
 	workspace := t.TempDir()
 	directory := writeLifecycleRoot(t, workspace, "tenant", resourceType, []string{resourceType}, nil, false)
-	config := lifecycleTestConfigPath(workspace, "tenant", resourceType, ".auto.tfvars.json")
+	config := filepath.Join(
+		workspace, "config", "tenant", "data", resourceType+".auto.tfvars.json",
+	)
 	writeLifecycleText(t, config, `{"items":{}}`+"\n")
 	root := lifecycleTestRoot(map[string]metadata.JsonObject{
 		resourceType: {

@@ -70,7 +70,9 @@ func defaultArtifactOptions(workspace string) TransformArtifactCompileOptions {
 
 func mustComputePaths(t *testing.T, options TransformArtifactCompileOptions) TransformArtifactPaths {
 	t.Helper()
-	paths, err := ComputeTransformArtifactPaths(options.Deployment, options.ResourceType, options.Tenant)
+	paths, err := ComputeTransformArtifactPaths(
+		options.Deployment, options.ResourceType, options.Tenant, options.ArtifactMode,
+	)
 	if err != nil {
 		t.Fatalf("ComputeTransformArtifactPaths: %v", err)
 	}
@@ -630,7 +632,9 @@ func TestWriteDerivedTransformArtifact(t *testing.T) {
 	items := map[string]map[string]any{"reordered": {"name": "Reordered"}}
 	references := map[string]TransformReferenceSpec{}
 
-	paths, err := ComputeTransformArtifactPaths(dep, "sample_reorder", "tenant")
+	paths, err := ComputeTransformArtifactPaths(
+		dep, "sample_reorder", "tenant", TransformArtifactModeGenerated,
+	)
 	if err != nil {
 		t.Fatalf("ComputeTransformArtifactPaths: %v", err)
 	}
@@ -773,7 +777,9 @@ func TestCompileTransformArtifactsRejectsConflictingMoveEvidence(t *testing.T) {
 // it lives under a lookups/ subdirectory -- while LegacyLookup keeps naming
 // its pre-migration flat location for dual-read and stale-cleanup.
 func TestComputeTransformArtifactPathsFlatLayout(t *testing.T) {
-	got, err := ComputeTransformArtifactPaths(testDeployment("overlay", false), "zia_rule_labels", "tenant")
+	got, err := ComputeTransformArtifactPaths(
+		testDeployment("overlay", false), "zia_rule_labels", "tenant", TransformArtifactModeGenerated,
+	)
 	if err != nil {
 		t.Fatalf("ComputeTransformArtifactPaths: %v", err)
 	}
@@ -781,6 +787,8 @@ func TestComputeTransformArtifactPathsFlatLayout(t *testing.T) {
 		Config:            path.Join("overlay", "config", "tenant", "zia_rule_labels.auto.tfvars.json"),
 		GeneratedBindings: path.Join("overlay", "config", "tenant", "zia_rule_labels.generated.expressions.json"),
 		Imports:           path.Join("overlay", "imports", "tenant", "zia_rule_labels_imports.tf"),
+		LegacyConfig:      path.Join("overlay", "config", "tenant", "zia_rule_labels.auto.tfvars.json"),
+		LegacyStaleConfig: path.Join("overlay", "config", "tenant", "zia_rule_labels.auto.tfvars"),
 		Lookup:            path.Join("overlay", "config", "tenant", "lookups", "zia_rule_labels.lookup.json"),
 		LegacyLookup:      path.Join("overlay", "config", "tenant", "zia_rule_labels.lookup.json"),
 		Moves:             path.Join("overlay", "imports", "tenant", "zia_rule_labels_moves.tf"),
@@ -788,5 +796,116 @@ func TestComputeTransformArtifactPathsFlatLayout(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestComputeTransformArtifactPathsDataReferentLayout(t *testing.T) {
+	cases := []struct {
+		name        string
+		dep         deployment.Deployment
+		config      string
+		stale       string
+		legacy      string
+		legacyStale string
+	}{
+		{
+			name:        "json",
+			dep:         testDeployment("overlay", false),
+			config:      path.Join("overlay", "config", "tenant", "data", "zia_location_groups.auto.tfvars.json"),
+			stale:       path.Join("overlay", "config", "tenant", "data", "zia_location_groups.auto.tfvars"),
+			legacy:      path.Join("overlay", "config", "tenant", "zia_location_groups.auto.tfvars.json"),
+			legacyStale: path.Join("overlay", "config", "tenant", "zia_location_groups.auto.tfvars"),
+		},
+		{
+			name:        "hcl",
+			dep:         testDeployment("overlay", true),
+			config:      path.Join("overlay", "config", "tenant", "data", "zia_location_groups.auto.tfvars"),
+			stale:       path.Join("overlay", "config", "tenant", "data", "zia_location_groups.auto.tfvars.json"),
+			legacy:      path.Join("overlay", "config", "tenant", "zia_location_groups.auto.tfvars"),
+			legacyStale: path.Join("overlay", "config", "tenant", "zia_location_groups.auto.tfvars.json"),
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := ComputeTransformArtifactPaths(
+				testCase.dep, "zia_location_groups", "tenant", TransformArtifactModeDataReferent,
+			)
+			if err != nil {
+				t.Fatalf("ComputeTransformArtifactPaths(data referent, %s) error = %v, want nil", testCase.name, err)
+			}
+			if got.Config != testCase.config {
+				t.Errorf("ComputeTransformArtifactPaths(data referent, %s).Config = %q, want %q", testCase.name, got.Config, testCase.config)
+			}
+			if got.StaleConfig != testCase.stale {
+				t.Errorf("ComputeTransformArtifactPaths(data referent, %s).StaleConfig = %q, want %q", testCase.name, got.StaleConfig, testCase.stale)
+			}
+			if got.LegacyConfig != testCase.legacy {
+				t.Errorf("ComputeTransformArtifactPaths(data referent, %s).LegacyConfig = %q, want %q", testCase.name, got.LegacyConfig, testCase.legacy)
+			}
+			if got.LegacyStaleConfig != testCase.legacyStale {
+				t.Errorf("ComputeTransformArtifactPaths(data referent, %s).LegacyStaleConfig = %q, want %q", testCase.name, got.LegacyStaleConfig, testCase.legacyStale)
+			}
+			wantLookup := path.Join("overlay", "config", "tenant", "lookups", "zia_location_groups.lookup.json")
+			if got.Lookup != wantLookup {
+				t.Errorf("ComputeTransformArtifactPaths(data referent, %s).Lookup = %q, want unified %q", testCase.name, got.Lookup, wantLookup)
+			}
+		})
+	}
+}
+
+func TestPublishDataReferentRemovesFlatConfigInBothFormats(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "zia_location_groups")
+	options.ArtifactMode = TransformArtifactModeDataReferent
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, paths.LegacyConfig, "stale json config\n")
+	writeFileMkdir(t, paths.LegacyStaleConfig, "stale hcl config\n")
+
+	compiled, err := CompileTransformArtifacts(options)
+	if err != nil {
+		t.Fatalf("CompileTransformArtifacts(data referent) error = %v, want nil", err)
+	}
+	result, err := PublishCompiledTransformArtifacts(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifacts(data referent) error = %v, want nil", err)
+	}
+	if !fileExists(t, paths.Config) {
+		t.Errorf("PublishCompiledTransformArtifacts(data referent).Config = %q, want published nested config", paths.Config)
+	}
+	for _, legacyPath := range []string{paths.LegacyConfig, paths.LegacyStaleConfig} {
+		if fileExists(t, legacyPath) {
+			t.Errorf("PublishCompiledTransformArtifacts(data referent) left stale flat config %q", legacyPath)
+		}
+		if !stringSliceContains(result.Removed, legacyPath) {
+			t.Errorf("PublishCompiledTransformArtifacts(data referent).Removed = %v, want %q", result.Removed, legacyPath)
+		}
+	}
+}
+
+func TestPublishManagedLaneKeepsFlatConfigLifecycle(t *testing.T) {
+	workspace := t.TempDir()
+	options := defaultArtifactOptions(workspace)
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, paths.Config, "preexisting managed config\n")
+	dataConfig := filepath.Join(filepath.Dir(paths.Config), "data", filepath.Base(paths.Config))
+	writeFileMkdir(t, dataConfig, "unrelated data-lane config\n")
+
+	compiled, err := CompileTransformArtifacts(options)
+	if err != nil {
+		t.Fatalf("CompileTransformArtifacts(managed) error = %v, want nil", err)
+	}
+	result, err := PublishCompiledTransformArtifacts(compiled)
+	if err != nil {
+		t.Fatalf("PublishCompiledTransformArtifacts(managed) error = %v, want nil", err)
+	}
+	wantWritten := []string{paths.Lookup, paths.Config, paths.Imports}
+	if !stringSlicesEqual(result.Written, wantWritten) {
+		t.Errorf("PublishCompiledTransformArtifacts(managed).Written = %v, want %v", result.Written, wantWritten)
+	}
+	if len(result.Removed) != 0 {
+		t.Errorf("PublishCompiledTransformArtifacts(managed).Removed = %v, want no new removals", result.Removed)
+	}
+	if got := readFileText(t, dataConfig); got != "unrelated data-lane config\n" {
+		t.Errorf("PublishCompiledTransformArtifacts(managed) changed %q to %q, want unchanged sentinel", dataConfig, got)
 	}
 }

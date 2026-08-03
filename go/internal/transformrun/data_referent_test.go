@@ -106,7 +106,9 @@ func newDataReferentFixture(t *testing.T, hcl, generatedReferrer bool) dataRefer
 	}
 	root := dataReferentPackRootWithGeneratedReferrer(t, generatedReferrer)
 	pulls := filepath.Join(workspace, "pulls")
-	paths, err := tfrender.ComputeTransformArtifactPaths(dep, "sample_groups_data", "tenant")
+	paths, err := tfrender.ComputeTransformArtifactPaths(
+		dep, "sample_groups_data", "tenant", tfrender.TransformArtifactModeDataReferent,
+	)
 	if err != nil {
 		t.Fatalf("ComputeTransformArtifactPaths(data referent fixture) = error %v, want nil", err)
 	}
@@ -278,6 +280,7 @@ func TestDataReferentTransformRetiresAllManagedArtifactsAndLeavesNothingStageabl
 		fixture.paths.Config, fixture.paths.Lookup, fixture.paths.Imports,
 		fixture.paths.Moves, fixture.paths.StaleConfig,
 		fixture.paths.GeneratedBindings, fixture.paths.LegacyLookup,
+		fixture.paths.LegacyConfig, fixture.paths.LegacyStaleConfig,
 	}
 	for _, file := range stale {
 		if err := os.MkdirAll(filepath.Dir(file), 0o777); err != nil {
@@ -325,6 +328,7 @@ func TestDataReferentTransformRetiresAllManagedArtifactsAndLeavesNothingStageabl
 	for _, file := range []string{
 		fixture.paths.Imports, fixture.paths.Moves, fixture.paths.StaleConfig,
 		fixture.paths.GeneratedBindings, fixture.paths.LegacyLookup,
+		fixture.paths.LegacyConfig, fixture.paths.LegacyStaleConfig,
 	} {
 		if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("RunTransformBatch(stale data artifacts) Stat(%q) = %v, want absent", file, err)
@@ -359,7 +363,9 @@ func TestMixedDataReferentAndGeneratedReferrerPublishesReferentFirst(t *testing.
 	if diff := cmp.Diff([]string{"sample_groups_data", "sample_rule"}, result.Processed); diff != "" {
 		t.Errorf("RunTransformBatch(mixed selection).Processed mismatch (-want +got):\n%s", diff)
 	}
-	rulePaths, err := tfrender.ComputeTransformArtifactPaths(fixture.dep, "sample_rule", "tenant")
+	rulePaths, err := tfrender.ComputeTransformArtifactPaths(
+		fixture.dep, "sample_rule", "tenant", tfrender.TransformArtifactModeGenerated,
+	)
 	if err != nil {
 		t.Fatalf("ComputeTransformArtifactPaths(%q) = error %v, want nil", "sample_rule", err)
 	}

@@ -525,6 +525,7 @@ func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 				options.Deployment,
 				resourceType,
 				options.Tenant,
+				tfrender.TransformArtifactModeGenerated,
 			)
 			if err != nil {
 				return StageImportsResult{}, err

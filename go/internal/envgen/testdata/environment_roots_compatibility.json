@@ -825,8 +825,8 @@
       },
       {
         "path": "full-profile-parity/zia_location_groups/README.md",
-        "length": 413,
-        "sha256": "bbe81751365999a41aab3c5625427f966e253da38cbe5da6253276ace4e049f0"
+        "length": 418,
+        "sha256": "a39a8537f1abaeac597411a52b54dab595ab07f60aaa66e863825615e4a92dfc"
       },
       {
         "path": "full-profile-parity/zia_location_groups/main.tf",

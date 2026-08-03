@@ -152,6 +152,12 @@ type TransformArtifactPaths struct {
 	Config            string
 	GeneratedBindings string
 	Imports           string
+	// LegacyConfig and LegacyStaleConfig are the flat config paths that the
+	// data-referent lane supersedes. The generated lane leaves them in place
+	// for path compatibility; publication stale-cleans them only for data
+	// referents.
+	LegacyConfig      string
+	LegacyStaleConfig string
 	// LegacyLookup is the lookup's pre-migration location
 	// (<configDir>/<type>.lookup.json, the same directory the config and
 	// generated-bindings files sit in). Never written. Unlike StaleConfig,
@@ -1522,7 +1528,11 @@ func RenderGeneratedBindings(resources map[string]any) (string, error) {
 // single, case-sensitive-but-not-namespace-separated identifier space for
 // types and funcs cannot reproduce; the TransformArtifactPaths identifier
 // above is reserved for the struct).
-func ComputeTransformArtifactPaths(dep deployment.Deployment, resourceType, tenant string) (TransformArtifactPaths, error) {
+func ComputeTransformArtifactPaths(
+	dep deployment.Deployment,
+	resourceType, tenant string,
+	artifactMode TransformArtifactMode,
+) (TransformArtifactPaths, error) {
 	format, err := deployment.DeploymentTfvarsFormat(dep)
 	if err != nil {
 		return TransformArtifactPaths{}, err
@@ -1539,19 +1549,30 @@ func ComputeTransformArtifactPaths(dep deployment.Deployment, resourceType, tena
 	if format == "hcl" {
 		ext = ".auto.tfvars"
 	}
-	config := path.Join(configDirectory, resourceType+ext)
+	configArtifactDirectory := configDirectory
+	if artifactMode == TransformArtifactModeDataReferent {
+		configArtifactDirectory = path.Join(configDirectory, "data")
+	}
+	config := path.Join(configArtifactDirectory, resourceType+ext)
 	staleConfig := strings.TrimSuffix(config, ".json")
 	if format == "hcl" {
 		staleConfig = config + ".json"
 	}
+	legacyConfig := path.Join(configDirectory, resourceType+ext)
+	legacyStaleConfig := strings.TrimSuffix(legacyConfig, ".json")
+	if format == "hcl" {
+		legacyStaleConfig = legacyConfig + ".json"
+	}
 	return TransformArtifactPaths{
 		Config:            config,
-		StaleConfig:       staleConfig,
 		GeneratedBindings: path.Join(configDirectory, resourceType+".generated.expressions.json"),
 		Imports:           path.Join(importsDirectory, resourceType+"_imports.tf"),
+		LegacyConfig:      legacyConfig,
+		LegacyStaleConfig: legacyStaleConfig,
 		Lookup:            path.Join(configDirectory, "lookups", resourceType+".lookup.json"),
 		LegacyLookup:      path.Join(configDirectory, resourceType+".lookup.json"),
 		Moves:             path.Join(importsDirectory, resourceType+"_moves.tf"),
+		StaleConfig:       staleConfig,
 	}, nil
 }
 
@@ -2229,7 +2250,13 @@ func compileLookup(options TransformArtifactCompileOptions) (*TransformLookupDat
 // needed to publish one ordinary transform artifact set. This function
 // never creates, writes, renames, or removes a filesystem entry."
 func CompileTransformArtifacts(options TransformArtifactCompileOptions) (CompiledTransformArtifacts, error) {
-	paths, err := ComputeTransformArtifactPaths(options.Deployment, options.ResourceType, options.Tenant)
+	paths, err := ComputeTransformArtifactPaths(
+		options.Deployment, options.ResourceType, options.Tenant, options.ArtifactMode,
+	)
+	if err != nil {
+		return CompiledTransformArtifacts{}, err
+	}
+	configDirectory, err := deployment.DeploymentConfigDir(options.Deployment, options.Tenant)
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
 	}
@@ -2250,7 +2277,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 		// when a data lookup retires a previously published key.
 		if lookupText != nil && freshLookup != nil {
 			if err := assertNoLookupKeyStranding(
-				path.Dir(paths.Config), options.ResourceType, paths.Config, configText, freshLookup,
+				configDirectory, options.ResourceType, paths.Config, configText, freshLookup,
 			); err != nil {
 				return CompiledTransformArtifacts{}, err
 			}
@@ -2269,7 +2296,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	// only decoder those tokens have: inferred-lifecycle removal must refuse
 	// while any dependent survives, not strand them.
 	if lookupText == nil && options.RemoveLookupWhenAbsent {
-		dependents, err := tokenDependents(path.Dir(paths.Config), options.ResourceType)
+		dependents, err := tokenDependents(configDirectory, options.ResourceType)
 		if err != nil {
 			return CompiledTransformArtifacts{}, err
 		}
@@ -2327,7 +2354,6 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	// sidecar compiled above this point deliberately still maps real IDs
 	// -- it is the lookup the tokens decode through -- and imports/moves
 	// render from Originals, which the substitution never touches.
-	configDirectory := path.Dir(paths.Config)
 	keyMaps, err := lookupKeyMaps(configDirectory, options.References, options.LookupOverrides)
 	if err != nil {
 		return CompiledTransformArtifacts{}, err
@@ -2360,7 +2386,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 	// still pure compilation, so nothing has been published when it refuses.
 	if lookupText != nil && freshLookup != nil {
 		if err := assertNoLookupKeyStranding(
-			path.Dir(paths.Config), options.ResourceType, paths.Config, configText, freshLookup,
+			configDirectory, options.ResourceType, paths.Config, configText, freshLookup,
 		); err != nil {
 			return CompiledTransformArtifacts{}, err
 		}
@@ -2505,6 +2531,21 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		removed = append(removed, compiled.Paths.StaleConfig)
 		note("removed stale " + compiled.Paths.StaleConfig)
 	}
+	if dataLane {
+		for _, legacyPath := range []string{
+			compiled.Paths.LegacyConfig,
+			compiled.Paths.LegacyStaleConfig,
+		} {
+			removedLegacy, err := removeIfPresent(legacyPath)
+			if err != nil {
+				return TransformArtifactWriteResult{}, err
+			}
+			if removedLegacy {
+				removed = append(removed, legacyPath)
+				note("removed stale legacy config " + legacyPath)
+			}
+		}
+	}
 	if err := os.WriteFile(compiled.Paths.Config, []byte(compiled.ConfigText), 0o666); err != nil {
 		return TransformArtifactWriteResult{}, err
 	}
@@ -2571,7 +2612,9 @@ func WriteDerivedTransformArtifact(
 	resourceType, sourceType, tenant, variableName string,
 	onDiagnostic func(string),
 ) (string, error) {
-	paths, err := ComputeTransformArtifactPaths(dep, resourceType, tenant)
+	paths, err := ComputeTransformArtifactPaths(
+		dep, resourceType, tenant, TransformArtifactModeGenerated,
+	)
 	if err != nil {
 		return "", err
 	}
