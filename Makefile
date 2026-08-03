@@ -81,7 +81,7 @@ v2-authority: ## Run the exact Go-v2 authority goldens
 deployment: dist/iw ## Query deployment metadata (DEPLOYMENT_QUERY=<verb> [TENANT=<label>])
 	$(IW) deployment --deployment "$(DEPLOYMENT)" "$(or $(DEPLOYMENT_QUERY),overlay)" $(if $(TENANT),"$(TENANT)")
 
-resources: dist/iw ## List generated resources ([RESOURCE="<type|provider> ..."] [REFERENCE_ORDER=1])
+resources: dist/iw ## List transformable resources, generated and data referents ([RESOURCE="<type|provider> ..."] [REFERENCE_ORDER=1])
 	$(IW) resources $(if $(REFERENCE_ORDER),--order=references) --profile "$(PACK_PROFILE)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 resources-reference-order: REFERENCE_ORDER=1

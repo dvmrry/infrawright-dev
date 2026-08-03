@@ -108,7 +108,7 @@ func selectedDeploymentPath(parsed commandInput) (string, error) {
 
 func newResourcesCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
-		use: "resources", short: "List generated resources",
+		use: "resources", short: "List transformable resources (generated and data referents)",
 		valueFlags: []string{"--order", "--resource", "--root", "--profile"},
 		run: func(parsed commandInput) (int, error) {
 			return legacyPlanLifecycleCommand(func() (int, error) {
@@ -138,16 +138,17 @@ func resourcesInput(parsed commandInput) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	selected, err := roots.ExpandLoadedResources(loadedRoot, parsed.Options["--resource"])
+	// Membership matches the transform/adopt lanes: the implicit list covers
+	// generated types plus active data referents, and exact data-referent
+	// selectors resolve. Product and provider/bare selectors stay
+	// generated-only enumeration selectors, as on every other surface.
+	selection, err := transform.SelectTransformResources(loadedRoot, parsed.Options["--resource"])
 	if err != nil {
 		return 0, err
 	}
-	ordered := transform.TransformSelection{ResourceTypes: selected}
-	if orderValue == "references" {
-		ordered, err = transform.ReferenceOrder(loadedRoot, selected)
-		if err != nil {
-			return 0, err
-		}
+	ordered := selection
+	if orderValue != "references" {
+		ordered = transform.TransformSelection{ResourceTypes: canonjson.SortedStrings(selection.ResourceTypes)}
 	}
 	for _, note := range ordered.Notes {
 		fmt.Fprint(os.Stderr, note)
