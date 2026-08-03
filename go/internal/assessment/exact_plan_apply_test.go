@@ -651,6 +651,104 @@ func TestApplyExactSavedPlansDestroyAndBlockedOverrideMatrix(t *testing.T) {
 	}
 }
 
+func exactApplyRefreshDriftPlan(importOnly bool, driftActions ...string) map[string]any {
+	if len(driftActions) == 0 {
+		driftActions = []string{"update"}
+	}
+	rawDriftActions := make([]any, len(driftActions))
+	for index, action := range driftActions {
+		rawDriftActions[index] = action
+	}
+	changes := []any{}
+	if importOnly {
+		changes = append(changes, map[string]any{
+			"address": `zia_url_categories.this["imported"]`,
+			"type":    "zia_url_categories",
+			"change": map[string]any{
+				"actions":   []any{"no-op"},
+				"importing": map[string]any{"id": "imported"},
+				"before":    map[string]any{"status": "same"},
+				"after":     map[string]any{"status": "same"},
+			},
+		})
+	}
+	return map[string]any{
+		"format_version":    "1.2",
+		"terraform_version": "1.15.4",
+		"complete":          true,
+		"errored":           false,
+		"resource_changes":  changes,
+		"resource_drift": []any{map[string]any{
+			"address": `zia_url_categories.this["one"]`,
+			"type":    "zia_url_categories",
+			"change": map[string]any{
+				"actions": rawDriftActions,
+				"before":  map[string]any{"status": "old"},
+				"after":   map[string]any{"status": "new"},
+			},
+		}},
+		"output_changes": map[string]any{},
+	}
+}
+
+func exactApplyImportWithConfigChangePlan() map[string]any {
+	value := exactApplyRefreshDriftPlan(true)
+	value["resource_changes"] = append(value["resource_changes"].([]any), map[string]any{
+		"address": `zia_url_categories.this["edited"]`,
+		"type":    "zia_url_categories",
+		"change": map[string]any{
+			"actions": []any{"update"},
+			"before":  map[string]any{"status": "old"},
+			"after":   map[string]any{"status": "new"},
+		},
+	})
+	return value
+}
+
+// TestApplyExactSavedPlansMatchesAssertStanceOnRefreshDrift pins apply's
+// refresh-drift stance to the plan itself: an import-only plan tolerates the
+// drift only the import can settle; the same drift without an import blocks;
+// a real config change blocks even beside an import; a drift-sourced delete
+// still trips the destroy refusal because that guard reads the strict
+// classification; and supplying a policy path never selects the tolerance.
+func TestApplyExactSavedPlansMatchesAssertStanceOnRefreshDrift(t *testing.T) {
+	tests := []struct {
+		name       string
+		plan       map[string]any
+		withPolicy bool
+		wantCode   string
+		wantApply  bool
+	}{
+		{name: "import_only_with_drift_applies", plan: exactApplyRefreshDriftPlan(true), wantApply: true},
+		{name: "drift_without_import_blocks", plan: exactApplyRefreshDriftPlan(false), wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
+		{name: "drift_with_policy_still_blocks", plan: exactApplyRefreshDriftPlan(false), withPolicy: true, wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
+		{name: "import_with_config_change_blocks", plan: exactApplyImportWithConfigChangePlan(), wantCode: "APPLY_BLOCKED_PLAN_REFUSED"},
+		{name: "import_only_drift_delete_refuses_destroy", plan: exactApplyRefreshDriftPlan(true, "delete"), wantCode: "APPLY_DESTROY_REFUSED"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newExactApplyFixture(t)
+			fixture.restoreSavedPair(t, fixture.roots[0])
+			fake := &fakeExactPlanApplyTerraform{currentPlan: test.plan}
+			options := exactApplyOptions(fixture, fake)
+			if test.withPolicy {
+				policyPath := filepath.Join(fixture.workspace, "policy.json")
+				writeAssessmentTransactionFile(t, policyPath, []byte(`{"version":1,"resource_types":{}}`), 0o600)
+				options.PolicyPath = &policyPath
+			}
+			_, err := applyExactSavedPlans(options, exactApplyTestHooks(fixture))
+			if test.wantCode != "" {
+				requireExactApplyFailure(t, err, test.wantCode)
+			} else if err != nil {
+				t.Fatalf("applyExactSavedPlans(%s) error = %v, want nil", test.name, err)
+			}
+			if got := len(fake.applied) > 0; got != test.wantApply {
+				t.Errorf("Apply called = %t, want %t", got, test.wantApply)
+			}
+		})
+	}
+}
+
 func TestApplyExactSavedPlansRejectsEveryFreshnessClassBeforeApply(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -55,11 +55,18 @@ Supporting adoption commands:
 | `make plan-roots` | Enumerate materialized env roots and the exact `tfplan`/`tfplan.sources` artifact locations used for save/restore. |
 
 `make apply` uses the same saved-plan classification semantics as
-`make assert-adoptable` with one deliberate exception: apply stays strict about
-refresh drift. A plan that `assert-adoptable` reported as tolerated only because
-of `resource_drift` is still refused by `make apply`, which reads a
-drift-sourced `delete` as a destroy and would otherwise disarm `ALLOW_DESTROY=1`
-for it. Run `make refresh` to reconcile that drift, then plan again; reach for
+`make assert-adoptable` with one deliberate narrowing: apply tolerates refresh
+drift only when the saved plan is import-only (at least one resource change
+is an import and every other one is a no-op, so the plan acts through its
+imports alone), because that drift is exactly what the import persists and nothing
+else in the plan could act on it. Any other plan stays strict about refresh
+drift: a steady-state plan that `assert-adoptable` reported as tolerated only
+because of `resource_drift` is still refused by `make apply`. The destroy
+refusal always reads the strict classification, so a drift-sourced `delete` --
+which apply counts as a destroy -- keeps refusing without `ALLOW_DESTROY=1`
+even in an import-only plan. Supplying `POLICY=<file>` never changes the
+stance; policy rules tolerate only the findings they explicitly match. Run
+`make refresh` to reconcile steady-state drift, then plan again; reach for
 explicit drift policy only for values you intend to keep diverging. If
 `assert-adoptable` used `POLICY=<file>` to classify
 intentional drift as tolerated, pass the same `POLICY=<file>` to `make apply`.
