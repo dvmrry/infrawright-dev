@@ -239,6 +239,25 @@ func TestDataReferentEnvironmentBindingsMatchGeneratedReferent(t *testing.T) {
 	}
 }
 
+// TestDataReferentRenderDerivationNeedsNoCommittedCache proves the referrer's
+// binding for a tokenised data-only reference derives at render time from the
+// committed token and lookup alone. The fixture's committed expressions cache
+// is deleted first, so the resolver below can only come from
+// deriveGeneratedBindingLayer -- the path that silently produced nothing while
+// bindableReference still refused data referents as referents.
+func TestDataReferentRenderDerivationNeedsNoCommittedCache(t *testing.T) {
+	fixture := newDataReferentEnvironmentFixture(t, true)
+	cache := filepath.Join(fixture.workspace, "config", "tenant", "sample_rule.generated.expressions.json")
+	if err := os.Remove(cache); err != nil {
+		t.Fatalf("os.Remove(%s) error = %v, want committed bindings cache removed", cache, err)
+	}
+	bindings := fixture.generate(t, false, nil)
+	wantResolver := `try(data.terraform_remote_state.sample_groups_data.outputs.iw_reference_ids.sample_groups_data["group_one"], local.iw_reference_lookup_sample_groups_data["group_one"])`
+	if !strings.Contains(bindings, wantResolver) {
+		t.Errorf("GenerateEnvironmentRoots(no bindings cache) expression_bindings.tf = %q, want render-derived resolver %q", bindings, wantResolver)
+	}
+}
+
 // TestDataReferentStateAwareAbsentProbeKeepsLookupFallback is the group (b)
 // characterization. It uses the state_aware_test.go absentProbe pattern: an
 // unavailable referent state must leave the committed lookup arm available in

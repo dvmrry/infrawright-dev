@@ -48,7 +48,13 @@ referents; product and provider/bare selectors remain generated-only
 enumeration selectors on every surface. `make stage-imports` on a selection
 made up entirely of data referents is a reasoned no-op — it reports a
 per-type skip instead of failing with `NO_IMPORT_ARTIFACTS`, since no run
-could ever produce import artifacts for those types.
+could ever produce import artifacts for those types. Reference fields whose
+referent is a data referent get the same transform-time tokenisation as
+generated referents: when the data type's lookup sidecar is committed, raw
+tenant IDs rewrite to `<referent>.<key>` tokens and bindings resolve through
+the data root's `iw_reference_ids` output with committed-lookup fallback;
+with no committed lookup the field stays literal and the skip is reported in
+the binding notes.
 
 Adopt's provider Oracle may execute a mechanically verified import-only plan
 against ephemeral local scratch state so provider Read can supply projected
