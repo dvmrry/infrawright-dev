@@ -7,12 +7,12 @@
           {
             "approved_by": "zscaler-adoption",
             "path": "end_point_application_groups",
-            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+            "reason": "ZIA provider 4.8.3 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
           },
           {
             "approved_by": "zscaler-adoption",
             "path": "end_point_applications",
-            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+            "reason": "ZIA provider 4.8.3 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
           }
         ]
       },
@@ -21,12 +21,12 @@
           {
             "approved_by": "zscaler-adoption",
             "path": "end_point_application_groups",
-            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+            "reason": "ZIA provider 4.8.3 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
           },
           {
             "approved_by": "zscaler-adoption",
             "path": "end_point_applications",
-            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+            "reason": "ZIA provider 4.8.3 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
           }
         ]
       },
@@ -35,12 +35,12 @@
           {
             "approved_by": "zscaler-adoption",
             "path": "end_point_application_groups",
-            "reason": "ZIA provider 4.8.0 declares this block but does not implement it in IPS Read or expand; omit any state until upstream round-trip evidence exists."
+            "reason": "ZIA provider 4.8.3 declares this block but does not implement it in IPS Read or expand; omit any state until upstream round-trip evidence exists."
           },
           {
             "approved_by": "zscaler-adoption",
             "path": "end_point_applications",
-            "reason": "ZIA provider 4.8.0 declares this block but does not implement it in IPS Read or expand; omit any state until upstream round-trip evidence exists."
+            "reason": "ZIA provider 4.8.3 declares this block but does not implement it in IPS Read or expand; omit any state until upstream round-trip evidence exists."
           }
         ]
       },
@@ -49,12 +49,12 @@
           {
             "approved_by": "zscaler-adoption",
             "path": "end_point_application_groups",
-            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+            "reason": "ZIA provider 4.8.3 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
           },
           {
             "approved_by": "zscaler-adoption",
             "path": "end_point_applications",
-            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+            "reason": "ZIA provider 4.8.3 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
           }
         ]
       }
@@ -68,7 +68,7 @@
       "name_field": "configured_name"
     }
   },
-  "pin": "4.8.0",
+  "pin": "4.8.3",
   "provider_prefixes": {
     "zia_": "zia"
   },
