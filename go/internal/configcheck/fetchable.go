@@ -301,11 +301,21 @@ func CheckFetchable(options CheckFetchableOptions) (CheckFetchableResult, error)
 			}
 		}
 		sort.Strings(names)
+		// One committed resource type is one check, wherever its config
+		// sits: during the flat-to-data/ migration window a stale flat file
+		// and the nested one coexist (in either tfvars format), and both
+		// resolve to the same type. Checked/Skipped count types and a
+		// FetchableViolation names a type, so a second sighting is skipped.
+		checkedTypes := map[string]bool{}
 		for _, name := range names {
 			resourceType, ok := resourceTypeFromConfigName(name)
 			if !ok {
 				continue
 			}
+			if checkedTypes[resourceType] {
+				continue
+			}
+			checkedTypes[resourceType] = true
 			resource, known := options.Root.Resources[resourceType]
 			if !known {
 				// The active pack profile does not claim this type, so there

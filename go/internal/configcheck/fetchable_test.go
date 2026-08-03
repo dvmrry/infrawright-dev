@@ -206,6 +206,10 @@ func TestCheckFetchableCoversNestedDataReferentConfig(t *testing.T) {
 	workspace := t.TempDir()
 	writeConfig(t, workspace, "zs2", "zia_url_categories.auto.tfvars.json")
 	writeConfig(t, workspace, "zs2", "data/zia_location_groups.auto.tfvars.json")
+	// The migration window: the superseded flat file still on disk beside
+	// the nested one, in the other tfvars format. One type, one check --
+	// duplicated sightings must not inflate counts or duplicate violations.
+	writeConfig(t, workspace, "zs2", "zia_location_groups.auto.tfvars")
 	root := fetchableRoot(map[string]map[string]any{
 		"zia_url_categories":  {"product": "zia", "fetch": map[string]any{"path": "/urlCategories"}},
 		"zia_location_groups": {"product": "zia", "data_referent": true},
