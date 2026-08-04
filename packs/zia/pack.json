@@ -133,7 +133,8 @@
       },
       "url_categories.id": {
         "referent": "zia_url_categories",
-        "name_field": "configured_name"
+        "name_field": "configured_name",
+        "referent_id_field": "val"
       }
     },
     "zia_dlp_web_rules": {
@@ -151,7 +152,8 @@
       },
       "url_categories.id": {
         "referent": "zia_url_categories",
-        "name_field": "configured_name"
+        "name_field": "configured_name",
+        "referent_id_field": "val"
       },
       "workload_groups.id": {
         "referent": "zia_workload_groups",

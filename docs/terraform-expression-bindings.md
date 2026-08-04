@@ -26,6 +26,17 @@
 > unchanged and applies to operator-authored sidecars, which are never
 > token-wrapped.
 
+An edge declaring `referent_id_field` (see `docs/pack-authoring.md`) resolves
+through a sibling of the machinery above rather than a variant of it. The
+referent root publishes `iw_reference_ids_<field>` next to the canonical
+`iw_reference_ids` output, one per declared alternate space; gen-env pairs
+each with its own `iw_reference_lookup_<referent>_<field>` local, reading
+`spaces.<field>` from the same committed lookup sidecar instead of the
+canonical maps; and the resolver applies the identical
+`try(<remote-state lookup>, <lookup literal>)` policy against that sibling
+pair. The token a referrer commits never changes shape (`<referent>.<key>`);
+only which output and local a `<field>`-citing edge resolves it through does.
+
 Infrawright can bind an exact projected resource path to a Terraform
 expression. This is useful when the generated config should refer to a value
 owned by Terraform, CI/CD, or a Terraform data source instead of storing a
