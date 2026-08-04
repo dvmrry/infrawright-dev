@@ -39,7 +39,7 @@
     },
     {
       "path": "packs/zpa/pack.json",
-      "sha256": "2500d93d4f4c942d45414fc6b1cb71d1611ecd3ea6ec51a7902e56a3fa23e7f0"
+      "sha256": "073476ced53bca193d88f699c59b3900a1dfe58934ca80ace6b6dd9b4f119a9a"
     },
     {
       "path": "packs/zpa/registry.json",
@@ -51,8 +51,8 @@
     }
   ],
   "provider": {
-    "commit": "1d4f43cc4c59a24d8380f0c655a07b6da7199465",
-    "ref": "v4.4.9",
+    "commit": "287e4c1f720d89d2405e0925c98dc4b050a93767",
+    "ref": "v4.4.10",
     "repository": "https://github.com/zscaler/terraform-provider-zpa",
     "source_files": [
       {
@@ -61,7 +61,7 @@
       },
       {
         "path": "zpa/resource_zpa_app_connector_group.go",
-        "sha256": "eef7ad6ee67c88c097cbe334f66903ce2c0bf536704b06eb5ccb98e4d989d98c"
+        "sha256": "061a65e298aadb864f06537580ba92fc0b7876b8d034edf8bb484a1a19449786"
       },
       {
         "path": "zpa/resource_zpa_app_server_controller.go",
@@ -121,7 +121,7 @@
       },
       {
         "path": "zpa/resource_zpa_service_edge_group.go",
-        "sha256": "c69cbd40426a9397c8b6808f5c5e10bd961813b4b1e89aba3e6503df888f88ee"
+        "sha256": "f1588b6c1420fcb2efd55dad552c5c1c4e53a1718f3da5585cc0e304cdcf637b"
       }
     ]
   },
@@ -158,7 +158,7 @@
             "path": "zpa/resource_zpa_app_connector_group.go",
             "sha256": "32f745450b8bededa1ab0d45ed4e9dbceb18172f323bafbca3abdc2837768089",
             "start_line": 280,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_app_connector_group.go#L280-L288"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_app_connector_group.go#L280-L288"
           }
         },
         "importer": {
@@ -167,7 +167,7 @@
           "path": "zpa/resource_zpa_app_connector_group.go",
           "sha256": "75785e2b01bf27a1c6e98ccca026e22c021365bdb8d344ce1b098d4e4c90e1b4",
           "start_line": 36,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_app_connector_group.go#L36-L44"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_app_connector_group.go#L36-L44"
         },
         "read_identity": {
           "end_line": 288,
@@ -175,7 +175,7 @@
           "path": "zpa/resource_zpa_app_connector_group.go",
           "sha256": "3e57c875b2ca265b47fdea90a3d9c83f7bf04f89320b07b8cb51970e5e00be14",
           "start_line": 288,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_app_connector_group.go#L288-L288"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_app_connector_group.go#L288-L288"
         }
       },
       "state_shape": {
@@ -234,7 +234,7 @@
             "path": "zpa/common.go",
             "sha256": "2ac9e518ae72ddb313087ed09140157da76756cc6815c200a0494756f50e7388",
             "start_line": 640,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/common.go#L640-L640"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/common.go#L640-L640"
           },
           "policy_style_enum_to_bool_read_normalization": {
             "end_line": 374,
@@ -242,7 +242,7 @@
             "path": "zpa/resource_zpa_application_segment.go",
             "sha256": "cbee45b5530e66f7b085b05877885b1b2ee9ec3705e2cfd6466490be271233a9",
             "start_line": 374,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_application_segment.go#L374-L374"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_application_segment.go#L374-L374"
           }
         },
         "importer": {
@@ -251,7 +251,7 @@
           "path": "zpa/resource_zpa_application_segment.go",
           "sha256": "a277adab25f4cbf24788a3d6fda118ebd4240b0d2d018c19dd0f28c2f9f59a97",
           "start_line": 40,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_application_segment.go#L40-L48"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_application_segment.go#L40-L48"
         },
         "read_identity": {
           "end_line": 347,
@@ -259,7 +259,7 @@
           "path": "zpa/resource_zpa_application_segment.go",
           "sha256": "10419ce010ee6e9d236d82d1528c098a2c4da1f8d4e9d791b50ff8c1ba000dcf",
           "start_line": 335,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_application_segment.go#L335-L347"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_application_segment.go#L335-L347"
         }
       },
       "state_shape": {
@@ -319,7 +319,7 @@
           "path": "zpa/resource_zpa_app_server_controller.go",
           "sha256": "2e8fe017641dc7e23818fbbc6097a554541beaff6df5b67f311a17496e1a6b5d",
           "start_line": 31,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_app_server_controller.go#L31-L39"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_app_server_controller.go#L31-L39"
         },
         "read_identity": {
           "end_line": 135,
@@ -327,7 +327,7 @@
           "path": "zpa/resource_zpa_app_server_controller.go",
           "sha256": "0b1e9f7c7a40dc60491b846601171e8613b49746d931e0de393451596d297894",
           "start_line": 135,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_app_server_controller.go#L135-L135"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_app_server_controller.go#L135-L135"
         }
       },
       "state_shape": {
@@ -383,7 +383,7 @@
             "path": "zpa/resource_zpa_ba_certificate.go",
             "sha256": "10e3a47f35038fd415220def404c3fbe4bc4c00ca52346734e33ee293cb2b261",
             "start_line": 106,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_ba_certificate.go#L106-L106"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_ba_certificate.go#L106-L106"
           }
         },
         "importer": {
@@ -392,7 +392,7 @@
           "path": "zpa/resource_zpa_ba_certificate.go",
           "sha256": "fda7b51c6c95ea29a1e41dfca7daf1f353bd00770addf8d3ec095d33b524cd5f",
           "start_line": 20,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_ba_certificate.go#L20-L20"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_ba_certificate.go#L20-L20"
         },
         "read_identity": {
           "end_line": 103,
@@ -400,7 +400,7 @@
           "path": "zpa/resource_zpa_ba_certificate.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 103,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_ba_certificate.go#L103-L103"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_ba_certificate.go#L103-L103"
         }
       },
       "state_shape": {
@@ -454,7 +454,7 @@
           "path": "zpa/resource_zpa_emergency_access.go",
           "sha256": "fda7b51c6c95ea29a1e41dfca7daf1f353bd00770addf8d3ec095d33b524cd5f",
           "start_line": 20,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_emergency_access.go#L20-L20"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_emergency_access.go#L20-L20"
         },
         "read_identity": {
           "end_line": 94,
@@ -462,7 +462,7 @@
           "path": "zpa/resource_zpa_emergency_access.go",
           "sha256": "fb3ad57fedb318c5f08361eb263d224ff672df91c31a41c276a1d3745eb3d130",
           "start_line": 94,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_emergency_access.go#L94-L94"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_emergency_access.go#L94-L94"
         }
       },
       "state_shape": {
@@ -514,7 +514,7 @@
           "path": "zpa/resource_zpa_inspection_custom_controls.go",
           "sha256": "10759cf1236f5897c599f626f4522990dba7e92d3644c400e7276c2b0f78da26",
           "start_line": 28,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_inspection_custom_controls.go#L28-L36"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_inspection_custom_controls.go#L28-L36"
         },
         "read_identity": {
           "end_line": 322,
@@ -522,7 +522,7 @@
           "path": "zpa/resource_zpa_inspection_custom_controls.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 322,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_inspection_custom_controls.go#L322-L322"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_inspection_custom_controls.go#L322-L322"
         }
       },
       "state_shape": {
@@ -584,7 +584,7 @@
             "path": "zpa/resource_zpa_inspection_profile.go",
             "sha256": "0c51f1d839e4ba9130131de629087009113795c81ae56a1c2062374300eabb56",
             "start_line": 32,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_inspection_profile.go#L32-L37"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_inspection_profile.go#L32-L37"
           },
           "read_preserves_associate_all_controls_from_prior_state": {
             "end_line": 312,
@@ -592,7 +592,7 @@
             "path": "zpa/resource_zpa_inspection_profile.go",
             "sha256": "10b5732d359ca32370e40d60b48d4685081a52caaa3381137a6eb2a7be9cf5cb",
             "start_line": 312,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_inspection_profile.go#L312-L312"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_inspection_profile.go#L312-L312"
           }
         },
         "importer": {
@@ -601,7 +601,7 @@
           "path": "zpa/resource_zpa_inspection_profile.go",
           "sha256": "9b5d468b1d327f2da35d91558dc13a34a24dec3d1efcc52a6173d603554e582c",
           "start_line": 28,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_inspection_profile.go#L28-L36"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_inspection_profile.go#L28-L36"
         },
         "read_identity": {
           "end_line": 307,
@@ -609,7 +609,7 @@
           "path": "zpa/resource_zpa_inspection_profile.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 307,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_inspection_profile.go#L307-L307"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_inspection_profile.go#L307-L307"
         }
       },
       "state_shape": {
@@ -666,7 +666,7 @@
           "path": "zpa/resource_zpa_microtenant_controller.go",
           "sha256": "94d1e007ec3610949c88425f844e2f9df64f2ec261db232cce839ac7a915d15e",
           "start_line": 25,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_microtenant_controller.go#L25-L33"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_microtenant_controller.go#L25-L33"
         },
         "read_identity": {
           "end_line": 150,
@@ -674,7 +674,7 @@
           "path": "zpa/resource_zpa_microtenant_controller.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 150,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_microtenant_controller.go#L150-L150"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_microtenant_controller.go#L150-L150"
         }
       },
       "state_shape": {
@@ -729,7 +729,7 @@
             "path": "zpa/resource_zpa_policy_access_rule.go",
             "sha256": "889806995a383238cd61bf36a764d7f1ffc65a2888283c2469d078f1ba49d916",
             "start_line": 23,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_policy_access_rule.go#L23-L23"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_policy_access_rule.go#L23-L23"
           }
         },
         "importer": {
@@ -738,7 +738,7 @@
           "path": "zpa/common.go",
           "sha256": "d208ef612c6556415436365f30ab44793c8b11bc06fa75256cff60d6f8e832d6",
           "start_line": 669,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/common.go#L669-L677"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/common.go#L669-L677"
         },
         "read_identity": {
           "end_line": 156,
@@ -746,7 +746,7 @@
           "path": "zpa/resource_zpa_policy_access_rule.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 156,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_policy_access_rule.go#L156-L156"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_policy_access_rule.go#L156-L156"
         }
       },
       "state_shape": {
@@ -812,7 +812,7 @@
             "path": "zpa/resource_zpa_pra_approval.go",
             "sha256": "a33fa5a4897b9605558c8d5cc5049b181b13eced7b22420f0dcc4f93282f9d94",
             "start_line": 39,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_approval.go#L39-L39"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_approval.go#L39-L39"
           }
         },
         "importer": {
@@ -821,7 +821,7 @@
           "path": "zpa/resource_zpa_pra_approval.go",
           "sha256": "0d30422c6e3b33b1c8903b3c02c247b8359b6c4d80ffce7901423f0e7db00cb0",
           "start_line": 33,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_approval.go#L33-L41"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_approval.go#L33-L41"
         },
         "read_identity": {
           "end_line": 227,
@@ -829,7 +829,7 @@
           "path": "zpa/resource_zpa_pra_approval.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 227,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_approval.go#L227-L227"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_approval.go#L227-L227"
         }
       },
       "state_shape": {
@@ -889,7 +889,7 @@
             "path": "zpa/resource_zpa_pra_console_controller.go",
             "sha256": "9e12c9386f04fc48b0e51febb5b8d4c8640d66dbae75b0e8dfc2df86e7e86b3d",
             "start_line": 172,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_console_controller.go#L172-L174"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_console_controller.go#L172-L174"
           }
         },
         "importer": {
@@ -898,7 +898,7 @@
           "path": "zpa/resource_zpa_pra_console_controller.go",
           "sha256": "a167dc2730fae16a7bf9f1ed1312b13cff51308cb592362615dd45c1e667f42e",
           "start_line": 36,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_console_controller.go#L36-L44"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_console_controller.go#L36-L44"
         },
         "read_identity": {
           "end_line": 164,
@@ -906,7 +906,7 @@
           "path": "zpa/resource_zpa_pra_console_controller.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 164,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_console_controller.go#L164-L164"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_console_controller.go#L164-L164"
         }
       },
       "state_shape": {
@@ -969,7 +969,7 @@
             "path": "zpa/resource_zpa_pra_credential_controller.go",
             "sha256": "2c19cd8514221ec1b551ebcfef270ca25d85b0223779dd3e8d045ec5b5063939",
             "start_line": 164,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_credential_controller.go#L164-L165"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_credential_controller.go#L164-L165"
           }
         },
         "importer": {
@@ -978,7 +978,7 @@
           "path": "zpa/resource_zpa_pra_credential_controller.go",
           "sha256": "e9c6353df10a39dcb5608ec18f497087bcbec6e5bd5f4a2838b4e8d6603f2a5b",
           "start_line": 34,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_credential_controller.go#L34-L42"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_credential_controller.go#L34-L42"
         },
         "read_identity": {
           "end_line": 161,
@@ -986,7 +986,7 @@
           "path": "zpa/resource_zpa_pra_credential_controller.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 161,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_credential_controller.go#L161-L161"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_credential_controller.go#L161-L161"
         }
       },
       "state_shape": {
@@ -1044,7 +1044,7 @@
             "path": "zpa/resource_zpa_pra_portal_controller.go",
             "sha256": "89fe2f8258cd27c11258a9bfec5d7ddf03c2a81651457987cb1fee0faec23153",
             "start_line": 23,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_portal_controller.go#L23-L43"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_portal_controller.go#L23-L43"
           }
         },
         "importer": {
@@ -1053,7 +1053,7 @@
           "path": "zpa/resource_zpa_pra_portal_controller.go",
           "sha256": "b9b22a10ded360fe9d403f91a29df7876c5591401323cd3f4007370f3e9c5de2",
           "start_line": 61,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_portal_controller.go#L61-L69"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_portal_controller.go#L61-L69"
         },
         "read_identity": {
           "end_line": 202,
@@ -1061,7 +1061,7 @@
           "path": "zpa/resource_zpa_pra_portal_controller.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 202,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_pra_portal_controller.go#L202-L202"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_pra_portal_controller.go#L202-L202"
         }
       },
       "state_shape": {
@@ -1112,7 +1112,7 @@
           "path": "zpa/resource_zpa_segment_group.go",
           "sha256": "be8e77513201e8889ea70ce0d660138a2a9e00737dfc4a8f03cdcee13d01ba81",
           "start_line": 35,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_segment_group.go#L35-L43"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_segment_group.go#L35-L43"
         },
         "read_identity": {
           "end_line": 146,
@@ -1120,7 +1120,7 @@
           "path": "zpa/resource_zpa_segment_group.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 146,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_segment_group.go#L146-L146"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_segment_group.go#L146-L146"
         }
       },
       "state_shape": {
@@ -1176,7 +1176,7 @@
             "path": "zpa/resource_zpa_server_group.go",
             "sha256": "a0e092815aa90b60856e7c593595239738282756e3e38f2ee130365ba246ee29",
             "start_line": 256,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_server_group.go#L256-L258"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_server_group.go#L256-L258"
           }
         },
         "importer": {
@@ -1185,7 +1185,7 @@
           "path": "zpa/resource_zpa_server_group.go",
           "sha256": "18031befd4cc059fc78ea5f528694d6f1c3f9b699ae1c34aa66fcdb50bab4e32",
           "start_line": 40,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_server_group.go#L40-L48"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_server_group.go#L40-L48"
         },
         "read_identity": {
           "end_line": 247,
@@ -1193,7 +1193,7 @@
           "path": "zpa/resource_zpa_server_group.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 247,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_server_group.go#L247-L247"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_server_group.go#L247-L247"
         }
       },
       "state_shape": {
@@ -1256,7 +1256,7 @@
             "path": "zpa/resource_zpa_service_edge_group.go",
             "sha256": "c5ef09128300c3059a2084dba7793f0ef55470095419599a577efb1442a78e34",
             "start_line": 335,
-            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_service_edge_group.go#L335-L342"
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_service_edge_group.go#L335-L342"
           }
         },
         "importer": {
@@ -1265,7 +1265,7 @@
           "path": "zpa/resource_zpa_service_edge_group.go",
           "sha256": "c3aefb560903f950764a403e0af08166c714440d3389a285534848619b1dca83",
           "start_line": 37,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_service_edge_group.go#L37-L45"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_service_edge_group.go#L37-L45"
         },
         "read_identity": {
           "end_line": 334,
@@ -1273,7 +1273,7 @@
           "path": "zpa/resource_zpa_service_edge_group.go",
           "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
           "start_line": 334,
-          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_service_edge_group.go#L334-L334"
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.10/zpa/resource_zpa_service_edge_group.go#L334-L334"
         }
       },
       "state_shape": {

@@ -405,7 +405,7 @@ version-bound to it. The supported refresh order is:
    evidence changes always surface as reviewable Go diffs. Update mode is
    byte-idempotent when nothing changed; review the diff before committing.
 3. **ZPA is special.** The frozen matrix
-   (`packs/zpa/evidence/zpa-provider-v4.4.9.json`) is a reviewed evidence
+   (`packs/zpa/evidence/zpa-provider-v4.4.10.json`) is a reviewed evidence
    corpus for one exact provider version, and its gate asserts currency
    against the active pin. The update mode refuses to re-bind it when the zpa
    pin has moved past the reviewed version: either hold the zpa pin at the

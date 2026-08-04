@@ -1,4 +1,4 @@
-// Package zpacorpus keeps the frozen ZPA v4.4.9 evidence matrix bound to its
+// Package zpacorpus keeps the frozen ZPA v4.4.10 evidence matrix bound to its
 // reviewed metadata and optional provider checkout. It is a test-only corpus:
 // passing it never qualifies or infers a provider-to-SDK-to-HTTP endpoint.
 package zpacorpus
@@ -29,9 +29,9 @@ const (
 	// matrixSHA256 is the exact authority for the reviewed import, identity,
 	// state-shape, sensitivity, exception, and runtime-gate claims. This gate
 	// deliberately does not recreate the retired version-specific validator.
-	matrixSHA256   = "9dea07d61bbe707f0020e92019b13c65a69e2ef6dcead4043f459c6f3fb8724f"
-	providerCommit = "1d4f43cc4c59a24d8380f0c655a07b6da7199465"
-	providerRef    = "v4.4.9"
+	matrixSHA256   = "173f8f0ce125fba37150d8d25e7f4c7278ed32793607806a6ab373fc40cf7c68"
+	providerCommit = "287e4c1f720d89d2405e0925c98dc4b050a93767"
+	providerRef    = "v4.4.10"
 	providerRepo   = "https://github.com/zscaler/terraform-provider-zpa"
 	runtimeGate    = "terraform_runtime_evidence_required"
 
@@ -119,7 +119,7 @@ func repositoryRoot(t *testing.T) string {
 		}
 		t.Fatalf("os.Stat(%q) error = %v, want nil", zpaPack, err)
 	}
-	if _, err := os.Stat(filepath.Join(zpaPack, "evidence", "zpa-provider-v4.4.9.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(zpaPack, "evidence", "zpa-provider-v4.4.10.json")); err != nil {
 		t.Fatalf("repositoryRoot() = %q does not contain the ZPA matrix: %v", root, err)
 	}
 	return root
@@ -127,7 +127,7 @@ func repositoryRoot(t *testing.T) string {
 
 func readMatrix(t *testing.T) ([]byte, corpusReport) {
 	t.Helper()
-	filename := filepath.Join(repositoryRoot(t), "packs", "zpa", "evidence", "zpa-provider-v4.4.9.json")
+	filename := filepath.Join(repositoryRoot(t), "packs", "zpa", "evidence", "zpa-provider-v4.4.10.json")
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error = %v", filename, err)
@@ -404,7 +404,7 @@ func updateFrozenZPAMatrix(t *testing.T) {
 			pack.Pin, providerRef,
 		)
 	}
-	filename := filepath.Join(repository, "packs", "zpa", "evidence", "zpa-provider-v4.4.9.json")
+	filename := filepath.Join(repository, "packs", "zpa", "evidence", "zpa-provider-v4.4.10.json")
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error = %v", filename, err)

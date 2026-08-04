@@ -1,9 +1,9 @@
-# ZPA Provider v4.4.9 Evidence
+# ZPA Provider v4.4.10 Evidence
 
 This evidence records the provider-source facts for the 16 fetch-backed ZPA
 resources. The canonical
 machine-readable matrix is
-[`packs/zpa/evidence/zpa-provider-v4.4.9.json`](../packs/zpa/evidence/zpa-provider-v4.4.9.json).
+[`packs/zpa/evidence/zpa-provider-v4.4.10.json`](../packs/zpa/evidence/zpa-provider-v4.4.10.json).
 
 It is deliberately narrower than a compatibility claim. Static provider source
 can establish import dispatch, Read identity assignments, schema shape, and
@@ -16,8 +16,8 @@ configuration.
 
 The matrix is bound to:
 
-- `zscaler/terraform-provider-zpa` tag `v4.4.9`;
-- commit `1d4f43cc4c59a24d8380f0c655a07b6da7199465`;
+- `zscaler/terraform-provider-zpa` tag `v4.4.10`;
+- commit `287e4c1f720d89d2405e0925c98dc4b050a93767`;
 - the complete SHA-256 of every consulted provider source file;
 - inclusive, SHA-256-bound line ranges for every import, Read-identity, and
   exception claim; and
@@ -28,6 +28,19 @@ Current tests validate the matrix digest and schema. The optional external
 source test also replays every whole-file and inclusive-range binding against
 the exact provider tag. A reviewer still reads the cited source ranges to
 decide whether each curated claim is correct.
+
+## v4.4.10 re-freeze
+
+The matrix was re-frozen from v4.4.9 to v4.4.10 as a carry-forward review.
+Between the two tags, only two of the seventeen consulted source files
+changed (`resource_zpa_app_connector_group.go` and
+`resource_zpa_service_edge_group.go`), each gaining an
+`enrollment_cert_id` auto-resolve step in its Update path. Every one of the
+45 bound claim ranges is byte-identical at the same line numbers in
+v4.4.10, so the import, Read-identity, and exception claims carry forward
+unchanged; only the provider ref, commit, and the two whole-file bindings
+moved. The sections below headed v4.4.9 describe the original review at
+that version and remain the claims' provenance.
 
 ## v4.4.9 refresh boundary
 
