@@ -75,6 +75,37 @@ import (
 // for dotted reference-field names (tfrender's identifierSegmentPattern).
 var tokenFieldSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// splitReferenceTokenRemainder mirrors tfrender's helper of the same name:
+// it splits the portion of a token after its "<referent>." prefix into key
+// and explicit id-space suffix. Reference keys are always
+// transform.SlugifyTransformKey output, which never contains a dot, so the
+// first dot in the remainder (if any) unambiguously opens the optional
+// "<attribute>" suffix from the Phase 7 self-describing grammar
+// (docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md). ok is
+// false when a suffix is present but not itself identifier-shaped -- such a
+// value is not a recognized explicit token.
+func splitReferenceTokenRemainder(remainder string) (key, space string, ok bool) {
+	dot := strings.IndexByte(remainder, '.')
+	if dot < 0 {
+		return remainder, "", true
+	}
+	space = remainder[dot+1:]
+	if !tokenFieldSegmentPattern.MatchString(space) {
+		return "", "", false
+	}
+	return remainder[:dot], space, true
+}
+
+// normalizeIDSpace mirrors tfrender's helper of the same name: it maps the
+// explicit ".id" spelling to "", the same value a canonical edge's IDField
+// carries, so the two spellings compare equal everywhere.
+func normalizeIDSpace(space string) string {
+	if space == "id" {
+		return ""
+	}
+	return space
+}
+
 // expressionBindingsTF ports EXPRESSION_BINDINGS_TF from
 // the original implementation.
 const expressionBindingsTF = "expression_bindings.tf"
@@ -379,22 +410,74 @@ func renderRemoteStateBlocks(backend *string, remoteStates []EnvironmentRemoteSt
 }
 
 // renderReferenceOutput ports renderReferenceOutput from
-// the original implementation.
-func renderReferenceOutput(resourceTypes []string) string {
+// the original implementation, extended with sibling outputs for declared
+// alternate identifier spaces (see
+// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md). Each
+// resourceType's alternate spaces are the union transform.ReferentAlternateSpaces
+// computes from root's merged active edges -- the same helper the compile
+// lanes use, so the referent root publishes exactly what its referrers can
+// cite. A resourceType with no declared space contributes nothing beyond the
+// canonical output, so a root where no member declares a space renders
+// byte-identical output to before this field existed.
+func renderReferenceOutput(root metadata.LoadedPackRoot, resourceTypes []string) string {
 	if len(resourceTypes) == 0 {
 		return ""
 	}
+	sortedTypes := canonjson.SortedStrings(resourceTypes)
 	lines := []string{
 		fmt.Sprintf(`output "%s" {`, InfrawrightReferenceOutput),
 		`  description = "Minimal stable-key to provider ID map for opted-in cross-state consumers."`,
 		"  sensitive   = true",
 		"  value = {",
 	}
-	for _, resourceType := range canonjson.SortedStrings(resourceTypes) {
+	for _, resourceType := range sortedTypes {
 		lines = append(lines, fmt.Sprintf("    %s = { for key, item in module.%s.items : key => item.id }", resourceType, resourceType))
 	}
 	lines = append(lines, "  }", "}", "")
+	sections := []string{strings.Join(lines, "\n")}
+
+	// Sibling outputs are grouped by FIELD, not by resourceType: a root with
+	// several referent members that happen to declare the same alternate
+	// space share one iw_reference_ids_<field> output, and a member that does
+	// not declare that space is excluded from that sibling's value map.
+	membersByField := map[string][]string{}
+	for _, resourceType := range sortedTypes {
+		for _, field := range transform.ReferentAlternateSpaces(root, resourceType) {
+			membersByField[field] = append(membersByField[field], resourceType)
+		}
+	}
+	for _, field := range canonjson.SortedStrings(mapKeysOfStringSlices(membersByField)) {
+		sections = append(sections, renderReferenceOutputSibling(field, membersByField[field]))
+	}
+	return strings.Join(sections, "\n")
+}
+
+// renderReferenceOutputSibling renders one iw_reference_ids_<field> output
+// block: same sensitive=true shape as the canonical output, keyed by the
+// same module.<type>.items value but projecting the alternate field instead
+// of id.
+func renderReferenceOutputSibling(field string, members []string) string {
+	lines := []string{
+		fmt.Sprintf(`output "%s_%s" {`, InfrawrightReferenceOutput, field),
+		`  description = "Minimal stable-key to provider ID map for opted-in cross-state consumers."`,
+		"  sensitive   = true",
+		"  value = {",
+	}
+	for _, resourceType := range members {
+		lines = append(lines, fmt.Sprintf("    %s = { for key, item in module.%s.items : key => item.%s }", resourceType, resourceType, field))
+	}
+	lines = append(lines, "  }", "}", "")
 	return strings.Join(lines, "\n")
+}
+
+// mapKeysOfStringSlices returns the keys of a map[string][]string, unordered
+// -- callers sort with canonjson.SortedStrings for deterministic output.
+func mapKeysOfStringSlices(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 // RenderEnvironmentMainOptions bundles RenderEnvironmentMain's parameters,
@@ -493,7 +576,7 @@ func RenderEnvironmentMain(options RenderEnvironmentMainOptions) (string, error)
 	if err != nil {
 		return "", err
 	}
-	referenceOutput := renderReferenceOutput(options.ReferenceOutputTypes)
+	referenceOutput := renderReferenceOutput(options.Root, options.ReferenceOutputTypes)
 	var rootBody string
 	if len(remoteStateBlocks) == 0 && len(referenceOutput) == 0 {
 		rootBody = strings.Join(memberBlocks, "\n\n") + "\n"
@@ -562,15 +645,51 @@ func renderRootExpressionBindings(label string, bindingsByType map[string][]Expr
 
 // canonicalRemoteStateSelectorPattern matches exactly the remote-state
 // selector shape the binding grammar admits (see
-// ExpressionRemoteStateReferences), capturing the referent type and the
-// quoted key. Renderer-side resolver wrapping relies on this strictness:
-// the grammar guarantees no other text can match. Both output-name
-// spellings are admitted because a committed generated-bindings cache
-// written before the iw_ rename embeds the legacy one and wins outright
-// until its next transform stale-cleans it.
+// ExpressionRemoteStateReferences), capturing the optional alternate-space
+// field suffix, the referent type, and the quoted key. Renderer-side
+// resolver wrapping relies on this strictness: the grammar guarantees no
+// other text can match. Both output-name spellings are admitted because a
+// committed generated-bindings cache written before the iw_ rename embeds
+// the legacy one and wins outright until its next transform stale-cleans it.
+//
+// Group 1 is the field suffix INCLUDING its leading underscore ("" for the
+// canonical iw_reference_ids output, "_val" for the iw_reference_ids_val
+// sibling) -- never ambiguous with group 2 (the referent, which itself may
+// contain underscores) because the two are always separated by exactly one
+// literal "." in the output selector's path
+// (outputs.iw_reference_ids[_<field>].<referent>[<key>]), and "." is
+// excluded from the field-suffix character class, so the field group can
+// never consume across that boundary. Group 2 is the referent type; group 3
+// is the quoted key.
 var canonicalRemoteStateSelectorPattern = regexp.MustCompile(
-	`data\.terraform_remote_state\.[A-Za-z_][A-Za-z0-9_]*\.outputs\.(?:iw|infrawright)_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[("(?:[^"\\]|\\.)*")\]`,
+	`data\.terraform_remote_state\.[A-Za-z_][A-Za-z0-9_]*\.outputs\.(?:iw|infrawright)_reference_ids(_[A-Za-z_][A-Za-z0-9_]*)?\.([A-Za-z_][A-Za-z0-9_]*)\[("(?:[^"\\]|\\.)*")\]`,
 )
+
+// committedTokenCoveringPattern matches a resolved selector for exactly one
+// referent/key/space triple against the SPECIFIC output name that space
+// resolves through: the canonical iw_reference_ids output (plus its
+// pre-rename legacy spelling) for field "", or the exact
+// iw_reference_ids_<field> sibling for a declared alternate space.
+//
+// Tokens are self-describing as of the Phase 7 revision
+// (docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md): a
+// committed token's own suffix names its space, so coverage must require a
+// binding resolving through THAT space specifically -- a bare/".id" token
+// covered only by a selector against a mismatched iw_reference_ids_<field>
+// sibling (or vice versa) is exactly the fail-closed case invariant 4
+// requires, and admitting any field here would silently paper over it.
+// referent and key are regexp.QuoteMeta-escaped because a leaf's key is
+// committed data, not a pattern.
+func committedTokenCoveringPattern(referent, key, field string) *regexp.Regexp {
+	fieldSuffix := ""
+	if field != "" {
+		fieldSuffix = "_" + regexp.QuoteMeta(field)
+	}
+	return regexp.MustCompile(
+		`(?:iw|infrawright)_reference_ids` + fieldSuffix + `\.` +
+			regexp.QuoteMeta(referent) + `\[` + regexp.QuoteMeta(`"`+key+`"`) + `\]`,
+	)
+}
 
 // committedTokenLeaf is one qualified reference token found in a member's
 // committed config: the leaf-granular unit every render-time gate keys on.
@@ -583,6 +702,12 @@ type committedTokenLeaf struct {
 	Token        string
 	Referent     string
 	Key          string
+	// Field is the token's own declared id space, normalized so both the
+	// bare and explicit ".id" spellings read as "" (Phase 7 revision,
+	// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md):
+	// the token is self-describing, so this is parsed from the token text
+	// itself, never from pack metadata.
+	Field string
 }
 
 // scannedMember is one member's parsed committed items, retained so the
@@ -792,7 +917,11 @@ func tokenClaimReferent(value string, lookupKeySet map[string]map[string]bool) (
 		return "", false
 	}
 	keys, indexed := lookupKeySet[referent]
-	if !indexed || !keys[value[dot+1:]] {
+	if !indexed {
+		return "", false
+	}
+	key, _, ok := splitReferenceTokenRemainder(value[dot+1:])
+	if !ok || !keys[key] {
 		return "", false
 	}
 	return referent, true
@@ -857,7 +986,8 @@ func hclCommittedTokenValue(text string, lookupKeySet map[string]map[string]bool
 				break
 			}
 			value := text[start : start+end]
-			if keys[value[len(referent)+1:]] {
+			key, _, ok := splitReferenceTokenRemainder(value[len(referent)+1:])
+			if ok && keys[key] {
 				return value
 			}
 			offset = start + end
@@ -978,9 +1108,21 @@ func jsonConfigTokenLeaves(
 			}
 			collectTokenLeaves(item, segments, "", func(path, token string) {
 				dot := strings.IndexByte(token, '.')
+				referent := token[:dot]
+				remainder := token[dot+1:]
+				key, space, ok := splitReferenceTokenRemainder(remainder)
+				if !ok {
+					// Not a recognized token in either shape (Phase 7
+					// grammar requires an identifier-shaped explicit
+					// suffix); treat the whole remainder as an opaque key
+					// so this leaf lands in the coverage gate rather than
+					// being silently ignored (fail-closed, matching the
+					// producer's own token-shape-mismatch classification).
+					key, space = remainder, ""
+				}
 				leaves = append(leaves, committedTokenLeaf{
 					ResourceType: resourceType, ItemKey: itemKey, Path: path,
-					Token: token, Referent: token[:dot], Key: token[dot+1:],
+					Token: token, Referent: referent, Key: key, Field: normalizeIDSpace(space),
 				})
 			})
 		}
@@ -1110,19 +1252,22 @@ func assertTokenLeavesCovered(
 	for _, leaf := range leaves {
 		bindings := bindingsByType[leaf.ResourceType]
 		operators := operatorIdentitiesByType[leaf.ResourceType]
-		// Committed caches written before the iw_ rename spell the legacy
-		// output name inside their selectors; either spelling proves the
-		// binding resolves this leaf's token.
-		needle := InfrawrightReferenceOutput + "." + leaf.Referent + `["` + leaf.Key + `"]`
-		legacyNeedle := LegacyInfrawrightReferenceOutput + "." + leaf.Referent + `["` + leaf.Key + `"]`
+		// A token's own suffix names its space (Phase 7 revision,
+		// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md),
+		// so coverage requires a selector against the specific output name
+		// that space resolves through: the canonical iw_reference_ids (or
+		// its pre-rename legacy spelling) for leaf.Field "", the exact
+		// iw_reference_ids_<field> sibling otherwise. A mismatch here is
+		// exactly the fail-closed case invariant 4 requires -- a leaf whose
+		// only covering binding resolves the wrong space is left uncovered
+		// and refused below, same as a stranded token.
+		pattern := committedTokenCoveringPattern(leaf.Referent, leaf.Key, leaf.Field)
 		covered := false
 		for _, binding := range bindings {
 			if binding.Key != leaf.ItemKey || !tfrender.BindingPathCovers(binding.Path, leaf.Path) {
 				continue
 			}
-			if operators[bindingIdentity(binding)] ||
-				strings.Contains(binding.Expression, needle) ||
-				strings.Contains(binding.Expression, legacyNeedle) {
+			if operators[bindingIdentity(binding)] || pattern.MatchString(binding.Expression) {
 				covered = true
 				break
 			}
@@ -1178,13 +1323,25 @@ func rewriteResolverFallbacks(
 				binding.Expression,
 				func(selector string) string {
 					parts := canonicalRemoteStateSelectorPattern.FindStringSubmatch(selector)
-					if len(parts) != 3 {
+					if len(parts) != 4 {
 						return selector
 					}
-					if lookupOnlyReferents[parts[1]] {
-						return "local.iw_reference_lookup_" + parts[1] + "[" + parts[2] + "]"
+					// parts[1] is "" for the canonical space or "_<field>"
+					// for an alternate space; either way it is exactly the
+					// suffix the lookup local's own name carries (see
+					// referenceLookupLocals), so appending it directly names
+					// the right local without a second field/referent split.
+					// The lookup-only decision itself stays keyed on the bare
+					// referent (parts[2]), never the space: probe usability
+					// is a property of the referent's applied state, not of
+					// which attribute an edge cites into it.
+					referent := parts[2]
+					key := parts[3]
+					localName := "iw_reference_lookup_" + referent + parts[1]
+					if lookupOnlyReferents[referent] {
+						return "local." + localName + "[" + key + "]"
 					}
-					return "try(" + selector + ", local.iw_reference_lookup_" + parts[1] + "[" + parts[2] + "])"
+					return "try(" + selector + ", local." + localName + "[" + key + "])"
 				},
 			)
 		}
@@ -1238,10 +1395,26 @@ func warnUnwrappedLegacySelectors(
 // written before that field existed. The renderer emits only this
 // expression -- the values stay in the committed artifact and are read
 // where Terraform runs, never inlined here.
+//
+// referentSpaces carries, per referent, the sorted alternate-space field
+// names actually cited by this root's surviving wrapped bindings (see the
+// lookupReferentSpaces set built in GenerateEnvironmentRoots) -- not the
+// full pack-declared union: a space only earns a local here when some
+// binding in THIS root resolves through it, mirroring exactly how
+// referentTypes itself already restricts the canonical local to referents
+// this root's bindings actually name. For each such (referent, field) pair a
+// sibling local iw_reference_lookup_<referent>_<field> reads the same
+// sidecar's spaces.<field> map, falling back to inverting spaces.<field>.key_by_id
+// WITHIN that space -- mirroring ParseLookupSidecar's own within-space
+// derivation exactly, so the local and the parsed sidecar agree -- and never
+// falling back to the canonical id_by_key/key_by_id maps, because an
+// alternate attribute's values do not exist there (see
+// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md).
 func referenceLookupLocals(
 	dep deployment.Deployment,
 	tenant, environmentDirectory string,
 	referentTypes []string,
+	referentSpaces map[string][]string,
 ) (string, error) {
 	if len(referentTypes) == 0 {
 		return "", nil
@@ -1283,6 +1456,14 @@ func referenceLookupLocals(
 			fmt.Sprintf("  iw_reference_lookup_%s = fileexists(%s) ? try(%s.id_by_key, { for id, k in %s.key_by_id : k => id }) : {}",
 				referent, quoted, lookup, lookup),
 		)
+		for _, field := range referentSpaces[referent] {
+			lines = append(lines,
+				fmt.Sprintf(
+					"  iw_reference_lookup_%s_%s = fileexists(%s) ? try(%s.spaces.%s.id_by_key, { for id, k in %s.spaces.%s.key_by_id : k => id }, {}) : {}",
+					referent, field, quoted, lookup, field, lookup, field,
+				),
+			)
+		}
 	}
 	lines = append(lines, "}", "")
 	return strings.Join(lines, "\n"), nil
@@ -1424,7 +1605,7 @@ func remoteStateReferencesForBindings(bindingsByType map[string][]ExpressionBind
 					}
 				}
 				field := strings.Join(fieldParts, ".")
-				identity := resourceType + "\x00" + binding.Path + "\x00" + reference.Root + "\x00" + reference.ResourceType + "\x00" + reference.Key
+				identity := resourceType + "\x00" + binding.Path + "\x00" + reference.Root + "\x00" + reference.ResourceType + "\x00" + reference.IDField + "\x00" + reference.Key
 				if _, exists := selected[identity]; !exists {
 					order = append(order, identity)
 				}
@@ -1459,6 +1640,9 @@ func compareBoundReference(left, right boundRemoteStateReference) int {
 		return c
 	}
 	if c := canonjson.ComparePythonStrings(left.ResourceType, right.ResourceType); c != 0 {
+		return c
+	}
+	if c := canonjson.ComparePythonStrings(left.IDField, right.IDField); c != 0 {
 		return c
 	}
 	return canonjson.ComparePythonStrings(left.Key, right.Key)
@@ -2391,9 +2575,25 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			}
 		}
 		lookupReferentTypes := map[string]bool{}
+		// lookupReferentSpaces mirrors lookupReferentTypes one level deeper:
+		// which alternate-space fields this root's surviving bindings
+		// actually cite for each referent. A space earns a lookup local only
+		// when some binding here resolves through it -- the pack-declared
+		// union (transform.ReferentAlternateSpaces) is a wider set computed
+		// per referent root, not per referrer, so it is deliberately not
+		// used here.
+		lookupReferentSpaces := map[string]map[string]bool{}
 		if tokensPresent {
 			for _, reference := range remoteStateReferences {
 				lookupReferentTypes[reference.ResourceType] = true
+				if reference.IDField != "" {
+					spaces := lookupReferentSpaces[reference.ResourceType]
+					if spaces == nil {
+						spaces = map[string]bool{}
+						lookupReferentSpaces[reference.ResourceType] = spaces
+					}
+					spaces[reference.IDField] = true
+				}
 			}
 		}
 		// Topology is validated against the unfiltered set: a binding naming a
@@ -2516,9 +2716,14 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 				return EnvironmentGenerationResult{}, err
 			}
 			if tokensPresent {
+				referentSpaces := map[string][]string{}
+				for referent, spaces := range lookupReferentSpaces {
+					referentSpaces[referent] = canonjson.SortedStrings(mapKeysBoolSetGeneric(spaces))
+				}
 				lookups, err := referenceLookupLocals(
 					options.Deployment, options.Tenant, directory,
 					canonjson.SortedStrings(mapKeysBoolSetGeneric(lookupReferentTypes)),
+					referentSpaces,
 				)
 				if err != nil {
 					return EnvironmentGenerationResult{}, err

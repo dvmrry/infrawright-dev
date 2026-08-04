@@ -54,7 +54,10 @@ generated referents: when the data type's lookup sidecar is committed, raw
 tenant IDs rewrite to `<referent>.<key>` tokens and bindings resolve through
 the data root's `iw_reference_ids` output with committed-lookup fallback;
 with no committed lookup the field stays literal and the skip is reported in
-the binding notes.
+the binding notes. An edge may instead cite an alternate referent attribute
+via `referent_id_field`, in which case it resolves through the referent
+root's sibling `iw_reference_ids_<field>` output with the same
+committed-lookup fallback policy.
 
 Adopt's provider Oracle may execute a mechanically verified import-only plan
 against ephemeral local scratch state so provider Read can supply projected

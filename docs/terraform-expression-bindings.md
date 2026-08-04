@@ -1,9 +1,21 @@
 # Terraform Expression Bindings
 
 > **Reference tokens (JSON tfvars only).** In JSON-format deployments,
-> declared reference fields commit as qualified tokens
-> (`"<referent_type>.<key>"`) rather than tenant IDs whenever the
-> referent's lookup knows the ID; HCL-format deployments keep
+> declared reference fields commit as qualified tokens rather than tenant
+> IDs whenever the referent's lookup knows the ID. A token is
+> self-describing about which identifier space it names: `"<referent_type>.
+> <key>"` (bare) or `"<referent_type>.<key>.<attribute>"` (explicit).
+> Reference keys are always slugified and so never contain a dot, and
+> `<attribute>` is identifier-shaped, so the two shapes are unambiguous to
+> parse. A bare token and an explicit `.id` token mean exactly the same
+> thing — the canonical id space — and are accepted interchangeably on
+> read; only the explicit non-`id` spelling is ever minted, and only for a
+> field whose edge declares `referent_id_field`. A committed token whose
+> suffix disagrees with the space its covering edge actually resolves
+> through is never silently resolved through either space: it is refused
+> the same loud way a stranded token is today (see
+> `docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md`'s
+> Design decisions for this revision). HCL-format deployments keep
 > literal IDs, and a token-shaped value in an HCL config is refused at
 > generation. gen-env renders each token as a
 > lookup-first resolver — `try(<remote-state lookup>, <lookup literal>)` —
@@ -25,6 +37,20 @@
 > the derivation and migration mechanics; the binding grammar below is
 > unchanged and applies to operator-authored sidecars, which are never
 > token-wrapped.
+
+An edge declaring `referent_id_field` (see `docs/pack-authoring.md`) resolves
+through a sibling of the machinery above rather than a variant of it. The
+referent root publishes `iw_reference_ids_<field>` next to the canonical
+`iw_reference_ids` output, one per declared alternate space; gen-env pairs
+each with its own `iw_reference_lookup_<referent>_<field>` local, reading
+`spaces.<field>` from the same committed lookup sidecar instead of the
+canonical maps; and the resolver applies the identical
+`try(<remote-state lookup>, <lookup literal>)` policy against that sibling
+pair. The token a referrer commits names its own space directly: a
+canonical edge still mints the bare `<referent>.<key>` token, but a
+`<field>`-citing edge mints the explicit `<referent>.<key>.<field>` form —
+e.g. `zia_url_categories.blocked_sites.val` — so committed config
+self-documents which space resolves it.
 
 Infrawright can bind an exact projected resource path to a Terraform
 expression. This is useful when the generated config should refer to a value

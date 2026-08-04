@@ -7,15 +7,17 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"testing"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/fixtureupdate"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 )
 
-const environmentRootsCompatibilitySHA256 = "239815b140cd46be44efc052b1a51c0377235dd00d4d7f9bdbb599b739358847"
+const environmentRootsCompatibilitySHA256 = "a64aff9370e360786347fe6c78ff402f9838820fe0ec04512ec54774c9903d5d"
 
 type environmentRootsCompatibilityFixture struct {
 	SchemaVersion       int                                  `json:"schema_version"`
@@ -58,14 +60,67 @@ func loadEnvironmentRootsCompatibility(t *testing.T) environmentRootsCompatibili
 	if len(fixture.RepresentativeCases) != 1 || fixture.RepresentativeCases[0].Name != "ungrouped-json" {
 		t.Fatalf("%s representative cases = %#v, want only ungrouped-json", fixturePath, fixture.RepresentativeCases)
 	}
-	if fixture.FullProfile.FileCount != 456 || len(fixture.FullProfile.Manifest) != 456 {
-		t.Fatalf("%s full-profile file/manifest counts = %d/%d, want 456/456", fixturePath, fixture.FullProfile.FileCount, len(fixture.FullProfile.Manifest))
+	// The pinned fixture digest above is the membership authority; the counts
+	// only need to agree with each other and be non-empty.
+	if fixture.FullProfile.FileCount == 0 || fixture.FullProfile.FileCount != len(fixture.FullProfile.Manifest) {
+		t.Fatalf("%s full-profile file/manifest counts = %d/%d, want equal and non-zero", fixturePath, fixture.FullProfile.FileCount, len(fixture.FullProfile.Manifest))
 	}
 	return fixture
 }
 
-func TestUngroupedEnvironmentRootCompatibility(t *testing.T) {
-	fixture := loadEnvironmentRootsCompatibility(t)
+// updateEnvironmentRootsCompatibility is the IW_UPDATE_FIXTURES=1 refresh
+// path: it re-runs both compatibility generations and rewrites the snapshot
+// plus its pinned constant. The manifest here IS the generated tree, so
+// unlike the curated snapshots there is no hand-maintained membership;
+// review the diff before committing.
+func updateEnvironmentRootsCompatibility(t *testing.T, fixturePath string) {
+	t.Helper()
+	fixture := environmentRootsCompatibilityFixture{SchemaVersion: 1}
+	fixture.RepresentativeCases = []environmentRootsRepresentativeCase{
+		{Name: "ungrouped-json", Tree: generateUngroupedCompatibilityTree(t)},
+	}
+	tree := generateFullProfileCompatibilityTree(t)
+	paths := make([]string, 0, len(tree))
+	for path := range tree {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	fixture.FullProfile.FileCount = len(paths)
+	fixture.FullProfile.Manifest = make([]environmentRootsCompatibilityFile, 0, len(paths))
+	for _, path := range paths {
+		digest := sha256.Sum256([]byte(tree[path]))
+		fixture.FullProfile.Manifest = append(fixture.FullProfile.Manifest, environmentRootsCompatibilityFile{
+			Path: path, Length: len(tree[path]), SHA256: hex.EncodeToString(digest[:]),
+		})
+	}
+	encoded, err := json.MarshalIndent(fixture, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent(environment roots compatibility) error: %v", err)
+	}
+	encoded = append(encoded, '\n')
+	if err := os.WriteFile(fixturePath, encoded, 0o644); err != nil {
+		t.Fatalf("os.WriteFile(%q) error: %v", fixturePath, err)
+	}
+	digest := sha256.Sum256(encoded)
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	if err := fixtureupdate.ReplaceConst(sourcePath, "environmentRootsCompatibilitySHA256", hex.EncodeToString(digest[:])); err != nil {
+		t.Fatalf("fixtureupdate.ReplaceConst error: %v", err)
+	}
+	t.Skipf("environment roots compatibility snapshot regenerated; review the diff before committing")
+}
+
+func TestEnvironmentRootsCompatibilityUpdateMode(t *testing.T) {
+	if !fixtureupdate.Requested() {
+		t.Skip("set IW_UPDATE_FIXTURES=1 to regenerate the environment roots compatibility snapshot")
+	}
+	updateEnvironmentRootsCompatibility(t, filepath.Join("testdata", "environment_roots_compatibility.json"))
+}
+
+func generateUngroupedCompatibilityTree(t *testing.T) map[string]string {
+	t.Helper()
 	workspace := temporaryDirectory(t, "infrawright-gen-env-compatibility-")
 	deploymentPath := filepath.Join(workspace, "deployment.json")
 	writeJSONFile(t, deploymentPath, map[string]any{
@@ -84,7 +139,12 @@ func TestUngroupedEnvironmentRootCompatibility(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("GenerateEnvironmentRoots() error: %v", err)
 	}
-	got := snapshotTree(t, outputRoot)
+	return snapshotTree(t, outputRoot)
+}
+
+func TestUngroupedEnvironmentRootCompatibility(t *testing.T) {
+	fixture := loadEnvironmentRootsCompatibility(t)
+	got := generateUngroupedCompatibilityTree(t)
 	want := fixture.RepresentativeCases[0].Tree
 	if !reflect.DeepEqual(got, want) {
 		for path, expected := range want {
@@ -100,8 +160,11 @@ func TestUngroupedEnvironmentRootCompatibility(t *testing.T) {
 	}
 }
 
-func TestFullProfileEnvironmentRootCompatibility(t *testing.T) {
-	fixture := loadEnvironmentRootsCompatibility(t)
+// generateFullProfileCompatibilityTree runs the full-profile generation and
+// asserts the topology-label invariants shared by the comparing test and the
+// update mode, returning the generated tree.
+func generateFullProfileCompatibilityTree(t *testing.T) map[string]string {
+	t.Helper()
 	workspace := temporaryDirectory(t, "infrawright-gen-env-full-compatibility-")
 	deploymentPath := filepath.Join(workspace, "deployment.json")
 	writeJSONFile(t, deploymentPath, map[string]any{
@@ -140,7 +203,12 @@ func TestFullProfileEnvironmentRootCompatibility(t *testing.T) {
 	if !reflect.DeepEqual(gotLabels, wantLabels) {
 		t.Fatalf("generated root labels = %v, want loaded topology root labels %v", gotLabels, wantLabels)
 	}
-	tree := snapshotTree(t, outputRoot)
+	return snapshotTree(t, outputRoot)
+}
+
+func TestFullProfileEnvironmentRootCompatibility(t *testing.T) {
+	fixture := loadEnvironmentRootsCompatibility(t)
+	tree := generateFullProfileCompatibilityTree(t)
 	if got := len(tree); got != fixture.FullProfile.FileCount {
 		t.Fatalf("generated files = %d, want %d", got, fixture.FullProfile.FileCount)
 	}

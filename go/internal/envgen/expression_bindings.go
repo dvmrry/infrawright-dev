@@ -1552,7 +1552,14 @@ func ExpressionModuleTargets(expression string) []string {
 
 // RemoteStateReference is the Go analogue of the RemoteStateReference
 // interface in the original implementation.
+//
+// IDField carries the alternate-space suffix from the selector's output
+// name -- "" for the canonical iw_reference_ids output, or the declared
+// field (e.g. "val") for an iw_reference_ids_<field> sibling (see
+// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md). Every
+// selector written before that field existed parses to "", byte-identical.
 type RemoteStateReference struct {
+	IDField      string
 	Key          string
 	ResourceType string
 	Root         string
@@ -1561,9 +1568,16 @@ type RemoteStateReference struct {
 // remoteStateSelectorPattern admits both output-name spellings: committed
 // generated-bindings caches written before the iw_ rename embed the legacy
 // one and must keep validating until their next transform stale-cleans
-// them.
+// them. It also admits an optional alternate-space field suffix on the
+// output name (group 2, INCLUDING its leading underscore, "" when absent):
+// the suffix and the referent (group 3, which may itself contain
+// underscores) can never be confused because they are always separated by
+// exactly one literal "." in the selector's path
+// (outputs.iw_reference_ids[_<field>].<referent>[<key>]), and "." is
+// excluded from the field-suffix character class, so the optional group can
+// never consume across that boundary.
 var remoteStateSelectorPattern = regexp.MustCompile(
-	`^data\.terraform_remote_state\.([A-Za-z_][A-Za-z0-9_]*)\.outputs\.(?:iw|infrawright)_reference_ids\.([A-Za-z_][A-Za-z0-9_]*)\[`,
+	`^data\.terraform_remote_state\.([A-Za-z_][A-Za-z0-9_]*)\.outputs\.(?:iw|infrawright)_reference_ids(_[A-Za-z_][A-Za-z0-9_]*)?\.([A-Za-z_][A-Za-z0-9_]*)\[`,
 )
 
 // expressionRemoteStateReferences ports the exported
@@ -1605,7 +1619,12 @@ func expressionRemoteStateReferences(expression string) []RemoteStateReference {
 			bindingsFail("Infrawright terraform_remote_state expressions must use the canonical iw_reference_ids resource/key selector")
 		}
 		root := expression[index+match[2] : index+match[3]]
-		resourceType := expression[index+match[4] : index+match[5]]
+		fieldSuffix := ""
+		if match[4] != -1 {
+			fieldSuffix = expression[index+match[4] : index+match[5]]
+		}
+		idField := strings.TrimPrefix(fieldSuffix, "_")
+		resourceType := expression[index+match[6] : index+match[7]]
 		matchEnd := index + match[1]
 		quoted, err := tfrender.ParseHclQuotedString(expression, matchEnd)
 		if err != nil {
@@ -1628,8 +1647,8 @@ func expressionRemoteStateReferences(expression string) []RemoteStateReference {
 				bindingsFail("Infrawright terraform_remote_state expressions must end after the canonical resource/key selector")
 			}
 		}
-		reference := RemoteStateReference{Key: quoted.Value, ResourceType: resourceType, Root: root}
-		identity := root + "\x00" + resourceType + "\x00" + quoted.Value
+		reference := RemoteStateReference{IDField: idField, Key: quoted.Value, ResourceType: resourceType, Root: root}
+		identity := root + "\x00" + resourceType + "\x00" + idField + "\x00" + quoted.Value
 		if _, exists := selected[identity]; !exists {
 			order = append(order, identity)
 		}
@@ -1657,6 +1676,9 @@ func compareRemoteStateReference(left, right RemoteStateReference) int {
 		return c
 	}
 	if c := canonjson.ComparePythonStrings(left.ResourceType, right.ResourceType); c != 0 {
+		return c
+	}
+	if c := canonjson.ComparePythonStrings(left.IDField, right.IDField); c != 0 {
 		return c
 	}
 	return canonjson.ComparePythonStrings(left.Key, right.Key)

@@ -58,8 +58,10 @@ func transformReferenceSpecs(
 		}
 		referent, referentOk := spec["referent"].(string)
 		nameField, nameOk := spec["name_field"].(string)
+		idField, _ := spec["referent_id_field"].(string)
 		if referentOk && nameOk {
 			output[field] = tfrender.TransformReferenceSpec{
+				IDField:   idField,
 				Referent:  referent,
 				NameField: nameField,
 			}
@@ -694,6 +696,7 @@ func RunTransformBatch(options RunTransformBatchOptions) (TransformBatchResult, 
 				BindingContext:         bindingContext,
 				Deployment:             options.Deployment,
 				LookupNameField:        lookupNameField,
+				PublishSpaces:          transform.ReferentAlternateSpaces(options.Root, resourceType),
 				RemoveLookupWhenAbsent: transformHasInferredLookupLifecycle(options.Root, resource),
 				OnDiagnostic:           write,
 				Override:               resource.Override,

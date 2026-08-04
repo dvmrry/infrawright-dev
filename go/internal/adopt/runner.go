@@ -343,6 +343,7 @@ func transformArtifactOptions(
 		BindingContext:         bindingContext,
 		Deployment:             options.Deployment,
 		LookupNameField:        lookupNameField,
+		PublishSpaces:          transform.ReferentAlternateSpaces(options.Root, resource.Type),
 		RemoveLookupWhenAbsent: transformrun.TransformHasInferredLookupLifecycleForAdopt(options.Root, resource),
 		OnDiagnostic:           write,
 		Override:               map[string]any{"import_id": meta.ImportID},

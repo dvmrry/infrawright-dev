@@ -89,6 +89,18 @@ type PullTransformResult struct {
 // structural fidelity with callers (outside this slice) that build
 // References maps.
 type TransformReferenceSpec struct {
+	// IDField carries the edge's declared referent_id_field (see
+	// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md):
+	// empty selects the canonical id space (byte-identical to every edge
+	// that predates this field); non-empty selects the named alternate
+	// space the referent's sidecar publishes under "spaces". Tokens are
+	// self-describing as of the Phase 7 revision: a canonical edge still
+	// mints and reads the bare "<referent>.<key>" token, but a declared
+	// alternate-space edge mints the explicit "<referent>.<key>.<field>"
+	// form so committed config names its own space. A bare token or an
+	// explicit ".id" token always means the canonical space, on read,
+	// regardless of what any edge declares.
+	IDField   string
 	NameField string
 	Referent  string
 }
@@ -200,8 +212,28 @@ type TransformArtifactWriteResult struct {
 // inverse lookup the plan-time reference-token fallback expression indexes.
 // The parser derives it from key_by_id when a committed sidecar predates
 // the field, so both directions decode for every lookup ever written.
+//
+// Spaces carries the optional alternate identifier spaces a referent
+// publishes alongside the canonical id space (see
+// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md).
+// Unlike IDByKey, a missing space is never derived from the canonical
+// maps: the alternate attribute's values do not exist anywhere in
+// ByID/IDByKey/KeyByID, so an absent space decodes to a nil Spaces entry,
+// never a fallback. Spaces is nil when the sidecar carries no "spaces" key
+// at all (every sidecar written before this field existed, and every
+// sidecar for a referent with no declared alternate space).
 type TransformLookupData struct {
 	ByID    map[string]string
+	IDByKey map[string]string
+	KeyByID map[string]string
+	Spaces  map[string]TransformLookupSpace
+}
+
+// TransformLookupSpace is one alternate identifier space a referent
+// publishes, mirroring the shape of the canonical id space's two resolver
+// maps (see TransformLookupData.Spaces). IDByKey decodes an item key to
+// the space's identity; KeyByID is its inverse.
+type TransformLookupSpace struct {
 	IDByKey map[string]string
 	KeyByID map[string]string
 }
@@ -253,10 +285,19 @@ const (
 // against injected lookup data without writing sidecars to disk. Production
 // callers leave it nil and resolve lookups from the config directory.
 type TransformArtifactCompileOptions struct {
-	ArtifactMode           TransformArtifactMode
-	BindingContext         BindingContext
-	Deployment             deployment.Deployment
-	LookupNameField        *string
+	ArtifactMode    TransformArtifactMode
+	BindingContext  BindingContext
+	Deployment      deployment.Deployment
+	LookupNameField *string
+	// PublishSpaces is the sorted, deduplicated set of alternate identifier
+	// spaces (referent_id_field values) this resource's compile must publish
+	// in its own lookup sidecar, because other active edges cite it through
+	// those spaces (see TransformLookupData.Spaces). Computed by the caller
+	// from transform.ReferentAlternateSpaces(root, resourceType) -- inbound
+	// edges, unlike References below, which are this resource's own outbound
+	// edges. Always nil for the data-referent lane (compileLookup enforces
+	// this regardless of what a caller passes).
+	PublishSpaces          []string
 	RemoveLookupWhenAbsent bool
 	LookupOverrides        map[string]*TransformLookupData
 	OnDiagnostic           func(string)
@@ -434,21 +475,48 @@ func lookupIdentity(value any) (*string, error) {
 // lookup sidecar, including last-key-wins IDs." It preserves the generated
 // lane's legacy empty/flat shape.
 func RenderTransformLookup(items, originals map[string]map[string]any, nameField string) (string, error) {
-	return RenderTransformLookupWithShape(items, originals, nameField, TransformLookupShapeLegacy)
+	return RenderTransformLookupWithShape(items, originals, nameField, TransformLookupShapeLegacy, nil)
 }
 
 // RenderTransformLookupWithShape renders a lookup sidecar with an explicit
 // shape. Data-referent publication uses TransformLookupShapeNested so an
 // empty successful fetch still has all three resolver maps.
+//
+// spaces names the alternate identifier space fields to publish alongside
+// the canonical id space (see TransformLookupData.Spaces); the caller
+// sorts and dedupes it. A nil or empty spaces produces byte-identical
+// output to a caller that never knew about this parameter: no "spaces" key
+// is emitted, and the canonical by_id/id_by_key/key_by_id maps are built
+// exactly as before. Each space field's KeyByID/IDByKey are built from the
+// same per-item merged record (originals merged under the projection) the
+// canonical id path already computes -- lookupIdentity(merged[field]) --
+// so a space's identity uses exactly the same scalar-rendering and
+// empty/nil skip rule as the canonical id. Unlike the canonical id, an
+// empty or missing space value is never an error under either shape: it
+// is a silently omitted row (the nested-shape empty-ident error is a
+// canonical-id-only rule). A duplicate identity within one space across
+// items fails loudly, unconditional on shape, mirroring the canonical
+// nested-shape seenDataIDs duplicate check.
 func RenderTransformLookupWithShape(
 	items, originals map[string]map[string]any,
 	nameField string,
 	shape TransformLookupShape,
+	spaces []string,
 ) (string, error) {
 	byID := map[string]any{}
 	idByKey := map[string]any{}
 	keyByID := map[string]any{}
 	seenDataIDs := map[string]string{}
+
+	spaceIDByKey := make(map[string]map[string]any, len(spaces))
+	spaceKeyByID := make(map[string]map[string]any, len(spaces))
+	spaceSeenIdentities := make(map[string]map[string]string, len(spaces))
+	for _, field := range spaces {
+		spaceIDByKey[field] = map[string]any{}
+		spaceKeyByID[field] = map[string]any{}
+		spaceSeenIdentities[field] = map[string]string{}
+	}
+
 	for _, key := range canonjson.SortedStrings(mapKeys(items)) {
 		projected, ok := items[key]
 		if !ok {
@@ -465,6 +533,7 @@ func RenderTransformLookupWithShape(
 		if err != nil {
 			return "", err
 		}
+		skipCanonical := false
 		if ident == nil {
 			if shape == TransformLookupShapeNested {
 				return "", fmt.Errorf(
@@ -472,39 +541,68 @@ func RenderTransformLookupWithShape(
 					jsonQuote(key),
 				)
 			}
-			continue
-		}
-		if shape == TransformLookupShapeNested && strings.TrimSpace(*ident) == "" {
+			skipCanonical = true
+		} else if shape == TransformLookupShapeNested && strings.TrimSpace(*ident) == "" {
 			return "", fmt.Errorf(
 				"data referent lookup key %s has an empty canonical ID",
 				jsonQuote(key),
 			)
 		}
-		// Nested shape is the data-referent lane. Keep the legacy flat
-		// renderer's last-key-wins behavior unchanged.
-		if shape == TransformLookupShapeNested {
-			if previousKey, exists := seenDataIDs[*ident]; exists {
+		if !skipCanonical {
+			// Nested shape is the data-referent lane. Keep the legacy flat
+			// renderer's last-key-wins behavior unchanged.
+			if shape == TransformLookupShapeNested {
+				if previousKey, exists := seenDataIDs[*ident]; exists {
+					return "", fmt.Errorf(
+						"duplicate data referent canonical ID %s for keys %s and %s; IDs must be unique",
+						jsonQuote(*ident), jsonQuote(previousKey), jsonQuote(key),
+					)
+				}
+				seenDataIDs[*ident] = key
+			}
+			display, isString := merged[nameField].(string)
+			text := "<unknown>"
+			if isString && strings.TrimSpace(display) != "" {
+				text = display
+			}
+			byID[*ident] = text
+			idByKey[key] = *ident
+			keyByID[*ident] = key
+		}
+		for _, field := range spaces {
+			spaceIdent, err := lookupIdentity(merged[field])
+			if err != nil {
+				return "", err
+			}
+			if spaceIdent == nil {
+				continue
+			}
+			if previousKey, exists := spaceSeenIdentities[field][*spaceIdent]; exists {
 				return "", fmt.Errorf(
-					"duplicate data referent canonical ID %s for keys %s and %s; IDs must be unique",
-					jsonQuote(*ident), jsonQuote(previousKey), jsonQuote(key),
+					"duplicate %s identity %s for keys %s and %s; %s identities must be unique",
+					jsonQuote(field), jsonQuote(*spaceIdent), jsonQuote(previousKey), jsonQuote(key), jsonQuote(field),
 				)
 			}
-			seenDataIDs[*ident] = key
+			spaceSeenIdentities[field][*spaceIdent] = key
+			spaceIDByKey[field][key] = *spaceIdent
+			spaceKeyByID[field][*spaceIdent] = key
 		}
-		display, isString := merged[nameField].(string)
-		text := "<unknown>"
-		if isString && strings.TrimSpace(display) != "" {
-			text = display
-		}
-		byID[*ident] = text
-		idByKey[key] = *ident
-		keyByID[*ident] = key
 	}
 	var payload map[string]any
-	if shape != TransformLookupShapeNested && len(keyByID) == 0 {
+	if shape != TransformLookupShapeNested && len(keyByID) == 0 && len(spaces) == 0 {
 		payload = byID
 	} else {
 		payload = map[string]any{"by_id": byID, "id_by_key": idByKey, "key_by_id": keyByID}
+		if len(spaces) > 0 {
+			spacesPayload := map[string]any{}
+			for _, field := range spaces {
+				spacesPayload[field] = map[string]any{
+					"id_by_key": spaceIDByKey[field],
+					"key_by_id": spaceKeyByID[field],
+				}
+			}
+			payload["spaces"] = spacesPayload
+		}
 	}
 	return canonjson.RenderLosslessArtifactJSON(payload)
 }
@@ -559,7 +657,73 @@ func ParseLookupSidecar(value any) (TransformLookupData, error) {
 			idByKey[itemKey] = ident
 		}
 	}
-	return TransformLookupData{ByID: byID, IDByKey: idByKey, KeyByID: keyByID}, nil
+
+	var spaces map[string]TransformLookupSpace
+	if rawSpaces, hasSpaces := root["spaces"]; hasSpaces {
+		spacesObj, ok := asObject(rawSpaces)
+		if !ok {
+			return TransformLookupData{}, errors.New("lookup sidecar spaces must be a JSON object")
+		}
+		spaces = make(map[string]TransformLookupSpace, len(spacesObj))
+		for field, rawEntry := range spacesObj {
+			entryObj, ok := asObject(rawEntry)
+			if !ok {
+				return TransformLookupData{}, fmt.Errorf(
+					"lookup sidecar spaces.%s must be a JSON object", jsonQuote(field),
+				)
+			}
+			for entryKey := range entryObj {
+				if entryKey != "id_by_key" && entryKey != "key_by_id" {
+					return TransformLookupData{}, fmt.Errorf(
+						"lookup sidecar spaces.%s has unknown key %s",
+						jsonQuote(field), jsonQuote(entryKey),
+					)
+				}
+			}
+			spaceKeyByID := map[string]string{}
+			if rawKeyByID, present := entryObj["key_by_id"]; present {
+				keyByIDObj, ok := asObject(rawKeyByID)
+				if !ok {
+					return TransformLookupData{}, fmt.Errorf(
+						"lookup sidecar spaces.%s.key_by_id must be a JSON object", jsonQuote(field),
+					)
+				}
+				for k, v := range keyByIDObj {
+					if s, ok := v.(string); ok && s != "" {
+						spaceKeyByID[k] = s
+					}
+				}
+			}
+			spaceIDByKey := map[string]string{}
+			if rawIDByKey, present := entryObj["id_by_key"]; present {
+				idByKeyObj, ok := asObject(rawIDByKey)
+				if !ok {
+					return TransformLookupData{}, fmt.Errorf(
+						"lookup sidecar spaces.%s.id_by_key must be a JSON object", jsonQuote(field),
+					)
+				}
+				for k, v := range idByKeyObj {
+					if s, ok := v.(string); ok && s != "" {
+						spaceIDByKey[k] = s
+					}
+				}
+			} else {
+				// Within one space entry, id_by_key IS derivable from key_by_id
+				// -- it is the same space, mirroring the canonical id_by_key
+				// inversion precedent above. This never derives a space FROM
+				// the canonical by_id/id_by_key/key_by_id maps: a space absent
+				// from the sidecar entirely stays absent from Spaces (see
+				// TransformLookupData.Spaces); no fallback ever crosses that
+				// boundary.
+				for ident, itemKey := range spaceKeyByID {
+					spaceIDByKey[itemKey] = ident
+				}
+			}
+			spaces[field] = TransformLookupSpace{IDByKey: spaceIDByKey, KeyByID: spaceKeyByID}
+		}
+	}
+
+	return TransformLookupData{ByID: byID, IDByKey: idByKey, KeyByID: keyByID, Spaces: spaces}, nil
 }
 
 var integerTokenPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
@@ -751,7 +915,7 @@ func substituteReferenceTokens(
 		if !bindableReference(resourceType, spec.Referent, context) {
 			continue
 		}
-		keyMap := lookupKeys[spec.Referent]
+		keyMap := lookupKeys[lookupKeyMapKey(spec.Referent, spec.IDField)]
 		if len(keyMap) == 0 {
 			continue
 		}
@@ -770,7 +934,7 @@ func substituteReferenceTokens(
 			if !ok {
 				continue
 			}
-			substituteAtPath(item, segments, key, "", spec.Referent, keyMap, &minted)
+			substituteAtPath(item, segments, key, "", spec.Referent, spec.IDField, keyMap, &minted)
 		}
 	}
 	return minted
@@ -786,7 +950,7 @@ func substituteReferenceTokens(
 func substituteAtPath(
 	container map[string]any,
 	segments []string,
-	itemKey, concretePath, referent string,
+	itemKey, concretePath, referent, idField string,
 	keyMap map[string]string,
 	minted *[]mintedReferenceToken,
 ) {
@@ -798,9 +962,9 @@ func substituteAtPath(
 	if len(segments) == 1 {
 		switch value := container[head].(type) {
 		case []any:
-			substituteListElements(value, itemKey, leafPath, referent, keyMap, minted)
+			substituteListElements(value, itemKey, leafPath, referent, idField, keyMap, minted)
 		default:
-			if token, ok := referenceToken(value, referent, keyMap); ok {
+			if token, ok := referenceToken(value, referent, idField, keyMap); ok {
 				container[head] = token
 				*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
 			}
@@ -811,7 +975,7 @@ func substituteAtPath(
 	if !present {
 		return
 	}
-	substituteThroughValue(next, segments[1:], itemKey, leafPath, referent, keyMap, minted)
+	substituteThroughValue(next, segments[1:], itemKey, leafPath, referent, idField, keyMap, minted)
 }
 
 // substituteThroughValue continues the descent through one intermediate
@@ -820,19 +984,19 @@ func substituteAtPath(
 func substituteThroughValue(
 	value any,
 	rest []string,
-	itemKey, concretePath, referent string,
+	itemKey, concretePath, referent, idField string,
 	keyMap map[string]string,
 	minted *[]mintedReferenceToken,
 ) {
 	switch typed := value.(type) {
 	case map[string]any:
-		substituteAtPath(typed, rest, itemKey, concretePath, referent, keyMap, minted)
+		substituteAtPath(typed, rest, itemKey, concretePath, referent, idField, keyMap, minted)
 	case []any:
 		for index, child := range typed {
 			if child == nil {
 				continue
 			}
-			substituteThroughValue(child, rest, itemKey, fmt.Sprintf("%s[%d]", concretePath, index), referent, keyMap, minted)
+			substituteThroughValue(child, rest, itemKey, fmt.Sprintf("%s[%d]", concretePath, index), referent, idField, keyMap, minted)
 		}
 	}
 }
@@ -845,7 +1009,7 @@ func substituteThroughValue(
 // no resolver.
 func substituteListElements(
 	arr []any,
-	itemKey, leafPath, referent string,
+	itemKey, leafPath, referent, idField string,
 	keyMap map[string]string,
 	minted *[]mintedReferenceToken,
 ) {
@@ -861,7 +1025,7 @@ func substituteListElements(
 		if zeroSentinel(child) {
 			continue
 		}
-		if token, ok := referenceToken(child, referent, keyMap); ok {
+		if token, ok := referenceToken(child, referent, idField, keyMap); ok {
 			arr[index] = token
 			*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
 		}
@@ -912,7 +1076,16 @@ func assertMintedTokensCovered(minted []mintedReferenceToken, binding GeneratedB
 // left untouched for DeriveGeneratedBindings to classify and report. The
 // interpolation check here prevents ever *minting* a committed token that
 // the derive layer's unsafe_key guard would then strand unresolvable.
-func referenceToken(value any, referent string, keyMap map[string]string) (string, bool) {
+//
+// Tokens are self-describing (Phase 7 revision,
+// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md): a
+// canonical edge (idField "") mints the bare "<referent>.<key>" token
+// unchanged; a declared alternate-space edge mints the explicit
+// "<referent>.<key>.<idField>" form so the committed value names its own
+// space rather than relying on the edge's declaration to decode it. Never
+// mints ".id" -- that explicit spelling is accepted on read as a synonym
+// for bare, but is not a minted shape.
+func referenceToken(value any, referent, idField string, keyMap map[string]string) (string, bool) {
 	ident, err := pythonTransformString(value)
 	if err != nil {
 		return "", false
@@ -927,7 +1100,11 @@ func referenceToken(value any, referent string, keyMap map[string]string) (strin
 	if strings.Contains(referentKey, "${") || strings.Contains(referentKey, "%{") {
 		return "", false
 	}
-	return referent + "." + referentKey, true
+	token := referent + "." + referentKey
+	if idField != "" {
+		token += "." + idField
+	}
+	return token, true
 }
 
 // generatedBindingsBuilder holds the mutable state
@@ -993,13 +1170,63 @@ func tokenShaped(ident string) bool {
 	return dot > 0 && identifierSegmentPattern.MatchString(ident[:dot])
 }
 
+// splitReferenceTokenRemainder splits the portion of a token after its
+// "<referent>." prefix into key and explicit id-space suffix. Reference
+// keys are always transform.SlugifyTransformKey output, which never
+// contains a dot, so the FIRST dot in the remainder (if any) unambiguously
+// opens the optional "<attribute>" suffix from the Phase 7 self-describing
+// grammar (docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md):
+// there is no ambiguity to resolve by key-map membership because the key
+// half can never itself contain the separator. space is "" when the
+// remainder is bare. ok is false when a suffix is present but is not
+// itself identifier-shaped -- the grammar admits only an identifier there,
+// so such a value is not a recognized token in either shape and callers
+// must not treat it as one.
+func splitReferenceTokenRemainder(remainder string) (key, space string, ok bool) {
+	dot := strings.IndexByte(remainder, '.')
+	if dot < 0 {
+		return remainder, "", true
+	}
+	space = remainder[dot+1:]
+	if !identifierSegmentPattern.MatchString(space) {
+		return "", "", false
+	}
+	return remainder[:dot], space, true
+}
+
+// normalizeIDSpace maps the explicit ".id" spelling to "", the same value
+// spec.IDField carries for a canonical edge, so the two spellings compare
+// equal everywhere a declared space is checked.
+func normalizeIDSpace(space string) string {
+	if space == "id" {
+		return ""
+	}
+	return space
+}
+
+// displayIDSpace is normalizeIDSpace's inverse for note text: "" reads as
+// "id" rather than an empty string.
+func displayIDSpace(space string) string {
+	if space == "" {
+		return "id"
+	}
+	return space
+}
+
 // resolve ports deriveGeneratedBindings's local `resolve` closure, extended
-// to consume the qualified reference token ("<spec.Referent>.<key>") the P1
-// substitution pass commits in place of a raw tenant ID. A token is
-// recognised by an exact "<spec.Referent>." prefix, stripped verbatim --
-// never a general dot split, because a referent's key may itself contain
-// dots -- and validated by key membership in key_by_id's value set (never
-// an ID->key hop; the key is already in the value). Old-shape raw IDs
+// to consume the qualified reference token the P1 substitution pass commits
+// in place of a raw tenant ID: "<spec.Referent>.<key>" (bare, canonical
+// space) or "<spec.Referent>.<key>.<field>" (explicit space, Phase 7
+// revision -- docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md).
+// A token is recognised by an exact "<spec.Referent>." prefix, stripped
+// verbatim, and validated by key membership in key_by_id's value set (never
+// an ID->key hop; the key is already in the value); reference keys never
+// contain a dot (transform.SlugifyTransformKey), so the remainder splits
+// unambiguously into key and optional explicit space. The token's OWN
+// suffix -- not spec.IDField -- is authoritative for which space it names;
+// a bare token and an explicit ".id" token both mean canonical, and a
+// suffix that disagrees with spec.IDField is a loud, fail-closed skip
+// rather than a silent resolution through either space. Old-shape raw IDs
 // remain valid indefinitely: the migration path this file's task brief
 // requires.
 func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap map[string]string, key, fieldPath string, value any) (*string, error) {
@@ -1009,12 +1236,34 @@ func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap m
 	}
 	var referentKey string
 	ownPrefix := spec.Referent + "."
+	var tokenKey, tokenSpace string
+	tokenShapeOK := false
+	if strings.HasPrefix(ident, ownPrefix) {
+		tokenKey, tokenSpace, tokenShapeOK = splitReferenceTokenRemainder(ident[len(ownPrefix):])
+	}
 	switch {
-	case strings.HasPrefix(ident, ownPrefix):
-		tokenKey := ident[len(ownPrefix):]
+	case tokenShapeOK:
 		if _, known := b.keySetFor(spec.Referent, keyMap)[tokenKey]; !known {
 			b.count("token_key_unknown", 1)
 			b.note("%s.%s.%s value %s skipped; token key is unknown to %s", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+			return nil, nil
+		}
+		// Tokens are self-describing (Phase 7 revision,
+		// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md):
+		// the token's own suffix -- not the edge's declared IDField -- names
+		// which space it decodes through. A bare token and an explicit ".id"
+		// token both name the canonical space. A committed token whose space
+		// disagrees with what this edge declares is never silently resolved
+		// through either space; it is skipped here, loud and fail-closed, the
+		// same way a stranded token is today -- the skip leaves the leaf
+		// uncovered, which gen-env's committed-token totality gate then
+		// refuses outright.
+		if normalizeIDSpace(tokenSpace) != spec.IDField {
+			b.count("space_mismatch", 1)
+			b.note(
+				"%s.%s.%s value %s skipped; token names id space %s but this edge declares %s",
+				b.resourceType, key, fieldPath, jsonQuote(ident), displayIDSpace(tokenSpace), displayIDSpace(spec.IDField),
+			)
 			return nil, nil
 		}
 		referentKey = tokenKey
@@ -1053,7 +1302,15 @@ func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap m
 	if err != nil {
 		return nil, err
 	}
-	expr := "data.terraform_remote_state." + referentRoot + ".outputs.iw_reference_ids." + spec.Referent + "[" + quoted + "]"
+	// IDField "" selects the canonical iw_reference_ids output (byte-
+	// identical to every edge that predates this field); a declared
+	// alternate space selects its sibling output, iw_reference_ids_<field>
+	// (see docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md).
+	outputName := "iw_reference_ids"
+	if spec.IDField != "" {
+		outputName = "iw_reference_ids_" + spec.IDField
+	}
+	expr := "data.terraform_remote_state." + referentRoot + ".outputs." + outputName + "." + spec.Referent + "[" + quoted + "]"
 	return &expr, nil
 }
 
@@ -1455,7 +1712,7 @@ func DeriveGeneratedBindings(context BindingContext, items map[string]map[string
 		if !bindableReference(resourceType, spec.Referent, context) {
 			continue
 		}
-		keyMap := lookupKeys[spec.Referent]
+		keyMap := lookupKeys[lookupKeyMapKey(spec.Referent, spec.IDField)]
 		if keyMap == nil {
 			if len(candidates) > 0 {
 				b.count("missing_lookup", len(candidates))
@@ -1767,15 +2024,45 @@ func configTextTokenKeys(text string, jsonFormat bool, resourceType string, drop
 	var named []string
 	for _, key := range dropped {
 		token := resourceType + "." + key
-		held := values[token]
-		if !parsed {
-			held = strings.Contains(text, `"`+token+`"`)
+		var held bool
+		if parsed {
+			// A committed value may name this key through either token
+			// spelling -- bare or the explicit "<referent>.<key>.<field>"
+			// form an alternate-space edge mints (Phase 7 revision,
+			// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md)
+			// -- so the key comparison must strip an optional trailing
+			// identifier suffix, not require an exact string match.
+			for value := range values {
+				if configValueNamesTokenKey(value, token) {
+					held = true
+					break
+				}
+			}
+		} else {
+			held = strings.Contains(text, `"`+token+`"`) || configTextSuffixedTokenPattern(token).MatchString(text)
 		}
 		if held {
 			named = append(named, key)
 		}
 	}
 	return named
+}
+
+// configValueNamesTokenKey reports whether committed value v names token
+// (a bare "<resourceType>.<key>") either exactly or with an explicit
+// "<attribute>" suffix appended.
+func configValueNamesTokenKey(v, token string) bool {
+	if v == token {
+		return true
+	}
+	suffix, ok := strings.CutPrefix(v, token+".")
+	return ok && identifierSegmentPattern.MatchString(suffix)
+}
+
+// configTextSuffixedTokenPattern matches token committed with an explicit
+// id-space suffix inside unparsed (HCL) config text.
+func configTextSuffixedTokenPattern(token string) *regexp.Regexp {
+	return regexp.MustCompile(`"` + regexp.QuoteMeta(token) + `\.[A-Za-z_][A-Za-z0-9_]*"`)
 }
 
 // tokenKeyDependents reports, per dropped key, the committed config artifacts
@@ -2188,27 +2475,66 @@ func renderDeploymentTfvars(
 
 // lookupKeyMaps ports lookupKeyMaps from
 // the original implementation.
+// lookupKeyMapKey names one entry of lookupKeyMaps' output: the referent
+// alone for the canonical id space (idField ""), so every pre-existing
+// caller's map key is byte-identical to before this field existed; a
+// referent+"#"+field composite for a declared alternate space. "#" is not
+// a valid resource-type or identifier-field character, so the composite
+// can never collide with a bare referent name.
+func lookupKeyMapKey(referent, idField string) string {
+	if idField == "" {
+		return referent
+	}
+	return referent + "#" + idField
+}
+
 func lookupKeyMaps(
 	configDirectory string,
 	references map[string]TransformReferenceSpec,
 	overrides map[string]*TransformLookupData,
 ) (map[string]map[string]string, error) {
 	output := map[string]map[string]string{}
+	lookups := map[string]*TransformLookupData{}
+	lookupsResolved := map[string]bool{}
 	resolved := map[string]bool{}
 	for _, spec := range references {
-		if resolved[spec.Referent] {
+		mapKey := lookupKeyMapKey(spec.Referent, spec.IDField)
+		if resolved[mapKey] {
 			continue
 		}
-		resolved[spec.Referent] = true
-		lookup, err := resolveLookup(configDirectory, spec.Referent, overrides)
-		if err != nil {
-			return nil, err
+		resolved[mapKey] = true
+		if !lookupsResolved[spec.Referent] {
+			lookup, err := resolveLookup(configDirectory, spec.Referent, overrides)
+			if err != nil {
+				return nil, err
+			}
+			lookups[spec.Referent] = lookup
+			lookupsResolved[spec.Referent] = true
 		}
-		if lookup != nil {
-			output[spec.Referent] = lookup.KeyByID
-		} else {
-			output[spec.Referent] = nil
+		lookup := lookups[spec.Referent]
+		if lookup == nil {
+			output[mapKey] = nil
+			continue
 		}
+		if spec.IDField == "" {
+			output[mapKey] = lookup.KeyByID
+			continue
+		}
+		// A missing space is deliberately never derived from the canonical
+		// maps (see TransformLookupData.Spaces): the alternate attribute's
+		// values do not exist there, so absence stays a nil key map, which
+		// the derivation and substitution layers both already treat as a
+		// missing-lookup report.
+		if lookup.Spaces == nil {
+			output[mapKey] = nil
+			continue
+		}
+		space, ok := lookup.Spaces[spec.IDField]
+		if !ok {
+			output[mapKey] = nil
+			continue
+		}
+		output[mapKey] = space.KeyByID
 	}
 	return output, nil
 }
@@ -2237,11 +2563,14 @@ func compileLookup(options TransformArtifactCompileOptions) (*TransformLookupDat
 		return nil, nil, nil
 	}
 	shape := TransformLookupShapeLegacy
+	var spaces []string
 	if options.ArtifactMode == TransformArtifactModeDataReferent {
 		shape = TransformLookupShapeNested
+	} else {
+		spaces = options.PublishSpaces
 	}
 	text, err := RenderTransformLookupWithShape(
-		options.Result.Items, options.Result.Originals, *options.LookupNameField, shape,
+		options.Result.Items, options.Result.Originals, *options.LookupNameField, shape, spaces,
 	)
 	if err != nil {
 		return nil, nil, err

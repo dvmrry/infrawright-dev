@@ -98,6 +98,28 @@ Nested required keys when the group is present:
 | `dynamic_schema` | object with `rules` list |
 | `sensitive_required` | object with `rules` list |
 
+A `references.<resource>.<field>` entry may also carry `referent_id_field`,
+naming which attribute of the referent the edge's values actually cite.
+Omitting it means the referent's own `id`, byte-identical to every pack
+written before this key existed. Declare it when the referrer's provider
+schema stores a different, provider-modeled identifier for the same resource
+-- for example a `set(number)` field that holds the referent's numeric `val`
+rather than its string `id`. The value must be identifier-shaped and must not
+be the literal `"id"` (omit the key instead); it is also refused on an edge
+whose referent is a data referent, since alternate id spaces are a
+generated-referent-only feature in this version.
+
+Reference tokens are self-describing about which space they name: a
+canonical edge (no `referent_id_field`) still commits the bare
+`<referent>.<key>` token, but a `referent_id_field`-declaring edge commits
+the explicit `<referent>.<key>.<field>` form instead -- for example
+`zia_url_categories.blocked_sites.val` -- so a committed config names its
+own space rather than relying on the pack's current declaration to decode
+it. `<field>` is read from the token itself at resolve time; a bare or
+`.id` token always means the canonical space, and a committed token whose
+suffix disagrees with what the edge declares is refused rather than
+resolved through either space.
+
 Detailed diagnostic rule semantics are validated by their lane-specific
 validators. The pack structural validator only checks the containing vocabulary
 and simple types.
