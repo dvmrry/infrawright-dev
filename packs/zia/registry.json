@@ -243,6 +243,27 @@
     "product": "zia"
   },
   "zia_dlp_notification_templates": {
+    "adopt": {
+      "unsupported_if": [
+        {
+          "evidence": [
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.3/zia/resource_zia_dlp_notification_templates.go#L154-L156",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.3/zia/resource_zia_dlp_notification_templates.go#L231-L233",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.3/zia/validator.go#L2511-L2514"
+          ],
+          "match_any_nonempty": [
+            "subject",
+            "plain_text_message",
+            "html_message"
+          ],
+          "provider": {
+            "source": "zscaler/zia",
+            "version": "4.8.3"
+          },
+          "reason": "provider 4.8.3 requires template bodies to escape every literal dollar as $$ (Create/Update strips $$ back to $) while Read stores the raw single-dollar API text, so adopted template content with macros or dollars cannot round-trip byte-stably"
+        }
+      ]
+    },
     "fetch": {
       "pagination": "zia",
       "path": "dlpNotificationTemplates"
