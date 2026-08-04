@@ -19,6 +19,26 @@ const infrawrightReferenceOutput = "iw_reference_ids"
 // retirement shape.
 const legacyInfrawrightReferenceOutput = "infrawright_reference_ids"
 
+// referenceOutputSiblingPattern recognizes an alternate-ID-space sibling of
+// the canonical iw_reference_ids output: iw_reference_ids_<field>, where
+// <field> is the identifier-shaped referent_id_field the pack layer
+// validates (metadata/packs.go). The pattern deliberately anchors both ends
+// so a malformed suffix (no separator, or an empty field) is NOT recognized
+// and falls through to the generic no-op-only gate -- and so it can never
+// be confused with the legacy infrawright_reference_ids... spelling, which
+// has an entirely different prefix.
+var referenceOutputSiblingPattern = regexp.MustCompile(`^iw_reference_ids_([A-Za-z_][A-Za-z0-9_]*)$`)
+
+// siblingReferenceOutputField reports the <field> of an
+// iw_reference_ids_<field> sibling output name, if name matches that shape.
+func siblingReferenceOutputField(name string) (string, bool) {
+	matches := referenceOutputSiblingPattern.FindStringSubmatch(name)
+	if matches == nil {
+		return "", false
+	}
+	return matches[1], true
+}
+
 // MaxAssessmentChangeRecords ports MAX_ASSESSMENT_CHANGE_RECORDS from
 // the original implementation.
 const MaxAssessmentChangeRecords = 100_000
@@ -293,8 +313,50 @@ func referenceOutputValue(
 	plan map[string]any,
 	resourceTypes []ReferenceOutputType,
 ) map[string]any {
-	seenTypes := make(map[string]struct{}, len(resourceTypes))
+	expected := referenceOutputEvidence(plan, resourceTypes, "id")
+
 	hasManagedType := false
+	for _, outputType := range resourceTypes {
+		if outputType.Kind == ReferenceOutputKindManaged {
+			hasManagedType = true
+			break
+		}
+	}
+	if hasManagedType {
+		plannedValues, ok := assessmentObject(plan["planned_values"])
+		if !ok {
+			assessmentFail("reference output authorization requires planned root-module values")
+		}
+		outputs, ok := assessmentObject(plannedValues["outputs"])
+		if !ok {
+			assessmentFail("reference output authorization requires the planned engine output")
+		}
+		plannedOutput, ok := assessmentObject(outputs[infrawrightReferenceOutput])
+		if !ok {
+			assessmentFail("reference output authorization requires the planned engine output")
+		}
+		outputValue, hasValue := plannedOutput["value"]
+		if plannedOutput["sensitive"] != true || !hasValue ||
+			!canonjson.TerraformJSONEqual(outputValue, expected) {
+			assessmentFail("planned engine reference output does not match provider-observed resource IDs")
+		}
+	}
+	return expected
+}
+
+// referenceOutputEvidence reconstructs the per-resourceType id-by-key map
+// that an engine reference output's after value must equal, proving
+// valueAttribute (rather than always "id") at each contracted managed/data
+// resource instance. It is the walk shared by the canonical iw_reference_ids
+// output (valueAttribute "id") and its iw_reference_ids_<field> siblings
+// (valueAttribute "<field>"): the reconstruction is identical, only the
+// proven attribute differs.
+func referenceOutputEvidence(
+	plan map[string]any,
+	resourceTypes []ReferenceOutputType,
+	valueAttribute string,
+) map[string]any {
+	seenTypes := make(map[string]struct{}, len(resourceTypes))
 	for _, outputType := range resourceTypes {
 		if _, duplicate := seenTypes[outputType.Type]; duplicate ||
 			!assessmentResourceType.MatchString(outputType.Type) {
@@ -302,9 +364,6 @@ func referenceOutputValue(
 		}
 		if outputType.Kind != ReferenceOutputKindManaged && outputType.Kind != ReferenceOutputKindData {
 			assessmentFail("reference output contract must declare a managed or data evidence kind")
-		}
-		if outputType.Kind == ReferenceOutputKindManaged {
-			hasManagedType = true
 		}
 		seenTypes[outputType.Type] = struct{}{}
 	}
@@ -369,17 +428,43 @@ func referenceOutputValue(
 					assessmentFailf("%s contains an invalid reference-output resource instance", address)
 				}
 				var id any
-				var idOK bool
 				switch outputType.Kind {
 				case ReferenceOutputKindManaged:
 					if !strings.HasPrefix(resourceAddress, address+"."+resourceType+".this[") {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
 					}
-					id, idOK = values["id"].(string)
-					if !idOK {
+					rawValue, present := values[valueAttribute]
+					if !present {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
 					}
+					if valueAttribute == "id" {
+						// Canonical output: preserve the exact pre-existing
+						// string-only proof, byte-identical to before this
+						// function was factored out for sibling reuse.
+						stringID, idOK := rawValue.(string)
+						if !idOK {
+							assessmentFailf("%s contains an invalid reference-output resource instance", address)
+						}
+						id = stringID
+					} else {
+						// Sibling space (e.g. a numeric provider-assigned
+						// sequence): accept string or json.Number, matching
+						// the data-kind id proof below.
+						switch rawValue.(type) {
+						case string, json.Number:
+							id = rawValue
+						default:
+							assessmentFailf("%s contains an invalid reference-output resource instance", address)
+						}
+					}
 				case ReferenceOutputKindData:
+					if valueAttribute != "id" {
+						// Data-kind evidence (the prior_state-based path) is
+						// out of scope for alternate-ID-space siblings:
+						// sibling outputs exist only for generated
+						// (managed-kind) referents in v1.
+						assessmentFailf("%s data reference-output evidence only supports the id attribute", address)
+					}
 					if resource["name"] != "items" {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
 					}
@@ -387,6 +472,7 @@ func referenceOutputValue(
 					if resourceAddress != expectedAddress {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
 					}
+					var idOK bool
 					id, idOK = values["id"]
 					if !idOK {
 						assessmentFailf("%s contains an invalid reference-output resource instance", address)
@@ -409,25 +495,6 @@ func referenceOutputValue(
 		expected[resourceType] = ids
 	}
 
-	if hasManagedType {
-		plannedValues, ok := assessmentObject(plan["planned_values"])
-		if !ok {
-			assessmentFail("reference output authorization requires planned root-module values")
-		}
-		outputs, ok := assessmentObject(plannedValues["outputs"])
-		if !ok {
-			assessmentFail("reference output authorization requires the planned engine output")
-		}
-		plannedOutput, ok := assessmentObject(outputs[infrawrightReferenceOutput])
-		if !ok {
-			assessmentFail("reference output authorization requires the planned engine output")
-		}
-		outputValue, hasValue := plannedOutput["value"]
-		if plannedOutput["sensitive"] != true || !hasValue ||
-			!canonjson.TerraformJSONEqual(outputValue, expected) {
-			assessmentFail("planned engine reference output does not match provider-observed resource IDs")
-		}
-	}
 	return expected
 }
 
@@ -582,6 +649,114 @@ func validateReferenceOutputChange(
 	}
 }
 
+// validateSiblingReferenceOutputChange authorizes a create/update on an
+// iw_reference_ids_<field> alternate-ID-space sibling output, mirroring
+// validateReferenceOutputChange for the canonical output except that the
+// attribute proven at each resource instance is field instead of "id".
+//
+// The plan layer does not read pack metadata, so it has no way to know
+// which of the contract's resourceTypes legitimately publish this
+// particular space -- that totality (which types declare referent_id_field
+// for this field) is enforced at generation time, not here. Authorization's
+// job is narrower: every resourceType the sibling's after value actually
+// claims must be one the active reference contract admits, and its ids at
+// that resourceType must be provider-observed. Any subset of the contract's
+// managed resourceTypes is therefore accepted -- an after value naming
+// only some of the contract's types is not itself a violation.
+//
+// Sibling spaces are generated-referent-only in v1 (data-referent
+// alternate spaces are out of scope), so a sibling claiming a data-kind
+// resourceType is refused rather than routed through the prior_state
+// evidence path.
+func validateSiblingReferenceOutputChange(
+	change map[string]any,
+	plan map[string]any,
+	resourceTypes []ReferenceOutputType,
+	field string,
+	outputName string,
+) {
+	actions, ok := change["actions"].([]any)
+	if !ok || len(actions) != 1 {
+		assessmentFail("engine reference output permits only create, update, or no-op actions")
+	}
+	action, ok := actions[0].(string)
+	if !ok || action != "create" && action != "update" && action != "no-op" {
+		assessmentFail("engine reference output permits only create, update, or no-op actions")
+	}
+
+	after, hasAfter := change["after"]
+	afterObject, afterObjectOK := assessmentObject(after)
+	if !hasAfter || !afterObjectOK {
+		assessmentFail("engine reference output does not match provider-observed resource IDs")
+	}
+
+	byType := make(map[string]ReferenceOutputType, len(resourceTypes))
+	for _, outputType := range resourceTypes {
+		byType[outputType.Type] = outputType
+	}
+	claimed := make([]ReferenceOutputType, 0, len(afterObject))
+	for _, resourceType := range assessmentObjectKeys(afterObject) {
+		outputType, declared := byType[resourceType]
+		if !declared || outputType.Kind != ReferenceOutputKindManaged {
+			assessmentFail("engine reference output does not match provider-observed resource IDs")
+		}
+		claimed = append(claimed, outputType)
+	}
+	expected := map[string]any{}
+	if len(claimed) > 0 {
+		expected = referenceOutputEvidence(plan, claimed, field)
+	}
+	if !canonjson.TerraformJSONEqual(after, expected) {
+		assessmentFail("engine reference output does not match provider-observed resource IDs")
+	}
+
+	plannedValues, ok := assessmentObject(plan["planned_values"])
+	if !ok {
+		assessmentFail("reference output authorization requires planned root-module values")
+	}
+	outputs, ok := assessmentObject(plannedValues["outputs"])
+	if !ok {
+		assessmentFail("reference output authorization requires the planned engine output")
+	}
+	plannedOutput, ok := assessmentObject(outputs[outputName])
+	if !ok {
+		assessmentFail("reference output authorization requires the planned engine output")
+	}
+	outputValue, hasValue := plannedOutput["value"]
+	if plannedOutput["sensitive"] != true || !hasValue ||
+		!canonjson.TerraformJSONEqual(outputValue, expected) {
+		assessmentFail("planned engine reference output does not match provider-observed resource IDs")
+	}
+
+	before, hasBefore := change["before"]
+	if action == "create" && (!hasBefore || before != nil) {
+		assessmentFail("engine reference output create must start from null")
+	}
+	if action == "update" && !hasBefore {
+		assessmentFail("engine reference output update must bind its prior value")
+	}
+	if action == "no-op" && (!hasBefore || !canonjson.TerraformJSONEqual(before, expected)) {
+		assessmentFail("engine reference output no-op must bind the provider-observed IDs")
+	}
+	if afterUnknown, present := change["after_unknown"]; present {
+		validateBooleanMask(afterUnknown, "output_changes after_unknown")
+		if booleanMaskHasTrue(afterUnknown) {
+			assessmentFail("engine reference output must be fully known")
+		}
+	}
+	for _, changeField := range [...]string{"before_sensitive", "after_sensitive"} {
+		if mask, present := change[changeField]; present {
+			validateBooleanMask(mask, "output_changes "+changeField)
+		}
+	}
+	if change["after_sensitive"] != true {
+		assessmentFail("engine reference output must remain sensitive")
+	}
+	if (action == "update" || action == "no-op") && change["before_sensitive"] != true {
+		assessmentFail("engine reference output existing value must preserve sensitivity")
+	}
+}
+
 func validatePresentPlanAttestation(plan map[string]any, attestation *PlanCreationAttestation) {
 	if attestation == nil {
 		return
@@ -661,6 +836,18 @@ func validateOutputChanges(plan map[string]any, contract *AssessmentPlanContract
 				validateNoOpOutputChange(change)
 			} else {
 				validateReferenceOutputChange(change, plan, resourceTypes, planAttestation)
+			}
+			continue
+		}
+		// Alternate-ID-space siblings of the canonical output (see
+		// referenceOutputSiblingPattern): a recognized sibling name gets
+		// the same no-op/reference-output split as the canonical output
+		// above, just against the sibling's own field-scoped evidence.
+		if field, isSibling := siblingReferenceOutputField(name); isSibling && len(resourceTypes) > 0 {
+			if actionsOK && len(actions) == 1 && actions[0] == "no-op" {
+				validateNoOpOutputChange(change)
+			} else {
+				validateSiblingReferenceOutputChange(change, plan, resourceTypes, field, name)
 			}
 			continue
 		}
