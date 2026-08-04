@@ -99,7 +99,7 @@ func newReferentAlternateSpaceEnvironmentFixture(t *testing.T) referentAlternate
 		"items": metadata.JsonObject{
 			"rule_one": metadata.JsonObject{
 				"group_id":  "sample_groups.group_one",
-				"group_val": "sample_groups.group_two",
+				"group_val": "sample_groups.group_two.val",
 			},
 		},
 	})

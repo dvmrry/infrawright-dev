@@ -95,6 +95,16 @@ references it by another hits this; Zscaler does it at least twice (the
 - **Adoption identity is untouched.** Import IDs, moves, and the oracle
   continue to use the resource's own identity metadata; alternate spaces
   exist only on the reference-resolution path.
+- **Phase 7 revision: tokens self-describe; bare = id.** Superseding
+  invariant 3 above, a token now names its own space:
+  `<referent>.<key>` (bare) means the canonical id space, and
+  `<referent>.<key>.<attribute>` names an explicit alternate space. An
+  explicit `.id` token is accepted on read as a synonym for bare, but is
+  never minted. A `referent_id_field`-declaring edge mints the explicit
+  form (e.g. `zia_url_categories.blocked_sites.val`); a canonical edge still
+  mints bare, unchanged. The token's own suffix -- not the edge's
+  declaration -- is authoritative at resolve time; a mismatch between the
+  two is refused loudly rather than resolved through either space.
 
 ## Surfaces (the union, enumerated)
 

@@ -75,6 +75,37 @@ import (
 // for dotted reference-field names (tfrender's identifierSegmentPattern).
 var tokenFieldSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// splitReferenceTokenRemainder mirrors tfrender's helper of the same name:
+// it splits the portion of a token after its "<referent>." prefix into key
+// and explicit id-space suffix. Reference keys are always
+// transform.SlugifyTransformKey output, which never contains a dot, so the
+// first dot in the remainder (if any) unambiguously opens the optional
+// "<attribute>" suffix from the Phase 7 self-describing grammar
+// (docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md). ok is
+// false when a suffix is present but not itself identifier-shaped -- such a
+// value is not a recognized explicit token.
+func splitReferenceTokenRemainder(remainder string) (key, space string, ok bool) {
+	dot := strings.IndexByte(remainder, '.')
+	if dot < 0 {
+		return remainder, "", true
+	}
+	space = remainder[dot+1:]
+	if !tokenFieldSegmentPattern.MatchString(space) {
+		return "", "", false
+	}
+	return remainder[:dot], space, true
+}
+
+// normalizeIDSpace mirrors tfrender's helper of the same name: it maps the
+// explicit ".id" spelling to "", the same value a canonical edge's IDField
+// carries, so the two spellings compare equal everywhere.
+func normalizeIDSpace(space string) string {
+	if space == "id" {
+		return ""
+	}
+	return space
+}
+
 // expressionBindingsTF ports EXPRESSION_BINDINGS_TF from
 // the original implementation.
 const expressionBindingsTF = "expression_bindings.tf"
@@ -635,18 +666,27 @@ var canonicalRemoteStateSelectorPattern = regexp.MustCompile(
 )
 
 // committedTokenCoveringPattern matches a resolved selector for exactly one
-// referent/key pair against any output name it could legitimately resolve
-// through: the canonical iw_reference_ids output, its pre-rename legacy
-// spelling, or an alternate-space iw_reference_ids_<field> sibling (any
-// field). Used by assertTokenLeavesCovered, whose totality gate must not
-// care WHICH space a covering edge cites -- a token stays <referent>.<key>
-// regardless (see
-// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md,
-// invariant 3). referent and key are regexp.QuoteMeta-escaped because a
-// leaf's key is committed data, not a pattern.
-func committedTokenCoveringPattern(referent, key string) *regexp.Regexp {
+// referent/key/space triple against the SPECIFIC output name that space
+// resolves through: the canonical iw_reference_ids output (plus its
+// pre-rename legacy spelling) for field "", or the exact
+// iw_reference_ids_<field> sibling for a declared alternate space.
+//
+// Tokens are self-describing as of the Phase 7 revision
+// (docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md): a
+// committed token's own suffix names its space, so coverage must require a
+// binding resolving through THAT space specifically -- a bare/".id" token
+// covered only by a selector against a mismatched iw_reference_ids_<field>
+// sibling (or vice versa) is exactly the fail-closed case invariant 4
+// requires, and admitting any field here would silently paper over it.
+// referent and key are regexp.QuoteMeta-escaped because a leaf's key is
+// committed data, not a pattern.
+func committedTokenCoveringPattern(referent, key, field string) *regexp.Regexp {
+	fieldSuffix := ""
+	if field != "" {
+		fieldSuffix = "_" + regexp.QuoteMeta(field)
+	}
 	return regexp.MustCompile(
-		`(?:iw|infrawright)_reference_ids(?:_[A-Za-z_][A-Za-z0-9_]*)?\.` +
+		`(?:iw|infrawright)_reference_ids` + fieldSuffix + `\.` +
 			regexp.QuoteMeta(referent) + `\[` + regexp.QuoteMeta(`"`+key+`"`) + `\]`,
 	)
 }
@@ -662,6 +702,12 @@ type committedTokenLeaf struct {
 	Token        string
 	Referent     string
 	Key          string
+	// Field is the token's own declared id space, normalized so both the
+	// bare and explicit ".id" spellings read as "" (Phase 7 revision,
+	// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md):
+	// the token is self-describing, so this is parsed from the token text
+	// itself, never from pack metadata.
+	Field string
 }
 
 // scannedMember is one member's parsed committed items, retained so the
@@ -871,7 +917,11 @@ func tokenClaimReferent(value string, lookupKeySet map[string]map[string]bool) (
 		return "", false
 	}
 	keys, indexed := lookupKeySet[referent]
-	if !indexed || !keys[value[dot+1:]] {
+	if !indexed {
+		return "", false
+	}
+	key, _, ok := splitReferenceTokenRemainder(value[dot+1:])
+	if !ok || !keys[key] {
 		return "", false
 	}
 	return referent, true
@@ -936,7 +986,8 @@ func hclCommittedTokenValue(text string, lookupKeySet map[string]map[string]bool
 				break
 			}
 			value := text[start : start+end]
-			if keys[value[len(referent)+1:]] {
+			key, _, ok := splitReferenceTokenRemainder(value[len(referent)+1:])
+			if ok && keys[key] {
 				return value
 			}
 			offset = start + end
@@ -1057,9 +1108,21 @@ func jsonConfigTokenLeaves(
 			}
 			collectTokenLeaves(item, segments, "", func(path, token string) {
 				dot := strings.IndexByte(token, '.')
+				referent := token[:dot]
+				remainder := token[dot+1:]
+				key, space, ok := splitReferenceTokenRemainder(remainder)
+				if !ok {
+					// Not a recognized token in either shape (Phase 7
+					// grammar requires an identifier-shaped explicit
+					// suffix); treat the whole remainder as an opaque key
+					// so this leaf lands in the coverage gate rather than
+					// being silently ignored (fail-closed, matching the
+					// producer's own token-shape-mismatch classification).
+					key, space = remainder, ""
+				}
 				leaves = append(leaves, committedTokenLeaf{
 					ResourceType: resourceType, ItemKey: itemKey, Path: path,
-					Token: token, Referent: token[:dot], Key: token[dot+1:],
+					Token: token, Referent: referent, Key: key, Field: normalizeIDSpace(space),
 				})
 			})
 		}
@@ -1189,17 +1252,16 @@ func assertTokenLeavesCovered(
 	for _, leaf := range leaves {
 		bindings := bindingsByType[leaf.ResourceType]
 		operators := operatorIdentitiesByType[leaf.ResourceType]
-		// A token stays <referent>.<key> regardless of which space the
-		// covering edge cites (see
-		// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md,
-		// invariant 3), so coverage must admit a selector against ANY
-		// output name this referent could resolve through: the canonical
-		// iw_reference_ids, its pre-rename legacy spelling, or an alternate-
-		// space sibling iw_reference_ids_<field>. Committed caches written
-		// before the iw_ rename spell the legacy output name inside their
-		// selectors; any of the three proves the binding resolves this
-		// leaf's token.
-		pattern := committedTokenCoveringPattern(leaf.Referent, leaf.Key)
+		// A token's own suffix names its space (Phase 7 revision,
+		// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md),
+		// so coverage requires a selector against the specific output name
+		// that space resolves through: the canonical iw_reference_ids (or
+		// its pre-rename legacy spelling) for leaf.Field "", the exact
+		// iw_reference_ids_<field> sibling otherwise. A mismatch here is
+		// exactly the fail-closed case invariant 4 requires -- a leaf whose
+		// only covering binding resolves the wrong space is left uncovered
+		// and refused below, same as a stranded token.
+		pattern := committedTokenCoveringPattern(leaf.Referent, leaf.Key, leaf.Field)
 		covered := false
 		for _, binding := range bindings {
 			if binding.Key != leaf.ItemKey || !tfrender.BindingPathCovers(binding.Path, leaf.Path) {

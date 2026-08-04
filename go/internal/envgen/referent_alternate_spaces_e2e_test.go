@@ -175,14 +175,15 @@ func TestReferentAlternateSpaceEndToEndTransformThenEnvgen(t *testing.T) {
 		t.Fatalf("ComputeTransformArtifactPaths(sample_group) error = %v", err)
 	}
 
-	wantToken := "sample_group.group_one"
+	wantIDToken := "sample_group.group_one"
 	idConfig := readFileString(t, idPaths.Config)
-	if !contains(idConfig, wantToken) {
-		t.Errorf("sample_rule_id committed config = %q, want minted token %q", idConfig, wantToken)
+	if !contains(idConfig, wantIDToken) {
+		t.Errorf("sample_rule_id committed config = %q, want minted token %q", idConfig, wantIDToken)
 	}
+	wantValToken := "sample_group.group_one.val"
 	valConfig := readFileString(t, valPaths.Config)
-	if !contains(valConfig, wantToken) {
-		t.Errorf("sample_rule_val committed config = %q, want the SAME minted token %q", valConfig, wantToken)
+	if !contains(valConfig, wantValToken) {
+		t.Errorf("sample_rule_val committed config = %q, want the explicit minted token %q", valConfig, wantValToken)
 	}
 
 	lookupText := readFileString(t, groupPaths.Lookup)

@@ -93,9 +93,13 @@ type TransformReferenceSpec struct {
 	// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md):
 	// empty selects the canonical id space (byte-identical to every edge
 	// that predates this field); non-empty selects the named alternate
-	// space the referent's sidecar publishes under "spaces". The edge
-	// selects the space; it never changes the tokens minted or read --
-	// only which lookup map and which cross-state output resolve them.
+	// space the referent's sidecar publishes under "spaces". Tokens are
+	// self-describing as of the Phase 7 revision: a canonical edge still
+	// mints and reads the bare "<referent>.<key>" token, but a declared
+	// alternate-space edge mints the explicit "<referent>.<key>.<field>"
+	// form so committed config names its own space. A bare token or an
+	// explicit ".id" token always means the canonical space, on read,
+	// regardless of what any edge declares.
 	IDField   string
 	NameField string
 	Referent  string
@@ -930,7 +934,7 @@ func substituteReferenceTokens(
 			if !ok {
 				continue
 			}
-			substituteAtPath(item, segments, key, "", spec.Referent, keyMap, &minted)
+			substituteAtPath(item, segments, key, "", spec.Referent, spec.IDField, keyMap, &minted)
 		}
 	}
 	return minted
@@ -946,7 +950,7 @@ func substituteReferenceTokens(
 func substituteAtPath(
 	container map[string]any,
 	segments []string,
-	itemKey, concretePath, referent string,
+	itemKey, concretePath, referent, idField string,
 	keyMap map[string]string,
 	minted *[]mintedReferenceToken,
 ) {
@@ -958,9 +962,9 @@ func substituteAtPath(
 	if len(segments) == 1 {
 		switch value := container[head].(type) {
 		case []any:
-			substituteListElements(value, itemKey, leafPath, referent, keyMap, minted)
+			substituteListElements(value, itemKey, leafPath, referent, idField, keyMap, minted)
 		default:
-			if token, ok := referenceToken(value, referent, keyMap); ok {
+			if token, ok := referenceToken(value, referent, idField, keyMap); ok {
 				container[head] = token
 				*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
 			}
@@ -971,7 +975,7 @@ func substituteAtPath(
 	if !present {
 		return
 	}
-	substituteThroughValue(next, segments[1:], itemKey, leafPath, referent, keyMap, minted)
+	substituteThroughValue(next, segments[1:], itemKey, leafPath, referent, idField, keyMap, minted)
 }
 
 // substituteThroughValue continues the descent through one intermediate
@@ -980,19 +984,19 @@ func substituteAtPath(
 func substituteThroughValue(
 	value any,
 	rest []string,
-	itemKey, concretePath, referent string,
+	itemKey, concretePath, referent, idField string,
 	keyMap map[string]string,
 	minted *[]mintedReferenceToken,
 ) {
 	switch typed := value.(type) {
 	case map[string]any:
-		substituteAtPath(typed, rest, itemKey, concretePath, referent, keyMap, minted)
+		substituteAtPath(typed, rest, itemKey, concretePath, referent, idField, keyMap, minted)
 	case []any:
 		for index, child := range typed {
 			if child == nil {
 				continue
 			}
-			substituteThroughValue(child, rest, itemKey, fmt.Sprintf("%s[%d]", concretePath, index), referent, keyMap, minted)
+			substituteThroughValue(child, rest, itemKey, fmt.Sprintf("%s[%d]", concretePath, index), referent, idField, keyMap, minted)
 		}
 	}
 }
@@ -1005,7 +1009,7 @@ func substituteThroughValue(
 // no resolver.
 func substituteListElements(
 	arr []any,
-	itemKey, leafPath, referent string,
+	itemKey, leafPath, referent, idField string,
 	keyMap map[string]string,
 	minted *[]mintedReferenceToken,
 ) {
@@ -1021,7 +1025,7 @@ func substituteListElements(
 		if zeroSentinel(child) {
 			continue
 		}
-		if token, ok := referenceToken(child, referent, keyMap); ok {
+		if token, ok := referenceToken(child, referent, idField, keyMap); ok {
 			arr[index] = token
 			*minted = append(*minted, mintedReferenceToken{ItemKey: itemKey, Path: leafPath, Token: token})
 		}
@@ -1072,7 +1076,16 @@ func assertMintedTokensCovered(minted []mintedReferenceToken, binding GeneratedB
 // left untouched for DeriveGeneratedBindings to classify and report. The
 // interpolation check here prevents ever *minting* a committed token that
 // the derive layer's unsafe_key guard would then strand unresolvable.
-func referenceToken(value any, referent string, keyMap map[string]string) (string, bool) {
+//
+// Tokens are self-describing (Phase 7 revision,
+// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md): a
+// canonical edge (idField "") mints the bare "<referent>.<key>" token
+// unchanged; a declared alternate-space edge mints the explicit
+// "<referent>.<key>.<idField>" form so the committed value names its own
+// space rather than relying on the edge's declaration to decode it. Never
+// mints ".id" -- that explicit spelling is accepted on read as a synonym
+// for bare, but is not a minted shape.
+func referenceToken(value any, referent, idField string, keyMap map[string]string) (string, bool) {
 	ident, err := pythonTransformString(value)
 	if err != nil {
 		return "", false
@@ -1087,7 +1100,11 @@ func referenceToken(value any, referent string, keyMap map[string]string) (strin
 	if strings.Contains(referentKey, "${") || strings.Contains(referentKey, "%{") {
 		return "", false
 	}
-	return referent + "." + referentKey, true
+	token := referent + "." + referentKey
+	if idField != "" {
+		token += "." + idField
+	}
+	return token, true
 }
 
 // generatedBindingsBuilder holds the mutable state
@@ -1153,13 +1170,63 @@ func tokenShaped(ident string) bool {
 	return dot > 0 && identifierSegmentPattern.MatchString(ident[:dot])
 }
 
+// splitReferenceTokenRemainder splits the portion of a token after its
+// "<referent>." prefix into key and explicit id-space suffix. Reference
+// keys are always transform.SlugifyTransformKey output, which never
+// contains a dot, so the FIRST dot in the remainder (if any) unambiguously
+// opens the optional "<attribute>" suffix from the Phase 7 self-describing
+// grammar (docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md):
+// there is no ambiguity to resolve by key-map membership because the key
+// half can never itself contain the separator. space is "" when the
+// remainder is bare. ok is false when a suffix is present but is not
+// itself identifier-shaped -- the grammar admits only an identifier there,
+// so such a value is not a recognized token in either shape and callers
+// must not treat it as one.
+func splitReferenceTokenRemainder(remainder string) (key, space string, ok bool) {
+	dot := strings.IndexByte(remainder, '.')
+	if dot < 0 {
+		return remainder, "", true
+	}
+	space = remainder[dot+1:]
+	if !identifierSegmentPattern.MatchString(space) {
+		return "", "", false
+	}
+	return remainder[:dot], space, true
+}
+
+// normalizeIDSpace maps the explicit ".id" spelling to "", the same value
+// spec.IDField carries for a canonical edge, so the two spellings compare
+// equal everywhere a declared space is checked.
+func normalizeIDSpace(space string) string {
+	if space == "id" {
+		return ""
+	}
+	return space
+}
+
+// displayIDSpace is normalizeIDSpace's inverse for note text: "" reads as
+// "id" rather than an empty string.
+func displayIDSpace(space string) string {
+	if space == "" {
+		return "id"
+	}
+	return space
+}
+
 // resolve ports deriveGeneratedBindings's local `resolve` closure, extended
-// to consume the qualified reference token ("<spec.Referent>.<key>") the P1
-// substitution pass commits in place of a raw tenant ID. A token is
-// recognised by an exact "<spec.Referent>." prefix, stripped verbatim --
-// never a general dot split, because a referent's key may itself contain
-// dots -- and validated by key membership in key_by_id's value set (never
-// an ID->key hop; the key is already in the value). Old-shape raw IDs
+// to consume the qualified reference token the P1 substitution pass commits
+// in place of a raw tenant ID: "<spec.Referent>.<key>" (bare, canonical
+// space) or "<spec.Referent>.<key>.<field>" (explicit space, Phase 7
+// revision -- docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md).
+// A token is recognised by an exact "<spec.Referent>." prefix, stripped
+// verbatim, and validated by key membership in key_by_id's value set (never
+// an ID->key hop; the key is already in the value); reference keys never
+// contain a dot (transform.SlugifyTransformKey), so the remainder splits
+// unambiguously into key and optional explicit space. The token's OWN
+// suffix -- not spec.IDField -- is authoritative for which space it names;
+// a bare token and an explicit ".id" token both mean canonical, and a
+// suffix that disagrees with spec.IDField is a loud, fail-closed skip
+// rather than a silent resolution through either space. Old-shape raw IDs
 // remain valid indefinitely: the migration path this file's task brief
 // requires.
 func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap map[string]string, key, fieldPath string, value any) (*string, error) {
@@ -1169,12 +1236,34 @@ func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap m
 	}
 	var referentKey string
 	ownPrefix := spec.Referent + "."
+	var tokenKey, tokenSpace string
+	tokenShapeOK := false
+	if strings.HasPrefix(ident, ownPrefix) {
+		tokenKey, tokenSpace, tokenShapeOK = splitReferenceTokenRemainder(ident[len(ownPrefix):])
+	}
 	switch {
-	case strings.HasPrefix(ident, ownPrefix):
-		tokenKey := ident[len(ownPrefix):]
+	case tokenShapeOK:
 		if _, known := b.keySetFor(spec.Referent, keyMap)[tokenKey]; !known {
 			b.count("token_key_unknown", 1)
 			b.note("%s.%s.%s value %s skipped; token key is unknown to %s", b.resourceType, key, fieldPath, jsonQuote(ident), spec.Referent)
+			return nil, nil
+		}
+		// Tokens are self-describing (Phase 7 revision,
+		// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md):
+		// the token's own suffix -- not the edge's declared IDField -- names
+		// which space it decodes through. A bare token and an explicit ".id"
+		// token both name the canonical space. A committed token whose space
+		// disagrees with what this edge declares is never silently resolved
+		// through either space; it is skipped here, loud and fail-closed, the
+		// same way a stranded token is today -- the skip leaves the leaf
+		// uncovered, which gen-env's committed-token totality gate then
+		// refuses outright.
+		if normalizeIDSpace(tokenSpace) != spec.IDField {
+			b.count("space_mismatch", 1)
+			b.note(
+				"%s.%s.%s value %s skipped; token names id space %s but this edge declares %s",
+				b.resourceType, key, fieldPath, jsonQuote(ident), displayIDSpace(tokenSpace), displayIDSpace(spec.IDField),
+			)
 			return nil, nil
 		}
 		referentKey = tokenKey
@@ -1935,15 +2024,45 @@ func configTextTokenKeys(text string, jsonFormat bool, resourceType string, drop
 	var named []string
 	for _, key := range dropped {
 		token := resourceType + "." + key
-		held := values[token]
-		if !parsed {
-			held = strings.Contains(text, `"`+token+`"`)
+		var held bool
+		if parsed {
+			// A committed value may name this key through either token
+			// spelling -- bare or the explicit "<referent>.<key>.<field>"
+			// form an alternate-space edge mints (Phase 7 revision,
+			// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md)
+			// -- so the key comparison must strip an optional trailing
+			// identifier suffix, not require an exact string match.
+			for value := range values {
+				if configValueNamesTokenKey(value, token) {
+					held = true
+					break
+				}
+			}
+		} else {
+			held = strings.Contains(text, `"`+token+`"`) || configTextSuffixedTokenPattern(token).MatchString(text)
 		}
 		if held {
 			named = append(named, key)
 		}
 	}
 	return named
+}
+
+// configValueNamesTokenKey reports whether committed value v names token
+// (a bare "<resourceType>.<key>") either exactly or with an explicit
+// "<attribute>" suffix appended.
+func configValueNamesTokenKey(v, token string) bool {
+	if v == token {
+		return true
+	}
+	suffix, ok := strings.CutPrefix(v, token+".")
+	return ok && identifierSegmentPattern.MatchString(suffix)
+}
+
+// configTextSuffixedTokenPattern matches token committed with an explicit
+// id-space suffix inside unparsed (HCL) config text.
+func configTextSuffixedTokenPattern(token string) *regexp.Regexp {
+	return regexp.MustCompile(`"` + regexp.QuoteMeta(token) + `\.[A-Za-z_][A-Za-z0-9_]*"`)
 }
 
 // tokenKeyDependents reports, per dropped key, the committed config artifacts

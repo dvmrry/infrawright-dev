@@ -109,6 +109,17 @@ be the literal `"id"` (omit the key instead); it is also refused on an edge
 whose referent is a data referent, since alternate id spaces are a
 generated-referent-only feature in this version.
 
+Reference tokens are self-describing about which space they name: a
+canonical edge (no `referent_id_field`) still commits the bare
+`<referent>.<key>` token, but a `referent_id_field`-declaring edge commits
+the explicit `<referent>.<key>.<field>` form instead -- for example
+`zia_url_categories.blocked_sites.val` -- so a committed config names its
+own space rather than relying on the pack's current declaration to decode
+it. `<field>` is read from the token itself at resolve time; a bare or
+`.id` token always means the canonical space, and a committed token whose
+suffix disagrees with what the edge declares is refused rather than
+resolved through either space.
+
 Detailed diagnostic rule semantics are validated by their lane-specific
 validators. The pack structural validator only checks the containing vocabulary
 and simple types.

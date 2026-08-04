@@ -1,12 +1,15 @@
 package transformrun
 
-// This file pins Phase 3 of the referent-alternate-id-spaces design (see
-// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md) at the
-// batch-runner level: a referent with a declared alternate space, cited by
-// two active generated referrers -- one through the canonical id, one
-// through the alternate space -- tokenizes both to the SAME token, and the
-// referent's own sidecar publishes the "spaces" section the alternate
-// referrer's derivation reads.
+// This file pins Phase 3 (batch-runner level) and the Phase 7 self-describing
+// token revision of the referent-alternate-id-spaces design (see
+// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md): a
+// referent with a declared alternate space, cited by two active generated
+// referrers -- one through the canonical id, one through the alternate
+// space -- tokenizes to the SAME key but a DIFFERENT token spelling: the id
+// referrer mints the bare "sample_group.group_one" token, the val referrer
+// mints the explicit "sample_group.group_one.val" token, and the referent's
+// own sidecar publishes the "spaces" section the alternate referrer's
+// derivation reads.
 
 import (
 	"encoding/json"
@@ -89,9 +92,11 @@ func alternateSpacePackRoot(t *testing.T) metadata.LoadedPackRoot {
 // TestAlternateSpaceReferrersShareTheSameTokenAndSidecarPublishesSpaces runs
 // the real batch runner over the fixture above end to end: pulls for the
 // referent (two items, each with a distinct id and val) and the two
-// referrers (one citing id, one citing val), then asserts both referrers'
-// committed configs carry the identical "sample_group.group_one" token and
-// the referent's lookup sidecar publishes a "spaces.val" section.
+// referrers (one citing id, one citing val), then asserts the id referrer's
+// committed config carries the bare "sample_group.group_one" token, the val
+// referrer's carries the explicit "sample_group.group_one.val" token for the
+// SAME key, and the referent's lookup sidecar publishes a "spaces.val"
+// section.
 func TestAlternateSpaceReferrersShareTheSameTokenAndSidecarPublishesSpaces(t *testing.T) {
 	workspace := t.TempDir()
 	root := alternateSpacePackRoot(t)
@@ -139,14 +144,15 @@ func TestAlternateSpaceReferrersShareTheSameTokenAndSidecarPublishesSpaces(t *te
 		t.Fatalf("ComputeTransformArtifactPaths(sample_group): %v", err)
 	}
 
-	wantToken := "sample_group.group_one"
+	wantIDToken := "sample_group.group_one"
 	idConfig := readFile(t, idPaths.Config)
-	if !strings.Contains(idConfig, wantToken) {
-		t.Errorf("sample_rule_id config = %q, want it to carry token %q", idConfig, wantToken)
+	if !strings.Contains(idConfig, wantIDToken) {
+		t.Errorf("sample_rule_id config = %q, want it to carry token %q", idConfig, wantIDToken)
 	}
+	wantValToken := "sample_group.group_one.val"
 	valConfig := readFile(t, valPaths.Config)
-	if !strings.Contains(valConfig, wantToken) {
-		t.Errorf("sample_rule_val config = %q, want it to carry the SAME token %q", valConfig, wantToken)
+	if !strings.Contains(valConfig, wantValToken) {
+		t.Errorf("sample_rule_val config = %q, want it to carry the explicit token %q", valConfig, wantValToken)
 	}
 
 	lookupText := readFile(t, groupPaths.Lookup)
