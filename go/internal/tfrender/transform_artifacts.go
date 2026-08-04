@@ -89,6 +89,14 @@ type PullTransformResult struct {
 // structural fidelity with callers (outside this slice) that build
 // References maps.
 type TransformReferenceSpec struct {
+	// IDField carries the edge's declared referent_id_field (see
+	// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md):
+	// empty selects the canonical id space (byte-identical to every edge
+	// that predates this field); non-empty selects the named alternate
+	// space the referent's sidecar publishes under "spaces". The edge
+	// selects the space; it never changes the tokens minted or read --
+	// only which lookup map and which cross-state output resolve them.
+	IDField   string
 	NameField string
 	Referent  string
 }
@@ -273,10 +281,19 @@ const (
 // against injected lookup data without writing sidecars to disk. Production
 // callers leave it nil and resolve lookups from the config directory.
 type TransformArtifactCompileOptions struct {
-	ArtifactMode           TransformArtifactMode
-	BindingContext         BindingContext
-	Deployment             deployment.Deployment
-	LookupNameField        *string
+	ArtifactMode    TransformArtifactMode
+	BindingContext  BindingContext
+	Deployment      deployment.Deployment
+	LookupNameField *string
+	// PublishSpaces is the sorted, deduplicated set of alternate identifier
+	// spaces (referent_id_field values) this resource's compile must publish
+	// in its own lookup sidecar, because other active edges cite it through
+	// those spaces (see TransformLookupData.Spaces). Computed by the caller
+	// from transform.ReferentAlternateSpaces(root, resourceType) -- inbound
+	// edges, unlike References below, which are this resource's own outbound
+	// edges. Always nil for the data-referent lane (compileLookup enforces
+	// this regardless of what a caller passes).
+	PublishSpaces          []string
 	RemoveLookupWhenAbsent bool
 	LookupOverrides        map[string]*TransformLookupData
 	OnDiagnostic           func(string)
@@ -894,7 +911,7 @@ func substituteReferenceTokens(
 		if !bindableReference(resourceType, spec.Referent, context) {
 			continue
 		}
-		keyMap := lookupKeys[spec.Referent]
+		keyMap := lookupKeys[lookupKeyMapKey(spec.Referent, spec.IDField)]
 		if len(keyMap) == 0 {
 			continue
 		}
@@ -1196,7 +1213,15 @@ func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap m
 	if err != nil {
 		return nil, err
 	}
-	expr := "data.terraform_remote_state." + referentRoot + ".outputs.iw_reference_ids." + spec.Referent + "[" + quoted + "]"
+	// IDField "" selects the canonical iw_reference_ids output (byte-
+	// identical to every edge that predates this field); a declared
+	// alternate space selects its sibling output, iw_reference_ids_<field>
+	// (see docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md).
+	outputName := "iw_reference_ids"
+	if spec.IDField != "" {
+		outputName = "iw_reference_ids_" + spec.IDField
+	}
+	expr := "data.terraform_remote_state." + referentRoot + ".outputs." + outputName + "." + spec.Referent + "[" + quoted + "]"
 	return &expr, nil
 }
 
@@ -1598,7 +1623,7 @@ func DeriveGeneratedBindings(context BindingContext, items map[string]map[string
 		if !bindableReference(resourceType, spec.Referent, context) {
 			continue
 		}
-		keyMap := lookupKeys[spec.Referent]
+		keyMap := lookupKeys[lookupKeyMapKey(spec.Referent, spec.IDField)]
 		if keyMap == nil {
 			if len(candidates) > 0 {
 				b.count("missing_lookup", len(candidates))
@@ -2331,27 +2356,66 @@ func renderDeploymentTfvars(
 
 // lookupKeyMaps ports lookupKeyMaps from
 // the original implementation.
+// lookupKeyMapKey names one entry of lookupKeyMaps' output: the referent
+// alone for the canonical id space (idField ""), so every pre-existing
+// caller's map key is byte-identical to before this field existed; a
+// referent+"#"+field composite for a declared alternate space. "#" is not
+// a valid resource-type or identifier-field character, so the composite
+// can never collide with a bare referent name.
+func lookupKeyMapKey(referent, idField string) string {
+	if idField == "" {
+		return referent
+	}
+	return referent + "#" + idField
+}
+
 func lookupKeyMaps(
 	configDirectory string,
 	references map[string]TransformReferenceSpec,
 	overrides map[string]*TransformLookupData,
 ) (map[string]map[string]string, error) {
 	output := map[string]map[string]string{}
+	lookups := map[string]*TransformLookupData{}
+	lookupsResolved := map[string]bool{}
 	resolved := map[string]bool{}
 	for _, spec := range references {
-		if resolved[spec.Referent] {
+		mapKey := lookupKeyMapKey(spec.Referent, spec.IDField)
+		if resolved[mapKey] {
 			continue
 		}
-		resolved[spec.Referent] = true
-		lookup, err := resolveLookup(configDirectory, spec.Referent, overrides)
-		if err != nil {
-			return nil, err
+		resolved[mapKey] = true
+		if !lookupsResolved[spec.Referent] {
+			lookup, err := resolveLookup(configDirectory, spec.Referent, overrides)
+			if err != nil {
+				return nil, err
+			}
+			lookups[spec.Referent] = lookup
+			lookupsResolved[spec.Referent] = true
 		}
-		if lookup != nil {
-			output[spec.Referent] = lookup.KeyByID
-		} else {
-			output[spec.Referent] = nil
+		lookup := lookups[spec.Referent]
+		if lookup == nil {
+			output[mapKey] = nil
+			continue
 		}
+		if spec.IDField == "" {
+			output[mapKey] = lookup.KeyByID
+			continue
+		}
+		// A missing space is deliberately never derived from the canonical
+		// maps (see TransformLookupData.Spaces): the alternate attribute's
+		// values do not exist there, so absence stays a nil key map, which
+		// the derivation and substitution layers both already treat as a
+		// missing-lookup report.
+		if lookup.Spaces == nil {
+			output[mapKey] = nil
+			continue
+		}
+		space, ok := lookup.Spaces[spec.IDField]
+		if !ok {
+			output[mapKey] = nil
+			continue
+		}
+		output[mapKey] = space.KeyByID
 	}
 	return output, nil
 }
@@ -2380,11 +2444,14 @@ func compileLookup(options TransformArtifactCompileOptions) (*TransformLookupDat
 		return nil, nil, nil
 	}
 	shape := TransformLookupShapeLegacy
+	var spaces []string
 	if options.ArtifactMode == TransformArtifactModeDataReferent {
 		shape = TransformLookupShapeNested
+	} else {
+		spaces = options.PublishSpaces
 	}
 	text, err := RenderTransformLookupWithShape(
-		options.Result.Items, options.Result.Originals, *options.LookupNameField, shape, nil,
+		options.Result.Items, options.Result.Originals, *options.LookupNameField, shape, spaces,
 	)
 	if err != nil {
 		return nil, nil, err

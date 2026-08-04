@@ -66,6 +66,48 @@ func MergedTransformReferences(root metadata.LoadedPackRoot) map[string]map[stri
 	return output
 }
 
+// ReferentAlternateSpaces returns the sorted, deduplicated set of
+// referent_id_field values declared by every active edge in root's merged
+// transform references whose referent is resourceType. This is the
+// referent side's publication contract (see
+// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md): the
+// edge selects its space, the referent publishes the union of every space
+// any active edge cites. Both the transform and adopt compile lanes call
+// this single helper against the same merged pack-root references, so they
+// agree on what a referent publishes by construction rather than by two
+// independent implementations staying in sync. Returns nil when no active
+// edge into resourceType declares an alternate space -- the ordinary case,
+// and the only case for every pack that predates this field.
+func ReferentAlternateSpaces(root metadata.LoadedPackRoot, resourceType string) []string {
+	merged := MergedTransformReferences(root)
+	seen := map[string]struct{}{}
+	for _, fields := range merged {
+		for _, raw := range fields {
+			spec, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			referent, ok := spec["referent"].(string)
+			if !ok || referent != resourceType {
+				continue
+			}
+			idField, ok := spec["referent_id_field"].(string)
+			if !ok || idField == "" {
+				continue
+			}
+			seen[idField] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(seen))
+	for field := range seen {
+		fields = append(fields, field)
+	}
+	return canonjson.SortedStrings(fields)
+}
+
 // MergedTransformLookupSources ports the exported
 // mergedTransformLookupSources from
 // the original implementation. See MergedTransformReferences's
