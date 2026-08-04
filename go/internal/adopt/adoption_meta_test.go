@@ -510,8 +510,8 @@ func TestCommittedRegistryAdoptionMetadataAndClassificationFixture(t *testing.T)
 			t.Errorf("AdoptionMetadataFor(%s): %v", resource.Type, err)
 		}
 	}
-	if explicit != 37 {
-		t.Fatalf("explicit adoption metadata entries = %d, want 37", explicit)
+	if explicit != 38 {
+		t.Fatalf("explicit adoption metadata entries = %d, want 38", explicit)
 	}
 	fixtureText, err := metadata.ReadOptionalUTF8(filepath.Join(repositoryRoot, "tests", "fixtures", "zia-adoption-classification-v4.8.0.json"), "adoption classification fixture")
 	if err != nil || fixtureText == nil {
