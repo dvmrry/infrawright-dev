@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 )
 
@@ -187,6 +188,7 @@ func TestRenderTransformLookupNestedRejectsDuplicateCanonicalIDs(t *testing.T) {
 		},
 		"name",
 		TransformLookupShapeNested,
+		nil,
 	)
 	if err == nil {
 		t.Fatal("RenderTransformLookupWithShape(nested duplicate IDs) error = nil, want refusal before data-lane publication")
@@ -204,6 +206,7 @@ func TestRenderTransformLookupNestedRejectsEmptyCanonicalID(t *testing.T) {
 		map[string]map[string]any{"alpha": {"id": "", "name": "Alpha"}},
 		"name",
 		TransformLookupShapeNested,
+		nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "alpha") {
 		t.Fatalf("RenderTransformLookupWithShape(nested empty ID) error = %v, want a refusal naming alpha", err)
@@ -216,6 +219,7 @@ func TestRenderTransformLookupLegacyStillSkipsEmptyIdentity(t *testing.T) {
 		map[string]map[string]any{"alpha": {"id": "", "name": "Alpha"}},
 		"name",
 		TransformLookupShapeLegacy,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("RenderTransformLookupWithShape(legacy empty ID) error = %v, want nil", err)
@@ -223,6 +227,212 @@ func TestRenderTransformLookupLegacyStillSkipsEmptyIdentity(t *testing.T) {
 	if got != "{}\n" {
 		t.Fatalf("RenderTransformLookupWithShape(legacy empty ID) = %q, want empty legacy lookup", got)
 	}
+}
+
+// TestRenderTransformLookupWithSpacePinsExactBytes pins the exact rendered
+// bytes for a lookup that declares one alternate numeric space ("val"),
+// covering both the canonical maps (unchanged) and the new top-level
+// "spaces" section.
+func TestRenderTransformLookupWithSpacePinsExactBytes(t *testing.T) {
+	got, err := RenderTransformLookupWithShape(
+		map[string]map[string]any{
+			"alpha": {"name": "Alpha"},
+			"beta":  {"name": "Beta"},
+		},
+		map[string]map[string]any{
+			"alpha": {"id": "CUSTOM_01", "val": json.Number("101"), "name": "Alpha"},
+			"beta":  {"id": "CUSTOM_02", "val": json.Number("202"), "name": "Beta"},
+		},
+		"name",
+		TransformLookupShapeLegacy,
+		[]string{"val"},
+	)
+	if err != nil {
+		t.Fatalf("RenderTransformLookupWithShape(one space): %v", err)
+	}
+	want := "{\n" +
+		"  \"by_id\": {\n" +
+		"    \"CUSTOM_01\": \"Alpha\",\n" +
+		"    \"CUSTOM_02\": \"Beta\"\n" +
+		"  },\n" +
+		"  \"id_by_key\": {\n" +
+		"    \"alpha\": \"CUSTOM_01\",\n" +
+		"    \"beta\": \"CUSTOM_02\"\n" +
+		"  },\n" +
+		"  \"key_by_id\": {\n" +
+		"    \"CUSTOM_01\": \"alpha\",\n" +
+		"    \"CUSTOM_02\": \"beta\"\n" +
+		"  },\n" +
+		"  \"spaces\": {\n" +
+		"    \"val\": {\n" +
+		"      \"id_by_key\": {\n" +
+		"        \"alpha\": \"101\",\n" +
+		"        \"beta\": \"202\"\n" +
+		"      },\n" +
+		"      \"key_by_id\": {\n" +
+		"        \"101\": \"alpha\",\n" +
+		"        \"202\": \"beta\"\n" +
+		"      }\n" +
+		"    }\n" +
+		"  }\n" +
+		"}\n"
+	if got != want {
+		t.Fatalf("RenderTransformLookupWithShape(one space) = %q, want %q", got, want)
+	}
+}
+
+// TestRenderTransformLookupEmptySpacesByteIdenticalToBefore proves an
+// explicit empty (non-nil) spaces slice renders exactly the bytes the
+// pre-spaces caller produced -- the "spaces" key must never appear absent a
+// requested space, and the canonical maps must be untouched.
+func TestRenderTransformLookupEmptySpacesByteIdenticalToBefore(t *testing.T) {
+	items := map[string]map[string]any{
+		"alpha": {"configured_name": "Alpha projected"},
+		"beta":  {"configured_name": "   "},
+		"omega": {"configured_name": "Omega"},
+	}
+	originals := map[string]map[string]any{
+		"alpha": {"configured_name": "Raw Alpha", "id": "CUSTOM_01"},
+		"beta":  {"id": "CUSTOM_02"},
+		"omega": {"id": "CUSTOM_01"},
+	}
+	before, err := RenderTransformLookupWithShape(items, originals, "configured_name", TransformLookupShapeLegacy, nil)
+	if err != nil {
+		t.Fatalf("RenderTransformLookupWithShape(nil spaces): %v", err)
+	}
+	after, err := RenderTransformLookupWithShape(items, originals, "configured_name", TransformLookupShapeLegacy, []string{})
+	if err != nil {
+		t.Fatalf("RenderTransformLookupWithShape(empty spaces): %v", err)
+	}
+	if after != before {
+		t.Fatalf("RenderTransformLookupWithShape(empty spaces) = %q, want byte-identical to nil-spaces %q", after, before)
+	}
+	if strings.Contains(after, "\"spaces\"") {
+		t.Fatalf("RenderTransformLookupWithShape(empty spaces) = %q, want no spaces key", after)
+	}
+}
+
+// TestRenderTransformLookupDuplicateSpaceIdentityFails proves a duplicate
+// identity within one alternate space across items fails loudly, mirroring
+// the canonical id path's seenDataIDs duplicate handling.
+func TestRenderTransformLookupDuplicateSpaceIdentityFails(t *testing.T) {
+	_, err := RenderTransformLookupWithShape(
+		map[string]map[string]any{
+			"alpha": {"name": "Alpha"},
+			"beta":  {"name": "Beta"},
+		},
+		map[string]map[string]any{
+			"alpha": {"id": "CUSTOM_01", "val": json.Number("101"), "name": "Alpha"},
+			"beta":  {"id": "CUSTOM_02", "val": json.Number("101"), "name": "Beta"},
+		},
+		"name",
+		TransformLookupShapeLegacy,
+		[]string{"val"},
+	)
+	if err == nil {
+		t.Fatal("RenderTransformLookupWithShape(duplicate space identity) error = nil, want refusal")
+	}
+	for _, want := range []string{"val", "101", "alpha", "beta"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("RenderTransformLookupWithShape(duplicate space identity) error = %q, want it to name %s", err, want)
+		}
+	}
+}
+
+// TestParseLookupSidecarRoundTripsSpaces proves the parser decodes a
+// rendered "spaces" section back into TransformLookupData.Spaces.
+func TestParseLookupSidecarRoundTripsSpaces(t *testing.T) {
+	rendered, err := RenderTransformLookupWithShape(
+		map[string]map[string]any{
+			"alpha": {"name": "Alpha"},
+			"beta":  {"name": "Beta"},
+		},
+		map[string]map[string]any{
+			"alpha": {"id": "CUSTOM_01", "val": json.Number("101"), "name": "Alpha"},
+			"beta":  {"id": "CUSTOM_02", "val": json.Number("202"), "name": "Beta"},
+		},
+		"name",
+		TransformLookupShapeLegacy,
+		[]string{"val"},
+	)
+	if err != nil {
+		t.Fatalf("RenderTransformLookupWithShape: %v", err)
+	}
+	value, err := canonjson.ParseDataJSONLosslessly(rendered)
+	if err != nil {
+		t.Fatalf("ParseDataJSONLosslessly: %v", err)
+	}
+	data, err := ParseLookupSidecar(value)
+	if err != nil {
+		t.Fatalf("ParseLookupSidecar: %v", err)
+	}
+	if data.Spaces == nil {
+		t.Fatal("ParseLookupSidecar Spaces = nil, want a \"val\" entry")
+	}
+	val, ok := data.Spaces["val"]
+	if !ok {
+		t.Fatalf("ParseLookupSidecar Spaces = %v, want a %q key", data.Spaces, "val")
+	}
+	wantIDByKey := map[string]string{"alpha": "101", "beta": "202"}
+	wantKeyByID := map[string]string{"101": "alpha", "202": "beta"}
+	if !mapStringsEqual(val.IDByKey, wantIDByKey) {
+		t.Errorf("Spaces[val].IDByKey = %v, want %v", val.IDByKey, wantIDByKey)
+	}
+	if !mapStringsEqual(val.KeyByID, wantKeyByID) {
+		t.Errorf("Spaces[val].KeyByID = %v, want %v", val.KeyByID, wantKeyByID)
+	}
+}
+
+// TestParseLookupSidecarWithoutSpacesYieldsNilSpaces proves a sidecar
+// carrying no "spaces" key -- every sidecar written before this field
+// existed -- decodes to a nil Spaces, never a derived or empty map.
+func TestParseLookupSidecarWithoutSpacesYieldsNilSpaces(t *testing.T) {
+	value, err := canonjson.ParseDataJSONLosslessly(
+		`{"by_id":{"CUSTOM_01":"Alpha"},"id_by_key":{"alpha":"CUSTOM_01"},"key_by_id":{"CUSTOM_01":"alpha"}}`,
+	)
+	if err != nil {
+		t.Fatalf("ParseDataJSONLosslessly: %v", err)
+	}
+	data, err := ParseLookupSidecar(value)
+	if err != nil {
+		t.Fatalf("ParseLookupSidecar: %v", err)
+	}
+	if data.Spaces != nil {
+		t.Fatalf("ParseLookupSidecar Spaces = %v, want nil", data.Spaces)
+	}
+}
+
+// TestParseLookupSidecarRejectsUnknownKeyInSpaceEntry proves the parser is
+// strict inside a space entry: an unknown key alongside id_by_key/key_by_id
+// is a refusal, not a silently ignored field.
+func TestParseLookupSidecarRejectsUnknownKeyInSpaceEntry(t *testing.T) {
+	value, err := canonjson.ParseDataJSONLosslessly(
+		`{"by_id":{},"id_by_key":{},"key_by_id":{},"spaces":{"val":{"id_by_key":{},"key_by_id":{},"unexpected":{}}}}`,
+	)
+	if err != nil {
+		t.Fatalf("ParseDataJSONLosslessly: %v", err)
+	}
+	_, err = ParseLookupSidecar(value)
+	if err == nil {
+		t.Fatal("ParseLookupSidecar(unknown key in space entry) error = nil, want refusal")
+	}
+	for _, want := range []string{"val", "unexpected"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ParseLookupSidecar(unknown key in space entry) error = %q, want it to name %s", err, want)
+		}
+	}
+}
+
+func mapStringsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func TestCompileDataReferentRejectsDuplicateIDsBeforePublication(t *testing.T) {

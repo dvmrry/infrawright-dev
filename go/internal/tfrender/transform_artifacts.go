@@ -200,8 +200,28 @@ type TransformArtifactWriteResult struct {
 // inverse lookup the plan-time reference-token fallback expression indexes.
 // The parser derives it from key_by_id when a committed sidecar predates
 // the field, so both directions decode for every lookup ever written.
+//
+// Spaces carries the optional alternate identifier spaces a referent
+// publishes alongside the canonical id space (see
+// docs/superpowers/specs/2026-08-04-referent-alternate-id-spaces.md).
+// Unlike IDByKey, a missing space is never derived from the canonical
+// maps: the alternate attribute's values do not exist anywhere in
+// ByID/IDByKey/KeyByID, so an absent space decodes to a nil Spaces entry,
+// never a fallback. Spaces is nil when the sidecar carries no "spaces" key
+// at all (every sidecar written before this field existed, and every
+// sidecar for a referent with no declared alternate space).
 type TransformLookupData struct {
 	ByID    map[string]string
+	IDByKey map[string]string
+	KeyByID map[string]string
+	Spaces  map[string]TransformLookupSpace
+}
+
+// TransformLookupSpace is one alternate identifier space a referent
+// publishes, mirroring the shape of the canonical id space's two resolver
+// maps (see TransformLookupData.Spaces). IDByKey decodes an item key to
+// the space's identity; KeyByID is its inverse.
+type TransformLookupSpace struct {
 	IDByKey map[string]string
 	KeyByID map[string]string
 }
@@ -434,21 +454,48 @@ func lookupIdentity(value any) (*string, error) {
 // lookup sidecar, including last-key-wins IDs." It preserves the generated
 // lane's legacy empty/flat shape.
 func RenderTransformLookup(items, originals map[string]map[string]any, nameField string) (string, error) {
-	return RenderTransformLookupWithShape(items, originals, nameField, TransformLookupShapeLegacy)
+	return RenderTransformLookupWithShape(items, originals, nameField, TransformLookupShapeLegacy, nil)
 }
 
 // RenderTransformLookupWithShape renders a lookup sidecar with an explicit
 // shape. Data-referent publication uses TransformLookupShapeNested so an
 // empty successful fetch still has all three resolver maps.
+//
+// spaces names the alternate identifier space fields to publish alongside
+// the canonical id space (see TransformLookupData.Spaces); the caller
+// sorts and dedupes it. A nil or empty spaces produces byte-identical
+// output to a caller that never knew about this parameter: no "spaces" key
+// is emitted, and the canonical by_id/id_by_key/key_by_id maps are built
+// exactly as before. Each space field's KeyByID/IDByKey are built from the
+// same per-item merged record (originals merged under the projection) the
+// canonical id path already computes -- lookupIdentity(merged[field]) --
+// so a space's identity uses exactly the same scalar-rendering and
+// empty/nil skip rule as the canonical id. Unlike the canonical id, an
+// empty or missing space value is never an error under either shape: it
+// is a silently omitted row (the nested-shape empty-ident error is a
+// canonical-id-only rule). A duplicate identity within one space across
+// items fails loudly, unconditional on shape, mirroring the canonical
+// nested-shape seenDataIDs duplicate check.
 func RenderTransformLookupWithShape(
 	items, originals map[string]map[string]any,
 	nameField string,
 	shape TransformLookupShape,
+	spaces []string,
 ) (string, error) {
 	byID := map[string]any{}
 	idByKey := map[string]any{}
 	keyByID := map[string]any{}
 	seenDataIDs := map[string]string{}
+
+	spaceIDByKey := make(map[string]map[string]any, len(spaces))
+	spaceKeyByID := make(map[string]map[string]any, len(spaces))
+	spaceSeenIdentities := make(map[string]map[string]string, len(spaces))
+	for _, field := range spaces {
+		spaceIDByKey[field] = map[string]any{}
+		spaceKeyByID[field] = map[string]any{}
+		spaceSeenIdentities[field] = map[string]string{}
+	}
+
 	for _, key := range canonjson.SortedStrings(mapKeys(items)) {
 		projected, ok := items[key]
 		if !ok {
@@ -465,6 +512,7 @@ func RenderTransformLookupWithShape(
 		if err != nil {
 			return "", err
 		}
+		skipCanonical := false
 		if ident == nil {
 			if shape == TransformLookupShapeNested {
 				return "", fmt.Errorf(
@@ -472,39 +520,68 @@ func RenderTransformLookupWithShape(
 					jsonQuote(key),
 				)
 			}
-			continue
-		}
-		if shape == TransformLookupShapeNested && strings.TrimSpace(*ident) == "" {
+			skipCanonical = true
+		} else if shape == TransformLookupShapeNested && strings.TrimSpace(*ident) == "" {
 			return "", fmt.Errorf(
 				"data referent lookup key %s has an empty canonical ID",
 				jsonQuote(key),
 			)
 		}
-		// Nested shape is the data-referent lane. Keep the legacy flat
-		// renderer's last-key-wins behavior unchanged.
-		if shape == TransformLookupShapeNested {
-			if previousKey, exists := seenDataIDs[*ident]; exists {
+		if !skipCanonical {
+			// Nested shape is the data-referent lane. Keep the legacy flat
+			// renderer's last-key-wins behavior unchanged.
+			if shape == TransformLookupShapeNested {
+				if previousKey, exists := seenDataIDs[*ident]; exists {
+					return "", fmt.Errorf(
+						"duplicate data referent canonical ID %s for keys %s and %s; IDs must be unique",
+						jsonQuote(*ident), jsonQuote(previousKey), jsonQuote(key),
+					)
+				}
+				seenDataIDs[*ident] = key
+			}
+			display, isString := merged[nameField].(string)
+			text := "<unknown>"
+			if isString && strings.TrimSpace(display) != "" {
+				text = display
+			}
+			byID[*ident] = text
+			idByKey[key] = *ident
+			keyByID[*ident] = key
+		}
+		for _, field := range spaces {
+			spaceIdent, err := lookupIdentity(merged[field])
+			if err != nil {
+				return "", err
+			}
+			if spaceIdent == nil {
+				continue
+			}
+			if previousKey, exists := spaceSeenIdentities[field][*spaceIdent]; exists {
 				return "", fmt.Errorf(
-					"duplicate data referent canonical ID %s for keys %s and %s; IDs must be unique",
-					jsonQuote(*ident), jsonQuote(previousKey), jsonQuote(key),
+					"duplicate %s identity %s for keys %s and %s; %s identities must be unique",
+					jsonQuote(field), jsonQuote(*spaceIdent), jsonQuote(previousKey), jsonQuote(key), jsonQuote(field),
 				)
 			}
-			seenDataIDs[*ident] = key
+			spaceSeenIdentities[field][*spaceIdent] = key
+			spaceIDByKey[field][key] = *spaceIdent
+			spaceKeyByID[field][*spaceIdent] = key
 		}
-		display, isString := merged[nameField].(string)
-		text := "<unknown>"
-		if isString && strings.TrimSpace(display) != "" {
-			text = display
-		}
-		byID[*ident] = text
-		idByKey[key] = *ident
-		keyByID[*ident] = key
 	}
 	var payload map[string]any
-	if shape != TransformLookupShapeNested && len(keyByID) == 0 {
+	if shape != TransformLookupShapeNested && len(keyByID) == 0 && len(spaces) == 0 {
 		payload = byID
 	} else {
 		payload = map[string]any{"by_id": byID, "id_by_key": idByKey, "key_by_id": keyByID}
+		if len(spaces) > 0 {
+			spacesPayload := map[string]any{}
+			for _, field := range spaces {
+				spacesPayload[field] = map[string]any{
+					"id_by_key": spaceIDByKey[field],
+					"key_by_id": spaceKeyByID[field],
+				}
+			}
+			payload["spaces"] = spacesPayload
+		}
 	}
 	return canonjson.RenderLosslessArtifactJSON(payload)
 }
@@ -559,7 +636,73 @@ func ParseLookupSidecar(value any) (TransformLookupData, error) {
 			idByKey[itemKey] = ident
 		}
 	}
-	return TransformLookupData{ByID: byID, IDByKey: idByKey, KeyByID: keyByID}, nil
+
+	var spaces map[string]TransformLookupSpace
+	if rawSpaces, hasSpaces := root["spaces"]; hasSpaces {
+		spacesObj, ok := asObject(rawSpaces)
+		if !ok {
+			return TransformLookupData{}, errors.New("lookup sidecar spaces must be a JSON object")
+		}
+		spaces = make(map[string]TransformLookupSpace, len(spacesObj))
+		for field, rawEntry := range spacesObj {
+			entryObj, ok := asObject(rawEntry)
+			if !ok {
+				return TransformLookupData{}, fmt.Errorf(
+					"lookup sidecar spaces.%s must be a JSON object", jsonQuote(field),
+				)
+			}
+			for entryKey := range entryObj {
+				if entryKey != "id_by_key" && entryKey != "key_by_id" {
+					return TransformLookupData{}, fmt.Errorf(
+						"lookup sidecar spaces.%s has unknown key %s",
+						jsonQuote(field), jsonQuote(entryKey),
+					)
+				}
+			}
+			spaceKeyByID := map[string]string{}
+			if rawKeyByID, present := entryObj["key_by_id"]; present {
+				keyByIDObj, ok := asObject(rawKeyByID)
+				if !ok {
+					return TransformLookupData{}, fmt.Errorf(
+						"lookup sidecar spaces.%s.key_by_id must be a JSON object", jsonQuote(field),
+					)
+				}
+				for k, v := range keyByIDObj {
+					if s, ok := v.(string); ok && s != "" {
+						spaceKeyByID[k] = s
+					}
+				}
+			}
+			spaceIDByKey := map[string]string{}
+			if rawIDByKey, present := entryObj["id_by_key"]; present {
+				idByKeyObj, ok := asObject(rawIDByKey)
+				if !ok {
+					return TransformLookupData{}, fmt.Errorf(
+						"lookup sidecar spaces.%s.id_by_key must be a JSON object", jsonQuote(field),
+					)
+				}
+				for k, v := range idByKeyObj {
+					if s, ok := v.(string); ok && s != "" {
+						spaceIDByKey[k] = s
+					}
+				}
+			} else {
+				// Within one space entry, id_by_key IS derivable from key_by_id
+				// -- it is the same space, mirroring the canonical id_by_key
+				// inversion precedent above. This never derives a space FROM
+				// the canonical by_id/id_by_key/key_by_id maps: a space absent
+				// from the sidecar entirely stays absent from Spaces (see
+				// TransformLookupData.Spaces); no fallback ever crosses that
+				// boundary.
+				for ident, itemKey := range spaceKeyByID {
+					spaceIDByKey[itemKey] = ident
+				}
+			}
+			spaces[field] = TransformLookupSpace{IDByKey: spaceIDByKey, KeyByID: spaceKeyByID}
+		}
+	}
+
+	return TransformLookupData{ByID: byID, IDByKey: idByKey, KeyByID: keyByID, Spaces: spaces}, nil
 }
 
 var integerTokenPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
@@ -2241,7 +2384,7 @@ func compileLookup(options TransformArtifactCompileOptions) (*TransformLookupDat
 		shape = TransformLookupShapeNested
 	}
 	text, err := RenderTransformLookupWithShape(
-		options.Result.Items, options.Result.Originals, *options.LookupNameField, shape,
+		options.Result.Items, options.Result.Originals, *options.LookupNameField, shape, nil,
 	)
 	if err != nil {
 		return nil, nil, err
