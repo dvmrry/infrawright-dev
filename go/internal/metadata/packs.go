@@ -37,6 +37,10 @@ const (
 // componentName ports COMPONENT_NAME from the original implementation.
 var componentName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
+// referentIdFieldPattern constrains references.<referrer>.<field>.referent_id_field
+// to Go-identifier shape (tfrender's identifierSegmentPattern precedent).
+var referentIdFieldPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 var packSetKeys = stringSet("kind", "version", "packs", "shared")
 
 var manifestKeys = stringSet(
@@ -395,7 +399,7 @@ func validateDataReferentReferences(packMetadata PackMetadata, activePacks []str
 	for _, pack := range activePacks {
 		active[pack] = struct{}{}
 	}
-	effective := make(map[string]map[string]struct{})
+	effective := make(map[string]map[string]JsonObject)
 	for _, manifest := range packMetadata.Manifests {
 		if _, ok := active[manifest.Name]; !ok {
 			continue
@@ -410,11 +414,20 @@ func validateDataReferentReferences(packMetadata PackMetadata, activePacks []str
 				continue
 			}
 			if effective[referrer] == nil {
-				effective[referrer] = make(map[string]struct{})
+				effective[referrer] = make(map[string]JsonObject)
 			}
 			for _, field := range sortedKeys(fields) {
-				effective[referrer][field] = struct{}{}
+				reference, ok := fields[field].(JsonObject)
+				if !ok {
+					continue
+				}
+				effective[referrer][field] = reference
 			}
+		}
+	}
+	for _, referrer := range sortedMapKeys(effective) {
+		for _, field := range sortedMapKeys(effective[referrer]) {
+			validateReferentIdFieldNotOnDataReferentTarget(referrer, field, effective[referrer][field], resources)
 		}
 	}
 	for _, referrer := range sortedMapKeys(effective) {
@@ -433,6 +446,34 @@ func validateDataReferentReferences(packMetadata PackMetadata, activePacks []str
 			)
 		}
 	}
+}
+
+// validateReferentIdFieldNotOnDataReferentTarget refuses referent_id_field
+// on an edge whose referent resolves to a data referent. Data referents
+// publish no committed sidecar space to resolve an alternate id against
+// (v1 scope: generated referents only), so declaring one here would derive
+// nothing at plan time.
+func validateReferentIdFieldNotOnDataReferentTarget(referrer, field string, reference JsonObject, resources map[string]LoadedResourceMetadata) {
+	idField, ok := reference["referent_id_field"].(string)
+	if !ok || idField == "" {
+		return
+	}
+	referent, ok := reference["referent"].(string)
+	if !ok || referent == "" {
+		return
+	}
+	resource, ok := resources[referent]
+	if !ok {
+		return
+	}
+	dataReferent, _ := resource.Registry["data_referent"].(bool)
+	if !dataReferent {
+		return
+	}
+	failf(
+		"references.%s.%s.referent_id_field: %s is a data referent and cannot declare an alternate id space",
+		referrer, field, jsonQuote(referent),
+	)
 }
 
 func validateReferences(value JsonObject, source string) {
@@ -457,11 +498,21 @@ func validateReferences(value JsonObject, source string) {
 				failf("%s must be an object", label)
 				continue
 			}
-			keys := stringSet("name_field", "referent")
-			rejectUnknownKeys(referenceObj, keys, label)
-			requireKeys(referenceObj, keys, label)
+			requiredKeys := stringSet("name_field", "referent")
+			allowedKeys := stringSet("name_field", "referent", "referent_id_field")
+			rejectUnknownKeys(referenceObj, allowedKeys, label)
+			requireKeys(referenceObj, requiredKeys, label)
 			requireNonEmptyString(referenceObj["name_field"], label+".name_field")
 			requireNonEmptyString(referenceObj["referent"], label+".referent")
+			if raw, ok := referenceObj["referent_id_field"]; ok {
+				idField := requireNonEmptyString(raw, label+".referent_id_field")
+				if !referentIdFieldPattern.MatchString(idField) {
+					failf("%s.referent_id_field must be a valid identifier", label)
+				}
+				if idField == "id" {
+					failf("%s.referent_id_field must not be \"id\"; omit it to use the default id space", label)
+				}
+			}
 		}
 	}
 }
