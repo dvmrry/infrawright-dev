@@ -8,7 +8,7 @@ Read; a stable API-assigned sequence with holes, not a positional index).
 `zia_url_filtering_rules.url_categories` is `set(string)` and cites `id`
 directly; `zia_dlp_web_rules.url_categories.id` is `set(number)` and cites
 `val`. Same referent, two ID spaces, and the engine hardcodes one of them
-in three independent places:
+in four independent places:
 
 1. Sidecar keys: `lookupIdentity(merged["id"])`
    (`tfrender/transform_artifacts.go:464`), so `key_by_id`/`id_by_key` are
@@ -17,9 +17,15 @@ in three independent places:
    `{ for key, item in module.<type>.items : key => item.id }`
    (`envgen/environment_generator.go:394`), so `iw_reference_ids` resolves
    to `id`.
-3. Edge grammar: a reference spec carries `referent` and `name_field` only
-   (`metadata/packs.go:460`); there is no way to say which referent
-   attribute the referrer's values are drawn from.
+3. Edge grammar: a reference spec is a CLOSED key set — `rejectUnknownKeys`
+   over `{referent, name_field}` (`metadata/packs.go:460-461`) — so the
+   pack layer does not merely lack a slot for the attribute, it actively
+   refuses one; declaring `referent_id_field` today is a hard validation
+   failure.
+4. Saved-plan output authorization: `validateOutputChanges`
+   (`plan/contract.go:658`) special-cases exactly two literal output names
+   (`iw_reference_ids` and its legacy spelling); every other output falls
+   through to the no-op-only gate, which refuses any create.
 
 A `val`-citing edge therefore never tokenizes — declared edge, correct
 `name_field`, transform data present, and every value stays a literal ID.
@@ -61,13 +67,22 @@ references it by another hits this; Zscaler does it at least twice (the
   Readers that predate the field ignore it; the strict parser gains the
   optional key. The builder already has the data: sidecar rendering merges
   `Originals` (the raw fetch payload) over the projection, and
-  `lookupIdentity` already canonicalizes integer identities.
+  `lookupIdentity` already canonicalizes integer identities. Unlike
+  `id_by_key` — which the parser derives by inverting `key_by_id` on old
+  sidecars — a missing `spaces` section is deliberately NOT derivable: the
+  alternate attribute's values do not exist anywhere in the canonical id
+  maps, so the only correct response to an absent space is the
+  missing-lookup report (invariant 4). No fallback derivation may ever be
+  added for it.
 - **Output shape is a sibling, not a mutation.** The referent root
   publishes `iw_reference_ids_<field>` (e.g. `iw_reference_ids_val`) next
   to `iw_reference_ids`, one map per declared space, built from the same
   `module.<type>.items` value (the module already exposes the whole
   resource; no modulesgen change). The existing `iw_reference_ids`
-  contract — including saved-plan reference authorization — is untouched.
+  contract is untouched — but untouched is not the same as the siblings
+  being safe: the authorization gate is an allowlist on the exact output
+  name, so the siblings need their own reference-output treatment
+  (surface 5), and the first post-declaration plan is the case that bites.
 - **Resolver parity.** Bindings for a `<field>`-citing edge emit the
   canonical selector against `iw_reference_ids_<field>`; envgen emits a
   per-space lookup local (`iw_reference_lookup_<referent>_<field>`) from
@@ -97,11 +112,23 @@ references it by another hits this; Zscaler does it at least twice (the
    lookup locals, selector pattern and resolver rewrite, render-time
    binding derivation (shared `TransformBindingContext`, so transform and
    gen-env stay identical by construction).
-5. `assessment`/saved-plan: reference authorization admits the sibling
-   outputs for generated referents through the same planned-values
-   evidence path; published schema updated if it enumerates output names.
+5. Saved-plan authorization (site 4 above; NOT additive): the
+   reference-output gate is an allowlist keyed on the exact output name,
+   and a referent root's FIRST plan after declaring a space carries a
+   `create` action for the new sibling output — today that plan is refused
+   outright ("non-no-op output changes are not supported"). Sibling
+   outputs must join the reference-output treatment: name recognition for
+   `iw_reference_ids_<field>`, the create/update proven against
+   provider-observed IDs through the same planned-values evidence path as
+   `iw_reference_ids`, and no-op shapes accepted. This lands on the
+   referent root, so without it a tenant adopting the pack change cannot
+   apply. Published schema updated if it enumerates output names.
 6. Pack work (rides after the engine): declare `referent_id_field: "val"`
-   on the `val`-citing ZIA rule-type edges to `zia_url_categories`.
+   on the two `val`-citing edges to `zia_url_categories` —
+   `zia_dlp_web_rules.url_categories.id` and
+   `zia_cloud_nss_feed.url_categories.id` (the only nested-object
+   referrers; the NSS feed type is not adopted on any known tenant today,
+   so DLP web rules is the edge that changes behavior).
 7. Docs: pack-authoring grammar, terraform-expression-bindings, a note in
    adoption-command-surface.
 
@@ -114,6 +141,12 @@ references it by another hits this; Zscaler does it at least twice (the
   `iw_reference_ids_<field>`, both with committed-lookup fallback.
 - A declared-space edge against a sidecar without that space derives
   nothing, reports the missing lookup, and leaves values literal.
+- A referent root's FIRST saved plan after declaring an alternate space is
+  authorized and appliable: the sibling output's `create` is proven
+  against provider-observed IDs, and the subsequent steady-state plan's
+  no-op shape passes. Tokenization and resolution criteria alone are not
+  sufficient — an implementation must not pass them while leaving the
+  referent root unappliable.
 - Every existing test passes byte-identically with no pack declaring the
   field (default-`id` no-op proof).
 - Pack validation refuses `referent_id_field` on data-referent edges and
