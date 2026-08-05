@@ -150,6 +150,10 @@
         "referent": "zia_location_groups",
         "name_field": "name"
       },
+      "source_ip_groups.id": {
+        "referent": "zia_firewall_filtering_ip_source_groups",
+        "name_field": "name"
+      },
       "url_categories.id": {
         "referent": "zia_url_categories",
         "name_field": "configured_name",
@@ -325,6 +329,10 @@
         "referent": "zia_location_groups",
         "name_field": "name"
       },
+      "source_ip_groups.id": {
+        "referent": "zia_firewall_filtering_ip_source_groups",
+        "name_field": "name"
+      },
       "url_categories": {
         "referent": "zia_url_categories",
         "name_field": "configured_name"
@@ -379,6 +387,10 @@
       },
       "location_groups.id": {
         "referent": "zia_location_groups",
+        "name_field": "name"
+      },
+      "source_ip_groups.id": {
+        "referent": "zia_firewall_filtering_ip_source_groups",
         "name_field": "name"
       },
       "url_categories": {
