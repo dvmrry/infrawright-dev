@@ -53,11 +53,17 @@ const (
 // unreachable -- see metadata.ValidateRegistry). Expand being nil means
 // the TS `expand?:` field was omitted.
 type FetchEntry struct {
-	Product              string
-	Path                 string
-	Pagination           PaginationStyle
-	Envelope             string
-	Expand               map[string][]string
+	Product    string
+	Path       string
+	Pagination PaginationStyle
+	Envelope   string
+	Expand     map[string][]string
+	// MergePaths lists additional endpoints whose single-object payloads
+	// merge into the base path's object, in declared order (e.g. ZIA
+	// /security + /security/advanced, which the vendor SDK combines into
+	// one settings read). Registry validation requires pagination "single"
+	// and excludes expand whenever this is non-empty.
+	MergePaths           []string
 	OptionalHTTPStatuses map[int]struct{}
 	Query                map[string]any
 }
@@ -635,10 +641,119 @@ func mapKeys[V any](m map[string]V) []string {
 	return keys
 }
 
+// fetchSingleObject collects one path with singleton pagination and requires
+// the payload to be exactly one JSON object; the merged-fetch surface has no
+// defined shape for lists or scalars.
+func fetchSingleObject(options FetchResourceOptions, path string) (map[string]any, error) {
+	u, err := options.Adapter.ComposeURL(CollectorComposeUrlInput{
+		Mode:    options.Mode,
+		Context: options.Context,
+		Path:    path,
+	})
+	if err != nil {
+		return nil, err
+	}
+	payload, err := getJSON(getJSONOptions{
+		auth:          options.Auth,
+		query:         orderedQuery(options.Entry.Query),
+		onPageRequest: options.OnPageRequest,
+		performance:   options.Performance,
+		transport:     options.Transport,
+		url:           u,
+	})
+	if err != nil {
+		return nil, err
+	}
+	// paginateSingle tolerates a list payload by unwrapping it; a merged
+	// fetch does not -- each endpoint must be exactly one settings object,
+	// so a list (even a one-element list) is a shape violation.
+	obj, ok := payload.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("merged fetch path %s did not return one settings object", jsonQuote(path))
+	}
+	return obj, nil
+}
+
+// mergedFetchPaths validates a merged entry at the collector boundary and
+// returns the ordered paths to read: the base path first, then every merge
+// path. It is to fetchMergedSingle what expandedPaths is to the ordinary
+// dispatch -- registry validation enforces these same rules when metadata is
+// loaded (see metadata.validateMergePaths), and this is the other half of
+// that single source of truth, reached whenever a library caller builds a
+// FetchEntry directly rather than parsing one from a registry.
+func mergedFetchPaths(entry FetchEntry) ([]string, error) {
+	if entry.Pagination != PaginationSingle {
+		return nil, fmt.Errorf("merged fetch requires pagination %q, got %q", PaginationSingle, entry.Pagination)
+	}
+	if len(entry.Expand) > 0 {
+		return nil, errors.New("merged fetch cannot be combined with expand")
+	}
+	paths := make([]string, 0, len(entry.MergePaths)+1)
+	seen := make(map[string]struct{}, len(entry.MergePaths)+1)
+	for _, path := range append([]string{entry.Path}, entry.MergePaths...) {
+		if path == "" {
+			return nil, errors.New("merged fetch paths must be non-empty")
+		}
+		if violation := metadata.FetchPathSafetyViolation(path); violation != nil {
+			return nil, fmt.Errorf("merged fetch path %s %s", jsonQuote(path), *violation)
+		}
+		if strings.Contains(path, "{") || strings.Contains(path, "}") {
+			return nil, fmt.Errorf("merged fetch path %s must not contain expansion braces", jsonQuote(path))
+		}
+		if _, duplicate := seen[path]; duplicate {
+			return nil, fmt.Errorf("merged fetch path %s is declared more than once", jsonQuote(path))
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	return paths, nil
+}
+
+// fetchMergedSingle collects the base path plus every merge path and merges
+// the single-object payloads into one item, mirroring how the vendor SDK
+// combines multi-endpoint singleton settings into one read. A key present in
+// more than one payload fails loudly: the merged endpoints are disjoint by
+// design, and a collision means that assumption broke, so neither value may
+// silently win.
+func fetchMergedSingle(options FetchResourceOptions) ([]any, error) {
+	paths, err := mergedFetchPaths(options.Entry)
+	if err != nil {
+		return nil, err
+	}
+	merged, err := fetchSingleObject(options, paths[0])
+	if err != nil {
+		return nil, err
+	}
+	keySource := make(map[string]string, len(merged))
+	for key := range merged {
+		keySource[key] = paths[0]
+	}
+	for _, mergePath := range paths[1:] {
+		payload, err := fetchSingleObject(options, mergePath)
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range canonjson.SortedStrings(mapKeys(payload)) {
+			if existing, collision := keySource[key]; collision {
+				return nil, fmt.Errorf(
+					"merged fetch paths %s and %s both returned key %s; merged endpoints must stay disjoint",
+					jsonQuote(existing), jsonQuote(mergePath), jsonQuote(key),
+				)
+			}
+			keySource[key] = mergePath
+			merged[key] = payload[key]
+		}
+	}
+	return []any{merged}, nil
+}
+
 // FetchResource ports fetchResource from the original implementation:
 // collect one registry resource through a product adapter and generic
 // pager.
 func FetchResource(options FetchResourceOptions) ([]any, error) {
+	if len(options.Entry.MergePaths) > 0 {
+		return fetchMergedSingle(options)
+	}
 	paths, err := expandedPaths(options.Entry)
 	if err != nil {
 		return nil, err
@@ -738,12 +853,24 @@ func fetchEntry(root metadata.LoadedPackRoot, resourceType string) (FetchEntry, 
 		}
 	}
 	envelope, _ := raw["envelope"].(string)
+	var mergePaths []string
+	if rawMerge, ok := raw["merge_paths"].([]any); ok {
+		mergePaths = make([]string, len(rawMerge))
+		for i, value := range rawMerge {
+			s, ok := value.(string)
+			if !ok {
+				return FetchEntry{}, fmt.Errorf("%s has invalid fetch merge metadata", resourceType)
+			}
+			mergePaths[i] = s
+		}
+	}
 	return FetchEntry{
 		Product:              resource.Product,
 		Path:                 fetchPath,
 		Pagination:           PaginationStyle(pagination),
 		Envelope:             envelope,
 		Expand:               expand,
+		MergePaths:           mergePaths,
 		OptionalHTTPStatuses: optionalHTTPStatuses,
 		Query:                query,
 	}, nil

@@ -161,6 +161,7 @@ Allowed keys:
 ```text
 envelope
 expand
+merge_paths
 optional_http_statuses
 pagination
 path
@@ -173,6 +174,15 @@ Required when `fetch` is present:
 pagination
 path
 ```
+
+`merge_paths` lists additional endpoints whose single-object payloads merge
+into the base path's object before transform sees the item -- the shape for a
+provider whose SDK combines several singleton calls into one settings read
+(ZIA `security` plus `security/advanced`, for example). It requires
+`pagination: "single"`, cannot be combined with `expand`, and every listed
+path must be distinct from the base path and each other. A merged endpoint
+returning anything but one JSON object fails the fetch, and a key returned by
+more than one endpoint fails loudly rather than letting either value win.
 
 `optional_http_statuses` must be a list of integers. `expand` is an object of
 string keys to string-list values. `query` is an object of scalar query values.
