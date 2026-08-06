@@ -674,6 +674,41 @@ func fetchSingleObject(options FetchResourceOptions, path string) (map[string]an
 	return obj, nil
 }
 
+// mergedFetchPaths validates a merged entry at the collector boundary and
+// returns the ordered paths to read: the base path first, then every merge
+// path. It is to fetchMergedSingle what expandedPaths is to the ordinary
+// dispatch -- registry validation enforces these same rules when metadata is
+// loaded (see metadata.validateMergePaths), and this is the other half of
+// that single source of truth, reached whenever a library caller builds a
+// FetchEntry directly rather than parsing one from a registry.
+func mergedFetchPaths(entry FetchEntry) ([]string, error) {
+	if entry.Pagination != PaginationSingle {
+		return nil, fmt.Errorf("merged fetch requires pagination %q, got %q", PaginationSingle, entry.Pagination)
+	}
+	if len(entry.Expand) > 0 {
+		return nil, errors.New("merged fetch cannot be combined with expand")
+	}
+	paths := make([]string, 0, len(entry.MergePaths)+1)
+	seen := make(map[string]struct{}, len(entry.MergePaths)+1)
+	for _, path := range append([]string{entry.Path}, entry.MergePaths...) {
+		if path == "" {
+			return nil, errors.New("merged fetch paths must be non-empty")
+		}
+		if violation := metadata.FetchPathSafetyViolation(path); violation != nil {
+			return nil, fmt.Errorf("merged fetch path %s %s", jsonQuote(path), *violation)
+		}
+		if strings.Contains(path, "{") || strings.Contains(path, "}") {
+			return nil, fmt.Errorf("merged fetch path %s must not contain expansion braces", jsonQuote(path))
+		}
+		if _, duplicate := seen[path]; duplicate {
+			return nil, fmt.Errorf("merged fetch path %s is declared more than once", jsonQuote(path))
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	return paths, nil
+}
+
 // fetchMergedSingle collects the base path plus every merge path and merges
 // the single-object payloads into one item, mirroring how the vendor SDK
 // combines multi-endpoint singleton settings into one read. A key present in
@@ -681,15 +716,19 @@ func fetchSingleObject(options FetchResourceOptions, path string) (map[string]an
 // design, and a collision means that assumption broke, so neither value may
 // silently win.
 func fetchMergedSingle(options FetchResourceOptions) ([]any, error) {
-	merged, err := fetchSingleObject(options, options.Entry.Path)
+	paths, err := mergedFetchPaths(options.Entry)
+	if err != nil {
+		return nil, err
+	}
+	merged, err := fetchSingleObject(options, paths[0])
 	if err != nil {
 		return nil, err
 	}
 	keySource := make(map[string]string, len(merged))
 	for key := range merged {
-		keySource[key] = options.Entry.Path
+		keySource[key] = paths[0]
 	}
-	for _, mergePath := range options.Entry.MergePaths {
+	for _, mergePath := range paths[1:] {
 		payload, err := fetchSingleObject(options, mergePath)
 		if err != nil {
 			return nil, err
