@@ -21,7 +21,7 @@ var registryResourceKeys = stringSet(
 
 var canonicalResourceType = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-var fetchKeys = stringSet("envelope", "expand", "optional_http_statuses", "pagination", "path", "query")
+var fetchKeys = stringSet("envelope", "expand", "merge_paths", "optional_http_statuses", "pagination", "path", "query")
 
 var paginationStyles = stringSet("single", "zcc_v2", "zia", "zpa")
 
@@ -241,8 +241,46 @@ func validateFetch(value any, source string) {
 		validateExpand(expand, source+".expand")
 	}
 	validateFetchExpansionShape(fetchPath, obj["expand"], source)
+	if merge, ok := obj["merge_paths"]; ok {
+		validateMergePaths(merge, fetchPath, pagination, obj, source)
+	}
 	if statuses, ok := obj["optional_http_statuses"]; ok {
 		validateStatuses(statuses, source+".optional_http_statuses")
+	}
+}
+
+// validateMergePaths validates the singleton-merge fetch surface: additional
+// endpoints whose single-object payloads merge into the base path's object
+// (e.g. ZIA /security + /security/advanced, which the vendor SDK combines
+// into one settings read). Merging concatenated pages or fanned-out
+// expansions has no defined shape, so the key requires pagination "single"
+// and excludes expand.
+func validateMergePaths(value any, fetchPath, pagination string, obj JsonObject, source string) {
+	label := source + ".merge_paths"
+	if pagination != "single" {
+		failf("%s requires pagination \"single\"; merged fetches are a singleton-object surface", label)
+	}
+	if _, hasExpand := obj["expand"]; hasExpand {
+		failf("%s cannot be combined with expand", label)
+	}
+	list, ok := value.([]any)
+	if !ok || len(list) == 0 {
+		failf("%s must be a non-empty list of paths", label)
+		return
+	}
+	seen := map[string]struct{}{fetchPath: {}}
+	for i, raw := range list {
+		entryLabel := fmt.Sprintf("%s[%d]", label, i)
+		path, ok := raw.(string)
+		if !ok || path == "" {
+			failf("%s must be a non-empty string", entryLabel)
+			continue
+		}
+		validateFetchPathValue(path, entryLabel)
+		if _, duplicate := seen[path]; duplicate {
+			failf("%s duplicates path %s", entryLabel, jsonQuote(path))
+		}
+		seen[path] = struct{}{}
 	}
 }
 

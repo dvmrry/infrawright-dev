@@ -604,6 +604,13 @@
       "constant_key": "all_urls",
       "import_id": "all_urls"
     },
+    "fetch": {
+      "merge_paths": [
+        "security/advanced"
+      ],
+      "pagination": "single",
+      "path": "security"
+    },
     "generate": true,
     "product": "zia"
   },
