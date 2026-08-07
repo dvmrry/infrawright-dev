@@ -504,6 +504,12 @@
   },
   "zia_location_management": {
     "fetch": {
+      "follow_paths": [
+        {
+          "from_field": "id",
+          "path": "locations/{id}/sublocations"
+        }
+      ],
       "pagination": "zia",
       "path": "locations"
     },

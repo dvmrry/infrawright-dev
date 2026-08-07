@@ -223,6 +223,9 @@ func testEntry(pagination PaginationStyle, extra FetchEntry) FetchEntry {
 	if extra.MergePaths != nil {
 		base.MergePaths = extra.MergePaths
 	}
+	if extra.FollowPaths != nil {
+		base.FollowPaths = extra.FollowPaths
+	}
 	if extra.Query != nil {
 		base.Query = extra.Query
 	}
