@@ -48,6 +48,7 @@ var overrideKeys = stringSet(
 	"acknowledged_drops", "defaults", "divide", "drop_if_default", "drops",
 	"html_escape_fields", "identity_fields", "import_id", "invert_bool",
 	"key_field", "merge_blocks", "module_single_blocks", "no_html_unescape",
+	"key_field_references",
 	"ranges", "references", "renames", "sample", "skip_if", "skip_if_lte",
 	"sort_lists", "split_csv", "strip_prefix", "value_map",
 )
@@ -824,9 +825,60 @@ func validateOverride(value any, source string) JsonObject {
 		failf("unknown override key %s in %s", sorted[0], source)
 	}
 	validateModuleSingleBlocks(data, source)
+	validateKeyFieldReferences(data, source)
 	skipFields := validateSkipMatchers(data, source)
 	validateSkipRenameConflicts(data, source, skipFields)
 	return data
+}
+
+// validateKeyFieldReferences validates the key-composition surface that
+// resolves a key component through a referenced object's name instead of its
+// raw ID. Every declared component must be one of the type's own key_field
+// entries, and this version resolves only within the type's own item set
+// (self-referential parents, e.g. ZIA sublocations naming their parent
+// location), because key derivation runs inside the transform kernel with no
+// access to another type's committed lookup.
+func validateKeyFieldReferences(data JsonObject, source string) {
+	raw, present := data["key_field_references"]
+	if !present {
+		return
+	}
+	label := source + ".key_field_references"
+	record, ok := raw.(JsonObject)
+	if !ok || len(record) == 0 {
+		failf("%s must be a non-empty object", label)
+		return
+	}
+	declared := map[string]struct{}{}
+	switch keyField := data["key_field"].(type) {
+	case string:
+		declared[keyField] = struct{}{}
+	case []any:
+		for _, entry := range keyField {
+			if text, ok := entry.(string); ok {
+				declared[text] = struct{}{}
+			}
+		}
+	}
+	for _, field := range sortedKeys(record) {
+		entryLabel := fmt.Sprintf("%s.%s", label, field)
+		if _, ok := declared[field]; !ok {
+			failf("%s is not one of this resource's key_field entries", entryLabel)
+		}
+		entry, ok := record[field].(JsonObject)
+		if !ok {
+			failf("%s must be an object", entryLabel)
+			continue
+		}
+		keys := stringSet("id_field", "name_field", "referent")
+		rejectUnknownKeys(entry, keys, entryLabel)
+		requireKeys(entry, stringSet("name_field", "referent"), entryLabel)
+		requireNonEmptyString(entry["name_field"], entryLabel+".name_field")
+		requireNonEmptyString(entry["referent"], entryLabel+".referent")
+		if idField, ok := entry["id_field"]; ok {
+			requireNonEmptyString(idField, entryLabel+".id_field")
+		}
+	}
 }
 
 // validateModuleSingleBlocks validates the generator-only escape hatch used

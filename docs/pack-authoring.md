@@ -265,6 +265,40 @@ non-empty `reason`, and one or more immutable `evidence` links. Provider scope
 must equal the active pack pin, so a provider refresh must explicitly
 revalidate each rule.
 
+### `key_field_references`
+
+A composite `key_field` disambiguates objects whose names repeat, but composing
+a raw ID puts a tenant-specific number into a reviewed artifact and re-keys
+every existing object that carries a sentinel value for that field.
+`key_field_references` resolves a component through a referenced object's name
+instead:
+
+```json
+{
+  "key_field": ["parent_id", "name"],
+  "key_field_references": {
+    "parent_id": {"referent": "zia_location_management", "name_field": "name"}
+  }
+}
+```
+
+A ZIA sublocation then keys as `global_psen_iot_device_segments` rather than
+`137397251_iot_device_segments`. Each declared component must be one of the
+type's own `key_field` entries; `id_field` defaults to `id`.
+
+A resolving component that does not resolve -- absent, null, a sentinel like
+ZIA's `parent_id` 0 on a top-level location, or an ID naming nothing in the
+batch -- contributes nothing to the key rather than composing a placeholder.
+That is what keeps a top-level object's key byte-identical to the plain-name
+key it already had: only objects that actually have a parent gain a prefix, so
+declaring this surface does not re-key existing committed config.
+
+Resolution is within the type's own items in this version: key derivation runs
+inside the transform kernel and the adoption identity pass, neither of which
+can read another type's committed lookup, so a cross-type `referent` is
+refused rather than silently resolving nothing. Both lanes derive keys through
+separate code paths and are pinned to agree.
+
 `constant_key` is for identity-less singleton resources: resources where the
 provider has one object per tenant and the read payload has no natural `id`,
 `name`, or other stable key field. The value is used verbatim as the generated

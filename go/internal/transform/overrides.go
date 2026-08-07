@@ -61,16 +61,43 @@ func identityComponent(value any) string {
 	return fmtString(value)
 }
 
-// deriveKey ports deriveKey from the original implementation.
-func deriveKey(item map[string]any, resource *runtimeTransformResource) string {
+// keyFieldReference is one resolving key component: instead of composing the
+// component's raw value into the key, resolve that value through NameByID to
+// the referenced object's name. NameByID is built once per transform batch
+// (see keyReferenceIndex) from the type's own items.
+type keyFieldReference struct {
+	NameByID map[string]string
+}
+
+// deriveKey ports deriveKey from the original implementation, extended with
+// reference-resolving components. A resolving component whose value does not
+// resolve -- absent, null, a sentinel like ZIA's parent_id 0 on a top-level
+// object, or an ID naming nothing in this batch -- contributes nothing to the
+// key rather than composing a raw ID or a placeholder. That omission is what
+// keeps a parent's key identical to what it was before its children needed
+// disambiguating: only the objects that actually have a parent gain a prefix.
+func deriveKey(item map[string]any, resource *runtimeTransformResource, references map[string]keyFieldReference) string {
 	fields := keyFields(resource)
-	parts := make([]string, len(fields))
-	for i, field := range fields {
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		reference, resolving := references[field]
 		value, ok := item[field]
 		if !ok {
+			if resolving {
+				continue
+			}
 			failf("key field %s missing from item; set key_field in the override map", jsonQuote(field))
 		}
-		parts[i] = identityComponent(value)
+		if !resolving {
+			parts = append(parts, identityComponent(value))
+			continue
+		}
+		if value == nil {
+			continue
+		}
+		if name, found := reference.NameByID[identityComponent(value)]; found && strings.TrimSpace(name) != "" {
+			parts = append(parts, name)
+		}
 	}
 	key := SlugifyTransformKey(strings.Join(parts, " "))
 	if key != "" {

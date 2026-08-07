@@ -20,8 +20,14 @@ type AdoptionMetadata struct {
 	IdentityRenames map[string]string
 	ImportID        string
 	KeyFields       []string
-	SkipIf          []map[string]any
-	SkipIfLTE       []map[string]any
+	// KeyFieldReferences names key components resolved through a referenced
+	// object's name instead of its raw ID, keyed by key field. Adoption
+	// derives keys independently of the transform kernel, so this mirrors
+	// transform's key_field_references exactly: the two lanes must agree on
+	// every key or the same object lands under two identities.
+	KeyFieldReferences map[string]AdoptionKeyFieldReference
+	SkipIf             []map[string]any
+	SkipIfLTE          []map[string]any
 }
 
 // AdoptionIdentity ports AdoptionIdentity from
@@ -345,14 +351,47 @@ func AdoptionMetadataFor(resource metadata.LoadedResourceMetadata) (AdoptionMeta
 		constant = &text
 	}
 	return AdoptionMetadata{
-		ConstantKey:     constant,
-		IdentityFields:  identityFields,
-		IdentityRenames: identityRenames,
-		ImportID:        importID,
-		KeyFields:       keyFields,
-		SkipIf:          matchers,
-		SkipIfLTE:       lteMatchers,
+		ConstantKey:        constant,
+		IdentityFields:     identityFields,
+		IdentityRenames:    identityRenames,
+		ImportID:           importID,
+		KeyFields:          keyFields,
+		KeyFieldReferences: adoptionKeyFieldReferences(override),
+		SkipIf:             matchers,
+		SkipIfLTE:          lteMatchers,
 	}, nil
+}
+
+// AdoptionKeyFieldReference mirrors transform's resolving key component.
+type AdoptionKeyFieldReference struct {
+	IDField   string
+	NameField string
+	Referent  string
+}
+
+// adoptionKeyFieldReferences reads the override's key_field_references into
+// the adoption metadata. Shape is already validated by registry/override
+// validation; this reads it.
+func adoptionKeyFieldReferences(override map[string]any) map[string]AdoptionKeyFieldReference {
+	raw, ok := override["key_field_references"].(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	output := make(map[string]AdoptionKeyFieldReference, len(raw))
+	for field, value := range raw {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		nameField, _ := entry["name_field"].(string)
+		referent, _ := entry["referent"].(string)
+		idField, ok := entry["id_field"].(string)
+		if !ok || idField == "" {
+			idField = "id"
+		}
+		output[field] = AdoptionKeyFieldReference{IDField: idField, NameField: nameField, Referent: referent}
+	}
+	return output
 }
 
 func adoptionKeyFields(value any) ([]string, error) {
@@ -475,6 +514,85 @@ func AdoptionIdentityItem(meta AdoptionMetadata, raw any, resourceType string) (
 // readable key in the generated tree collapses to id_...), while the failure
 // it removes blocked correct configurations on data the operator does not
 // control.
+// DeriveAdoptionKeyResolved is DeriveAdoptionKey with the batch's
+// ID-to-name index for resolving key components (see
+// AdoptionMetadata.KeyFieldReferences). A resolving component that does not
+// resolve contributes nothing, exactly as transform's deriveKey omits it, so
+// a top-level object carrying a sentinel parent keeps the key it had before
+// its children needed disambiguating.
+func DeriveAdoptionKeyResolved(item map[string]any, meta AdoptionMetadata, nameByID map[string]map[string]string) (string, error) {
+	if meta.ConstantKey != nil || len(meta.KeyFieldReferences) == 0 {
+		return DeriveAdoptionKey(item, meta)
+	}
+	parts := make([]string, 0, len(meta.KeyFields))
+	for _, field := range meta.KeyFields {
+		value, found := adoptionPathValue(item, field)
+		reference, resolving := meta.KeyFieldReferences[field]
+		if !found {
+			continue
+		}
+		part, err := tfrender.PythonTransformStringForAdopt(value)
+		if err != nil {
+			return "", err
+		}
+		if !resolving {
+			parts = append(parts, part)
+			continue
+		}
+		if name, ok := nameByID[field][part]; ok && strings.TrimSpace(name) != "" {
+			parts = append(parts, name)
+		}
+		_ = reference
+	}
+	key := transform.SlugifyTransformKey(strings.Join(parts, " "))
+	if key != "" {
+		return key, nil
+	}
+	return adoptionFallbackKey(item, meta, parts)
+}
+
+// adoptionKeyReferenceIndex builds the ID-to-name index adoption's resolving
+// key components read, from the same raw items the batch derives keys for.
+// Registry validation restricts the referent to the resource's own type, so
+// the index is exactly this batch.
+func adoptionKeyReferenceIndex(rawItems []any, meta AdoptionMetadata, resourceType string) (map[string]map[string]string, error) {
+	if len(meta.KeyFieldReferences) == 0 {
+		return nil, nil
+	}
+	output := make(map[string]map[string]string, len(meta.KeyFieldReferences))
+	for field, reference := range meta.KeyFieldReferences {
+		if reference.Referent != resourceType {
+			return nil, fmt.Errorf(
+				"%s.override.key_field_references.%s referent %s must be this resource's own type; cross-type key resolution is not supported",
+				resourceType, field, adoptionJSONString(reference.Referent),
+			)
+		}
+		nameByID := make(map[string]string, len(rawItems))
+		for _, raw := range rawItems {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			identity, hasIdentity := adoptionPathValue(item, reference.IDField)
+			name, hasName := adoptionPathValue(item, reference.NameField)
+			if !hasIdentity || !hasName {
+				continue
+			}
+			identityPart, err := tfrender.PythonTransformStringForAdopt(identity)
+			if err != nil {
+				return nil, err
+			}
+			namePart, err := tfrender.PythonTransformStringForAdopt(name)
+			if err != nil {
+				return nil, err
+			}
+			nameByID[identityPart] = namePart
+		}
+		output[field] = nameByID
+	}
+	return output, nil
+}
+
 func DeriveAdoptionKey(item map[string]any, meta AdoptionMetadata) (string, error) {
 	if meta.ConstantKey != nil {
 		if *meta.ConstantKey == "" {
@@ -500,6 +618,12 @@ func DeriveAdoptionKey(item map[string]any, meta AdoptionMetadata) (string, erro
 	if key != "" {
 		return key, nil
 	}
+	return adoptionFallbackKey(item, meta, parts)
+}
+
+// adoptionFallbackKey is the shared id_<slug> fallback both key derivations
+// end in when composition produced nothing sluggable.
+func adoptionFallbackKey(item map[string]any, meta AdoptionMetadata, parts []string) (string, error) {
 	id, present := item["id"]
 	if !present || id == nil {
 		return "", fmt.Errorf("derived key is empty for %s (value(s) %s absent or without ASCII letters/digits) and item has no 'id' to fall back on", adoptionJSONValue(meta.KeyFields), adoptionJSONValue(parts))
@@ -611,11 +735,15 @@ func DeriveAdoptionIdentities(rawItems []any, resource metadata.LoadedResourceMe
 	if meta.ConstantKey != nil && len(retained) > 1 {
 		return AdoptionIdentityResult{}, fmt.Errorf("%s adopt.constant_key %s is only valid for singleton adoption; read produced %d items after skip predicates", resource.Type, adoptionJSONString(*meta.ConstantKey), len(retained))
 	}
+	nameByID, err := adoptionKeyReferenceIndex(rawItems, meta, resource.Type)
+	if err != nil {
+		return AdoptionIdentityResult{}, err
+	}
 	result := AdoptionIdentityResult{Identities: []AdoptionIdentity{}, Skipped: classified.Skipped}
 	keys := make(map[string]struct{}, len(retained))
 	importIDs := make(map[string]string, len(retained))
 	for _, entry := range retained {
-		key, err := DeriveAdoptionKey(entry.item, meta)
+		key, err := DeriveAdoptionKeyResolved(entry.item, meta, nameByID)
 		if err != nil {
 			return AdoptionIdentityResult{}, err
 		}
