@@ -36,6 +36,16 @@
     "surrogate_refresh_time_unit": ""
   },
   "import_id": "{id}",
+  "key_field": [
+    "parent_id",
+    "name"
+  ],
+  "key_field_references": {
+    "parent_id": {
+      "name_field": "name",
+      "referent": "zia_location_management"
+    }
+  },
   "ranges": {
     "dn_bandwidth": [
       0,
