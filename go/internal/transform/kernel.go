@@ -145,6 +145,8 @@ func executeTransform(
 		}
 	}
 
+	keyReferences := keyReferenceIndex(rawItems, resource)
+
 	for _, raw := range rawItems {
 		snakeRawValue := snakeKeys(raw, "$raw")
 		snakeRaw, isObject := snakeRawValue.(map[string]any)
@@ -161,7 +163,7 @@ func executeTransform(
 		}
 		normalized := applyReachableOverrides(snakeRaw, resource)
 		escapeHtmlFields(normalized, resource, htmlUnescape)
-		key := deriveKey(normalized, resource)
+		key := deriveKey(normalized, resource, keyReferences)
 		if _, exists := items[key]; exists {
 			failf("duplicate derived key %s for %s; set a different key_field in the override map", jsonQuote(key), resource.Type)
 		}
@@ -189,6 +191,60 @@ func executeTransform(
 		Originals: originals,
 		Drops:     finalDrops,
 	}
+}
+
+// keyReferenceIndex builds, once per batch, the ID-to-name index each
+// resolving key component reads (see deriveKey). It walks the raw items
+// before any skip predicate runs: a parent's name is a fact about the tenant
+// independent of whether this run adopts the parent, so a child's key must
+// not change shape just because its parent became skip-matched.
+//
+// This version resolves only within the type's own items, which registry
+// validation already requires: the kernel receives one type's raw items and
+// has no access to another type's committed lookup, so a cross-type referent
+// would silently resolve nothing. Both sides read through identityComponent,
+// so a numeric ID indexes identically to the numeric value a referrer field
+// carries.
+func keyReferenceIndex(rawItems []any, resource *runtimeTransformResource) map[string]keyFieldReference {
+	declared := objectMap(resource.Override["key_field_references"], resource.Type+".override.key_field_references")
+	if len(declared) == 0 {
+		return nil
+	}
+	output := make(map[string]keyFieldReference, len(declared))
+	for field, raw := range declared {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		referent, _ := entry["referent"].(string)
+		if referent != resource.Type {
+			failf(
+				"%s.override.key_field_references.%s referent %s must be this resource's own type; cross-type key resolution is not supported",
+				resource.Type, field, jsonQuote(referent),
+			)
+		}
+		nameField, _ := entry["name_field"].(string)
+		idField, ok := entry["id_field"].(string)
+		if !ok || idField == "" {
+			idField = "id"
+		}
+		nameByID := make(map[string]string, len(rawItems))
+		for _, item := range rawItems {
+			snakeValue := snakeKeys(item, "$raw")
+			snake, isObject := snakeValue.(map[string]any)
+			if !isObject {
+				continue
+			}
+			identity, hasIdentity := snake[idField]
+			name, hasName := snake[nameField]
+			if !hasIdentity || identity == nil || !hasName || name == nil {
+				continue
+			}
+			nameByID[identityComponent(identity)] = identityComponent(name)
+		}
+		output[field] = keyFieldReference{NameByID: nameByID}
+	}
+	return output
 }
 
 // TransformLoadedItemsOptions ports the exported TransformLoadedItemsOptions
