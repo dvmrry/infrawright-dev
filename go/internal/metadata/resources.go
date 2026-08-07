@@ -21,7 +21,7 @@ var registryResourceKeys = stringSet(
 
 var canonicalResourceType = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-var fetchKeys = stringSet("envelope", "expand", "merge_paths", "optional_http_statuses", "pagination", "path", "query")
+var fetchKeys = stringSet("envelope", "expand", "follow_paths", "merge_paths", "optional_http_statuses", "pagination", "path", "query")
 
 var paginationStyles = stringSet("single", "zcc_v2", "zia", "zpa")
 
@@ -244,6 +244,9 @@ func validateFetch(value any, source string) {
 	if merge, ok := obj["merge_paths"]; ok {
 		validateMergePaths(merge, fetchPath, pagination, obj, source)
 	}
+	if follow, ok := obj["follow_paths"]; ok {
+		validateFollowPaths(follow, obj, source)
+	}
 	if statuses, ok := obj["optional_http_statuses"]; ok {
 		validateStatuses(statuses, source+".optional_http_statuses")
 	}
@@ -277,6 +280,54 @@ func validateMergePaths(value any, fetchPath, pagination string, obj JsonObject,
 			continue
 		}
 		validateFetchPathValue(path, entryLabel)
+		if _, duplicate := seen[path]; duplicate {
+			failf("%s duplicates path %s", entryLabel, jsonQuote(path))
+		}
+		seen[path] = struct{}{}
+	}
+}
+
+// validateFollowPaths validates the derived-expansion fetch surface:
+// follow-up collections reached once per base item, with the placeholder
+// filled from that item's from_field (e.g. ZIA
+// locations/{id}/sublocations, absent from the locations list). Both
+// fan-out surfaces answer the same question, so a literal expand and a
+// derived follow cannot be combined on one entry; merge_paths is the
+// singleton surface and is likewise excluded.
+func validateFollowPaths(value any, obj JsonObject, source string) {
+	label := source + ".follow_paths"
+	if _, hasExpand := obj["expand"]; hasExpand {
+		failf("%s cannot be combined with expand", label)
+	}
+	if _, hasMerge := obj["merge_paths"]; hasMerge {
+		failf("%s cannot be combined with merge_paths", label)
+	}
+	list, ok := value.([]any)
+	if !ok || len(list) == 0 {
+		failf("%s must be a non-empty list of follow entries", label)
+		return
+	}
+	seen := map[string]struct{}{}
+	for i, raw := range list {
+		entryLabel := fmt.Sprintf("%s[%d]", label, i)
+		record, ok := raw.(JsonObject)
+		if !ok {
+			failf("%s must be an object", entryLabel)
+			continue
+		}
+		keys := stringSet("from_field", "path")
+		rejectUnknownKeys(record, keys, entryLabel)
+		requireKeys(record, keys, entryLabel)
+		path := requireNonEmptyString(record["path"], entryLabel+".path")
+		fromField := requireNonEmptyString(record["from_field"], entryLabel+".from_field")
+		validateFetchPathValue(path, entryLabel+".path")
+		token := "{" + fromField + "}"
+		if strings.Count(path, token) != 1 {
+			failf("%s.path must contain the placeholder %s exactly once", entryLabel, jsonQuote(token))
+		}
+		if remainder := strings.ReplaceAll(path, token, ""); strings.ContainsAny(remainder, "{}") {
+			failf("%s.path must not contain undeclared expansion braces", entryLabel)
+		}
 		if _, duplicate := seen[path]; duplicate {
 			failf("%s duplicates path %s", entryLabel, jsonQuote(path))
 		}

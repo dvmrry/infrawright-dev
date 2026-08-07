@@ -161,6 +161,7 @@ Allowed keys:
 ```text
 envelope
 expand
+follow_paths
 merge_paths
 optional_http_statuses
 pagination
@@ -183,6 +184,20 @@ provider whose SDK combines several singleton calls into one settings read
 path must be distinct from the base path and each other. A merged endpoint
 returning anything but one JSON object fails the fetch, and a key returned by
 more than one endpoint fails loudly rather than letting either value win.
+
+`follow_paths` lists follow-up collections read once per base item, filling a
+placeholder from that item's own field -- the shape for a provider whose
+listing endpoint returns only part of the tree. ZIA locations are the case:
+`locations` returns parent locations only, so sublocations come from
+`locations/{id}/sublocations` per parent, exactly as the vendor SDK walks
+them. Each entry is `{"path": ..., "from_field": ...}`, the path must contain
+`{<from_field>}` exactly once, and follow items are concatenated after the
+base items in declared order. A base item lacking the field is skipped
+rather than failing, an empty follow response is normal, and any follow
+request failure fails the whole fetch so a partial inventory never reads as
+deletion. `follow_paths` cannot be combined with `expand` (both fan one path
+over many values) or with `merge_paths` (the singleton-object surface). Note
+the cost model: one extra request per base item.
 
 `optional_http_statuses` must be a list of integers. `expand` is an object of
 string keys to string-list values. `query` is an object of scalar query values.

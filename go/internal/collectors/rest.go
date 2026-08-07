@@ -63,9 +63,26 @@ type FetchEntry struct {
 	// /security + /security/advanced, which the vendor SDK combines into
 	// one settings read). Registry validation requires pagination "single"
 	// and excludes expand whenever this is non-empty.
-	MergePaths           []string
+	MergePaths []string
+	// FollowPaths lists follow-up collections reached once per base item,
+	// with the placeholder filled from that item's FromField (e.g. ZIA
+	// locations/{id}/sublocations, which the vendor SDK walks per parent
+	// because the locations list returns parents only). Items concatenate
+	// after the base items, in declared order. This is the collection
+	// counterpart of MergePaths: follow items stay separate objects and are
+	// never merged key-wise.
+	FollowPaths          []FollowPath
 	OptionalHTTPStatuses map[int]struct{}
 	Query                map[string]any
+}
+
+// FollowPath is one derived-expansion follow-up: Path carries exactly one
+// {FromField} placeholder, filled from each base item's FromField value.
+// A base item without that field is skipped rather than failing -- a leaf
+// row legitimately has nothing to follow.
+type FollowPath struct {
+	Path      string
+	FromField string
 }
 
 // FetchResourceOptions ports the FetchResourceOptions interface from
@@ -750,7 +767,89 @@ func fetchMergedSingle(options FetchResourceOptions) ([]any, error) {
 // FetchResource ports fetchResource from the original implementation:
 // collect one registry resource through a product adapter and generic
 // pager.
+// fetchOnePath collects one already-expanded path through the entry's own
+// pagination style. Both the ordinary dispatch and the follow-path traversal
+// read through it, so a follow request is paged, queried, and accounted for
+// exactly like a base request.
+func fetchOnePath(options FetchResourceOptions, path string) ([]any, error) {
+	u, err := options.Adapter.ComposeURL(CollectorComposeUrlInput{
+		Mode:    options.Mode,
+		Context: options.Context,
+		Path:    path,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ctx := pageFetchContext{
+		auth:          options.Auth,
+		entry:         options.Entry,
+		onPageRequest: options.OnPageRequest,
+		performance:   options.Performance,
+		transport:     options.Transport,
+		url:           u,
+	}
+	switch options.Entry.Pagination {
+	case PaginationZia:
+		return paginateZia(ctx)
+	case PaginationZpa:
+		return paginateZpa(ctx)
+	case PaginationSingle:
+		return paginateSingle(ctx)
+	default:
+		return paginateZccV2(ctx)
+	}
+}
+
+// followPathItems walks every declared follow path once per base item,
+// substituting that item's FromField value into the single placeholder.
+// Ordering is deterministic -- declared follow order, then base item order --
+// so a fetch artifact is stable across runs.
+func followPathItems(options FetchResourceOptions, baseItems []any) ([]any, error) {
+	var output []any
+	for _, follow := range options.Entry.FollowPaths {
+		token := "{" + follow.FromField + "}"
+		for _, raw := range baseItems {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			value, present := item[follow.FromField]
+			if !present || value == nil {
+				continue
+			}
+			scalar, err := queryScalar(value)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"follow path %s value for %s must be a JSON scalar",
+					jsonQuote(follow.Path), jsonQuote(follow.FromField),
+				)
+			}
+			if violation := metadata.FetchExpansionSafetyViolation(scalar); violation != nil {
+				return nil, fmt.Errorf(
+					"follow path %s value %s %s",
+					jsonQuote(follow.Path), jsonQuote(scalar), *violation,
+				)
+			}
+			encoded, err := percentEncode(scalar, false)
+			if err != nil {
+				return nil, err
+			}
+			items, err := fetchOnePath(options, strings.ReplaceAll(follow.Path, token, encoded))
+			if err != nil {
+				return nil, err
+			}
+			output = append(output, items...)
+		}
+	}
+	return output, nil
+}
+
 func FetchResource(options FetchResourceOptions) ([]any, error) {
+	// Follow validation runs before the merge dispatch so an entry declaring
+	// both surfaces is refused rather than silently taking the merge branch.
+	if err := validateFollowPaths(options.Entry); err != nil {
+		return nil, err
+	}
 	if len(options.Entry.MergePaths) > 0 {
 		return fetchMergedSingle(options)
 	}
@@ -760,39 +859,60 @@ func FetchResource(options FetchResourceOptions) ([]any, error) {
 	}
 	var output []any
 	for _, expandedPath := range paths {
-		u, err := options.Adapter.ComposeURL(CollectorComposeUrlInput{
-			Mode:    options.Mode,
-			Context: options.Context,
-			Path:    expandedPath,
-		})
-		if err != nil {
-			return nil, err
-		}
-		ctx := pageFetchContext{
-			auth:          options.Auth,
-			entry:         options.Entry,
-			onPageRequest: options.OnPageRequest,
-			performance:   options.Performance,
-			transport:     options.Transport,
-			url:           u,
-		}
-		var items []any
-		switch options.Entry.Pagination {
-		case PaginationZia:
-			items, err = paginateZia(ctx)
-		case PaginationZpa:
-			items, err = paginateZpa(ctx)
-		case PaginationSingle:
-			items, err = paginateSingle(ctx)
-		default:
-			items, err = paginateZccV2(ctx)
-		}
+		items, err := fetchOnePath(options, expandedPath)
 		if err != nil {
 			return nil, err
 		}
 		output = append(output, items...)
 	}
-	return output, nil
+	if len(options.Entry.FollowPaths) == 0 {
+		return output, nil
+	}
+	followed, err := followPathItems(options, output)
+	if err != nil {
+		return nil, err
+	}
+	return append(output, followed...), nil
+}
+
+// validateFollowPaths revalidates the follow contract at the collector
+// boundary, the same second-half-of-one-source-of-truth role mergedFetchPaths
+// and expandedPaths play for their surfaces: a FetchEntry built directly by a
+// library caller never passed through metadata.validateFollowPaths.
+func validateFollowPaths(entry FetchEntry) error {
+	if len(entry.FollowPaths) == 0 {
+		return nil
+	}
+	if len(entry.MergePaths) > 0 {
+		return errors.New("follow paths cannot be combined with merge paths")
+	}
+	if len(entry.Expand) > 0 {
+		return errors.New("follow paths cannot be combined with expand")
+	}
+	seen := make(map[string]struct{}, len(entry.FollowPaths))
+	for _, follow := range entry.FollowPaths {
+		if follow.Path == "" || follow.FromField == "" {
+			return errors.New("follow paths require a non-empty path and from_field")
+		}
+		if violation := metadata.FetchPathSafetyViolation(follow.Path); violation != nil {
+			return fmt.Errorf("follow path %s %s", jsonQuote(follow.Path), *violation)
+		}
+		token := "{" + follow.FromField + "}"
+		if strings.Count(follow.Path, token) != 1 {
+			return fmt.Errorf(
+				"follow path %s must contain the placeholder %s exactly once",
+				jsonQuote(follow.Path), jsonQuote(token),
+			)
+		}
+		if remainder := strings.ReplaceAll(follow.Path, token, ""); strings.ContainsAny(remainder, "{}") {
+			return fmt.Errorf("follow path %s must not contain undeclared expansion braces", jsonQuote(follow.Path))
+		}
+		if _, duplicate := seen[follow.Path]; duplicate {
+			return fmt.Errorf("follow path %s is declared more than once", jsonQuote(follow.Path))
+		}
+		seen[follow.Path] = struct{}{}
+	}
+	return nil
 }
 
 // fetchEntry ports the unexported fetchEntry from
@@ -864,6 +984,22 @@ func fetchEntry(root metadata.LoadedPackRoot, resourceType string) (FetchEntry, 
 			mergePaths[i] = s
 		}
 	}
+	var followPaths []FollowPath
+	if rawFollow, ok := raw["follow_paths"].([]any); ok {
+		followPaths = make([]FollowPath, len(rawFollow))
+		for i, value := range rawFollow {
+			record, ok := value.(map[string]any)
+			if !ok {
+				return FetchEntry{}, fmt.Errorf("%s has invalid fetch follow metadata", resourceType)
+			}
+			path, pathOK := record["path"].(string)
+			fromField, fieldOK := record["from_field"].(string)
+			if !pathOK || !fieldOK {
+				return FetchEntry{}, fmt.Errorf("%s has invalid fetch follow metadata", resourceType)
+			}
+			followPaths[i] = FollowPath{Path: path, FromField: fromField}
+		}
+	}
 	return FetchEntry{
 		Product:              resource.Product,
 		Path:                 fetchPath,
@@ -871,6 +1007,7 @@ func fetchEntry(root metadata.LoadedPackRoot, resourceType string) (FetchEntry, 
 		Envelope:             envelope,
 		Expand:               expand,
 		MergePaths:           mergePaths,
+		FollowPaths:          followPaths,
 		OptionalHTTPStatuses: optionalHTTPStatuses,
 		Query:                query,
 	}, nil
