@@ -14,7 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-const moduleHCLCompatibilitySHA256 = "927010aa6d3ab3eb3a0c67a7fdf68fb543f78cdb4a7659e0a9b20342757868c5"
+const moduleHCLCompatibilitySHA256 = "e97b6ac425bd6916ea82144788f70382b1123869ce34ff42589d2d9aefeefec5"
 
 type moduleHCLCompatibilityFixture struct {
 	SchemaVersion int                              `json:"schema_version"`
@@ -38,7 +38,9 @@ type moduleHCLCompatibilityFile struct {
 // re-renders every file the fixture already covers and rewrites the snapshot
 // plus its pinned constant. Membership (which resources and files are
 // covered) is deliberately not regenerated; extending coverage stays a
-// reviewed hand edit alongside the counts this test asserts.
+// reviewed hand edit (placeholder rows whose hashes this mode fills in),
+// and resource_count is derived from the manifest rather than maintained
+// by hand.
 func updateModuleHCLCompatibility(t *testing.T, fixturePath string, fixtureBytes []byte) {
 	t.Helper()
 	var fixture moduleHCLCompatibilityFixture
@@ -77,6 +79,12 @@ func updateModuleHCLCompatibility(t *testing.T, fixturePath string, fixtureBytes
 		fixture.Files[index].Length = len(formatted)
 		fixture.Files[index].SHA256 = hex.EncodeToString(digest[:])
 	}
+	distinct := map[string]struct{}{}
+	for _, entry := range fixture.Files {
+		resourceType, _, _ := strings.Cut(entry.Path, "/")
+		distinct[resourceType] = struct{}{}
+	}
+	fixture.ResourceCount = len(distinct)
 	updated, err := json.Marshal(fixture)
 	if err != nil {
 		t.Fatalf("json.Marshal(module HCL compatibility) error: %v", err)
@@ -117,8 +125,23 @@ func TestCommittedModuleHCLCompatibility(t *testing.T) {
 	if fixture.SchemaVersion != 1 {
 		t.Fatalf("%s schema_version = %d, want 1", fixturePath, fixture.SchemaVersion)
 	}
-	if fixture.ResourceCount != 17 || len(fixture.Files) != 68 {
-		t.Fatalf("%s resource/file counts = %d/%d, want 17/68", fixturePath, fixture.ResourceCount, len(fixture.Files))
+	// The pinned fixture digest above is the membership authority; the
+	// counts only need to be internally consistent. A hardcoded literal here
+	// would correspond to no derivable set anyway -- module generation
+	// covers generated types plus data referents, while this fixture's
+	// membership is a curated snapshot -- so the literal bought nothing the
+	// digest does not already guarantee, and cost a magic-number edit on
+	// every membership change.
+	distinct := map[string]struct{}{}
+	for _, file := range fixture.Files {
+		resourceType, _, ok := strings.Cut(file.Path, "/")
+		if !ok || resourceType == "" {
+			t.Fatalf("%s compatibility path %q is not resource/file", fixturePath, file.Path)
+		}
+		distinct[resourceType] = struct{}{}
+	}
+	if fixture.ResourceCount == 0 || fixture.ResourceCount != len(distinct) {
+		t.Fatalf("%s resource_count = %d, want the %d distinct resource types its own manifest covers", fixturePath, fixture.ResourceCount, len(distinct))
 	}
 
 	requireModulePackSelection(t, metadata.PackSelection{
