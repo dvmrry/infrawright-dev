@@ -54,8 +54,11 @@ func updateModuleHCLCompatibility(t *testing.T, fixturePath string, fixtureBytes
 	formatter := NewHCLFormatter()
 	rendered := map[string]RenderedModule{}
 	for index, entry := range fixture.Files {
+		// Same path contract as the comparing mode: exactly resource/file,
+		// no nested paths. Update mode must never be able to fill and pin a
+		// row the comparing mode then rejects.
 		resourceType, fileName, ok := strings.Cut(entry.Path, "/")
-		if !ok {
+		if !ok || resourceType == "" || fileName == "" || strings.Contains(fileName, "/") {
 			t.Fatalf("compatibility path %q is not resource/file", entry.Path)
 		}
 		files, present := rendered[resourceType]
