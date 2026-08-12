@@ -11,11 +11,21 @@ import (
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
+	"github.com/dvmrry/infrawright-dev/go/internal/fixtureupdate"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-const qualificationRootBearingResourceCount = 152
-
+// qualificationBackendKeysSHA256 pins the committed full distribution's
+// backend-state-key inventory and is this gate's membership authority: a
+// root label rename or removal silently changes state keys, which is state
+// loss, so membership changes must be deliberate. A legitimate pack change
+// (a new generated type or data referent) regenerates it with
+// IW_UPDATE_FIXTURES=1 (make regen-compatibility-fixtures); the counts that
+// used to be pinned alongside it are derived instead -- all registry
+// entries, topology roots, and resource-root mappings are the same
+// root-bearing set by construction, which the structural assertions below
+// prove per entry, so a hardcoded count only ever blocked legitimate pack
+// evolution with a misleading message.
 const qualificationBackendKeysSHA256 = "5e070d3da4320c0f4a1023fd438e0d62765f6ab3d0c896fda526bd227c0e78cc"
 
 // TestFullProfileSingletonTopologyAndBackendKeys preserves the committed full
@@ -44,8 +54,8 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadPackRoot(full profile) = %v, want nil", err)
 	}
-	if got := len(loaded.Resources); got != qualificationRootBearingResourceCount {
-		t.Fatalf("LoadPackRoot(full profile) root-bearing resource count = %d, want %d", got, qualificationRootBearingResourceCount)
+	if len(loaded.Resources) == 0 {
+		t.Fatal("LoadPackRoot(full profile) loaded no resources")
 	}
 
 	result, err := LoadedRootTopology(LoadedRootTopologyOptions{
@@ -58,8 +68,12 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 	if got := len(result.Diagnostics); got != 0 {
 		t.Errorf("LoadedRootTopology(full profile) diagnostics = %#v, want none", result.Diagnostics)
 	}
-	if got := len(result.Topology.Roots); got != qualificationRootBearingResourceCount {
-		t.Fatalf("LoadedRootTopology(full profile) root-bearing resource count = %d, want %d", got, qualificationRootBearingResourceCount)
+	// Every loaded entry is asserted root-bearing below, so the registry,
+	// the topology roots, and the resource-root mappings must all be the
+	// same set; deriving the comparison keeps this true for any pack root
+	// rather than one frozen size.
+	if got := len(result.Topology.Roots); got != len(loaded.Resources) {
+		t.Fatalf("LoadedRootTopology(full profile) roots = %d, want one per loaded root-bearing resource (%d)", got, len(loaded.Resources))
 	}
 
 	currentBackendKeys := make([]string, 0, len(result.Topology.Roots))
@@ -101,8 +115,8 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 	if !sort.StringsAreSorted(labels) {
 		t.Errorf("LoadedRootTopology(full profile) root labels = %v, want sorted labels", labels)
 	}
-	if got := len(result.Topology.ResourceRoots); got != qualificationRootBearingResourceCount {
-		t.Errorf("LoadedRootTopology(full profile) root-bearing resource_roots count = %d, want %d identity mappings", got, qualificationRootBearingResourceCount)
+	if got := len(result.Topology.ResourceRoots); got != len(loaded.Resources) {
+		t.Errorf("LoadedRootTopology(full profile) resource_roots = %d, want one identity mapping per loaded resource (%d)", got, len(loaded.Resources))
 	}
 	for resourceType, label := range result.Topology.ResourceRoots {
 		if resourceType != label {
@@ -111,8 +125,18 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 	}
 
 	sort.Strings(currentBackendKeys)
+	if fixtureupdate.Requested() {
+		_, sourcePath, _, ok := runtime.Caller(0)
+		if !ok {
+			t.Fatal("runtime.Caller failed")
+		}
+		if err := fixtureupdate.ReplaceConst(sourcePath, "qualificationBackendKeysSHA256", qualificationKeyDigest(currentBackendKeys)); err != nil {
+			t.Fatalf("fixtureupdate.ReplaceConst error: %v", err)
+		}
+		t.Skipf("backend-key inventory digest regenerated; review the diff before committing")
+	}
 	if got := qualificationKeyDigest(currentBackendKeys); got != qualificationBackendKeysSHA256 {
-		t.Errorf("full-profile qualification backend-key digest = %s, want %s", got, qualificationBackendKeysSHA256)
+		t.Errorf("full-profile qualification backend-key digest = %s, want %s; a deliberate pack membership change regenerates this with IW_UPDATE_FIXTURES=1 (make regen-compatibility-fixtures)", got, qualificationBackendKeysSHA256)
 	}
 }
 
