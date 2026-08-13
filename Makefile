@@ -146,7 +146,8 @@ regen-compatibility-fixtures: ## Regenerate pin-derived compatibility snapshots 
 		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestCommittedModuleHCLCompatibility' ./internal/modulesgen && \
 		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestTransformAdoptParityCompatibility$$' ./internal/authoring/transformadoptparity && \
 		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestEnvironmentRootsCompatibilityUpdateMode' ./internal/envgen && \
-		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestFullProfileSingletonTopologyAndBackendKeys' ./internal/roots
+		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestFullProfileSingletonTopologyAndBackendKeys' ./internal/roots && \
+		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestMappingCompatibilityReports' ./internal/authoring/openapimap
 
 regen-plan-captures: ## Regenerate provider-double capture fixtures (needs Terraform v1.15.4; the Go plan suite is the gate of record)
 	@test "$$(terraform version | sed -n 1p)" = "Terraform v1.15.4" || \
