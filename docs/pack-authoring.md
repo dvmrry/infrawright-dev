@@ -485,16 +485,6 @@ version-bound to it. The supported refresh order is:
    its snapshot plus the paired SHA-256 constant in its own test source, so
    evidence changes always surface as reviewable Go diffs. Update mode is
    byte-idempotent when nothing changed; review the diff before committing.
-3. **ZPA is special.** The frozen matrix
-   (`packs/zpa/evidence/zpa-provider-v4.4.10.json`) is a reviewed evidence
-   corpus for one exact provider version, and its gate asserts currency
-   against the active pin. The update mode refuses to re-bind it when the zpa
-   pin has moved past the reviewed version: either hold the zpa pin at the
-   reviewed version, or perform the matrix re-capture described in
-   [ZPA Provider Evidence](zpa-provider-evidence.md) (new ref/commit,
-   source-file bindings, anchors, and re-reviewed claims). A hash refresh is
-   never a substitute for that review.
-
 Snapshot membership never regenerates: adding resources, files, or fixtures
 to any of these snapshots stays a reviewed hand edit.
 

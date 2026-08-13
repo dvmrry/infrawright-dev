@@ -145,7 +145,6 @@ regen-compatibility-fixtures: ## Regenerate pin-derived compatibility snapshots 
 	cd go && \
 		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestCommittedModuleHCLCompatibility' ./internal/modulesgen && \
 		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestTransformAdoptParityCompatibility$$' ./internal/authoring/transformadoptparity && \
-		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestFrozenZPAMatrixIsCurrentAndFailClosed' ./internal/authoring/zpacorpus && \
 		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestEnvironmentRootsCompatibilityUpdateMode' ./internal/envgen && \
 		IW_UPDATE_FIXTURES=1 $(GO) test -count=1 -run 'TestFullProfileSingletonTopologyAndBackendKeys' ./internal/roots
 
