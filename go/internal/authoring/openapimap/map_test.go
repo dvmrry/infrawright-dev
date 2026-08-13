@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -125,30 +123,6 @@ func recordedValue(value any) Object {
 }
 
 func anyObjects(value any) []Object { return objects(value) }
-
-func defaultRegistry(t *testing.T) Object {
-	t.Helper()
-	root := filepath.Join("..", "..", "..", "..", "packs")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := Object{}
-	for _, entry := range entries {
-		bytes, err := os.ReadFile(filepath.Join(root, entry.Name(), "registry.json"))
-		if err != nil {
-			continue
-		}
-		value, err := canonjson.Decode(bytes)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for key, item := range object(value) {
-			out[key] = item
-		}
-	}
-	return out
-}
 
 func firstDifference(left, right string) string {
 	limit := len(left)

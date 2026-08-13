@@ -14,7 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/fixtureupdate"
 )
 
-const mappingCompatibilitySHA256 = "adfa5f11d07220c1fdd95827d05dd6ad5293c94448dc366df06c3f9beeded91a"
+const mappingCompatibilitySHA256 = "862b6f392a662f0d8bf2fe17e7b7984aec3cddca79e47b1d1f5f6f60c48dea34"
 
 // updateMappingCompatibility is the IW_UPDATE_FIXTURES=1 refresh path: every
 // case's inputs are fully recorded in the fixture, so the expected report is
@@ -41,11 +41,13 @@ func updateMappingCompatibility(t *testing.T, fixturePath string, fixtureBytes [
 			if text, ok := input["provider_source"].(string); ok {
 				providerSource = &text
 			}
-			registry := recordedValue(input["registry_data"])
+			// Every case carries its registry inline; this gate must never read
+			// the live packs, or ordinary pack growth re-fires it (the exact
+			// failure the old null-registry fallback caused).
 			if input["registry_data"] == nil {
-				requireDefaultRegistryPack(t, resourcePrefix)
-				registry = defaultRegistry(t)
+				t.Fatalf("%s: registry_data must be recorded inline", str(test["name"]))
 			}
+			registry := recordedValue(input["registry_data"])
 			apiPrefix := str(input["api_prefix"])
 			report, err := Build(context.Background(), Options{
 				SchemaData:     recordedValue(input["schema"]),
@@ -139,11 +141,13 @@ func TestMappingCompatibilityReports(t *testing.T) {
 				if text, ok := input["provider_source"].(string); ok {
 					providerSource = &text
 				}
-				registry := recordedValue(input["registry_data"])
+				// Every case carries its registry inline; this gate must never read
+				// the live packs, or ordinary pack growth re-fires it (the exact
+				// failure the old null-registry fallback caused).
 				if input["registry_data"] == nil {
-					requireDefaultRegistryPack(t, resourcePrefix)
-					registry = defaultRegistry(t)
+					t.Fatalf("%s: registry_data must be recorded inline", str(test["name"]))
 				}
+				registry := recordedValue(input["registry_data"])
 				apiPrefix := str(input["api_prefix"])
 				report, err := Build(context.Background(), Options{
 					SchemaData:     recordedValue(input["schema"]),
@@ -169,21 +173,5 @@ func TestMappingCompatibilityReports(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-func requireDefaultRegistryPack(t *testing.T, resourcePrefix string) {
-	t.Helper()
-	switch resourcePrefix {
-	case "netbox", "zpa", "ztc":
-	default:
-		return
-	}
-	packPath := filepath.Join("..", "..", "..", "..", "packs", resourcePrefix)
-	if _, err := os.Stat(packPath); err != nil {
-		if os.IsNotExist(err) {
-			t.Skipf("%s pack is not installed", resourcePrefix)
-		}
-		t.Fatalf("os.Stat(%q) error = %v, want nil", packPath, err)
 	}
 }
