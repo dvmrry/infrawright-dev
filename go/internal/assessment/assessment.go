@@ -1097,12 +1097,15 @@ func runSavedPlanAssessment[T any](
 			primaryFailure = safeAssessmentFailure(err)
 			return completed, nil
 		}
-		contract := (*plan.AssessmentPlanContract)(nil)
-		if root.ReferenceOutputTypes != nil {
-			contract = &plan.AssessmentPlanContract{
-				ReferenceOutputTypes: append([]plan.ReferenceOutputType{}, root.ReferenceOutputTypes...),
-				PlanAttestation:      capturedEvidence.PlanAttestation,
-			}
+		// The contract also carries the plan-creation attestation, which the
+		// completeness gate needs for every type -- a targeted imports-only
+		// plan on a type with no reference edges is only acceptable through
+		// AcceptIncompleteTargetedImportOnlyPlan. ReferenceOutputTypes stays
+		// empty for such types; every reference-output branch gates on a
+		// non-empty list.
+		contract := &plan.AssessmentPlanContract{
+			ReferenceOutputTypes: append([]plan.ReferenceOutputType{}, root.ReferenceOutputTypes...),
+			PlanAttestation:      capturedEvidence.PlanAttestation,
 		}
 		classification, err := ClassifyPlanWithOptions(
 			planValue,

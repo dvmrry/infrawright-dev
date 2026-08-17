@@ -263,6 +263,54 @@ func TestAssessSavedPlansRejectsIncompletePlanAtContractBoundary(t *testing.T) {
 	}
 }
 
+// TestAssessSavedPlansAcceptsTargetedImportOnlyPlanWithoutReferenceOutputs
+// pins the attestation reaching the completeness gate for types with no
+// reference edges: the assessment contract is the only carrier of the
+// plan-creation attestation, so a contract built solely for reference-output
+// validation left attestation nil for such types and refused every targeted
+// imports-only plan (which Terraform marks "complete": false by
+// construction).
+func TestAssessSavedPlansAcceptsTargetedImportOnlyPlanWithoutReferenceOutputs(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	if fixture.rootInput.ReferenceOutputTypes != nil {
+		t.Fatalf("fixture ReferenceOutputTypes = %+v, want nil to exercise the no-reference-edges path", fixture.rootInput.ReferenceOutputTypes)
+	}
+	planBytes, err := os.ReadFile(fixture.planPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v, want nil", fixture.planPath, err)
+	}
+	planDigest := sha256.Sum256(planBytes)
+	attestation := plan.PlanCreationAttestation{
+		FormatVersion:    plan.PlanCreationAttestationVersion,
+		TerraformVersion: "1.15.4",
+		PlanArgv: []string{
+			"plan", "-input=false", "-refresh=true",
+			`-target=zpa_sample.this["one"]`, "-out=tfplan",
+		},
+		Refresh:    true,
+		PlanSHA256: hex.EncodeToString(planDigest[:]),
+	}
+	attestationPath := plan.SavedPlanAttestationPath(fixture.planPath)
+	if err := plan.WritePlanCreationAttestation(attestationPath, attestation); err != nil {
+		t.Fatalf("plan.WritePlanCreationAttestation(%q) error = %v, want nil", attestationPath, err)
+	}
+	targetedImport := assessmentPlanJSON(t, false, map[string]any{
+		"actions":   []any{"no-op"},
+		"before":    map[string]any{"status": "recorded"},
+		"after":     map[string]any{"status": "recorded"},
+		"importing": map[string]any{"id": "existing"},
+	})
+	executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(targetedImport))
+	core, err := AssessSavedPlans(assessmentOptions(fixture, executable, nil))
+	if err != nil {
+		t.Fatalf("AssessSavedPlans(targeted import-only, no reference outputs) error = %v, want nil", err)
+	}
+	if core.Status != Clean || core.Checked != 1 || core.Clean != 1 ||
+		core.Tolerated != 0 || core.Blocked != 0 {
+		t.Errorf("AssessSavedPlans(targeted import-only) counts = %+v, want clean 1/1/0/0", core)
+	}
+}
+
 func TestAssessSavedPlansInvalidatesOriginalControlAndPolicyMutations(t *testing.T) {
 	tests := []struct {
 		name     string
