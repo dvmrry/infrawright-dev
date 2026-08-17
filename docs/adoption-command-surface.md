@@ -259,6 +259,11 @@ before and after `terraform show`, and the plan, fingerprint, and current plan
 sources (plus policy, when supplied) are rechecked immediately before report
 publication. A concurrent change writes an error assessment and fails the gate
 instead of publishing a successful classification bound to different evidence.
+A saved plan refused by the assessment contract keeps its generic
+`INVALID_ASSESSMENT_PLAN` headline, but the exact contract violation (for
+example `plan must be complete before assessment`) is preserved: the rendered
+failure carries it as an `ASSESSMENT_PLAN_CONTRACT` detail line, and the error
+report's `error.message` appends it to the headline.
 Import-only actions remain part of the internal clean classification evidence;
 because `clean` is an aggregate v1 status rather than a reportable finding
 status, clean/import-only roots emit an empty `findings` list.

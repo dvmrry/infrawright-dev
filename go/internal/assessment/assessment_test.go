@@ -261,6 +261,48 @@ func TestAssessSavedPlansRejectsIncompletePlanAtContractBoundary(t *testing.T) {
 		failure.Message != "saved plan is outside the supported assessment contract" {
 		t.Errorf("AssessSavedPlans(complete=false) failure = %+v, want redacted contract failure", failure.ProcessFailure)
 	}
+	wantDetail := procerr.ErrorDetail{
+		Path:    "/",
+		Code:    "ASSESSMENT_PLAN_CONTRACT",
+		Message: "plan must be complete before assessment",
+	}
+	if len(failure.Details) != 1 || failure.Details[0] != wantDetail {
+		t.Errorf("AssessSavedPlans(complete=false) details = %+v, want [%+v]", failure.Details, wantDetail)
+	}
+}
+
+// TestAssessSavedPlansReportPreservesContractViolationCause pins the REPORT
+// json explaining a contract refusal: the error message carries the exact
+// violation behind the generic INVALID_ASSESSMENT_PLAN headline instead of
+// only the headline.
+func TestAssessSavedPlansReportPreservesContractViolationCause(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	incomplete := assessmentPlanJSON(t, false, map[string]any{
+		"actions": []any{"no-op"}, "before": map[string]any{}, "after": map[string]any{},
+	})
+	executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(incomplete))
+	outcome, err := AssessSavedPlansReport(AssessSavedPlansReportOptions{
+		Assessment: SavedPlanAssessmentTransactionOptions{
+			Assessment: assessmentOptions(fixture, executable, nil),
+		},
+		Mode: AssertClean,
+		Request: AssessmentReportRequest{
+			Tenant: &fixture.rootInput.Tenant,
+		},
+	})
+	if err != nil {
+		t.Fatalf("AssessSavedPlansReport(complete=false) error = %v, want report outcome", err)
+	}
+	if outcome.Failure == nil || outcome.Failure.Code != "INVALID_ASSESSMENT_PLAN" {
+		t.Fatalf("AssessSavedPlansReport(complete=false) failure = %+v, want INVALID_ASSESSMENT_PLAN", outcome.Failure)
+	}
+	if outcome.Report.Error == nil {
+		t.Fatal("AssessSavedPlansReport(complete=false) report error = nil, want populated")
+	}
+	want := "saved plan is outside the supported assessment contract: plan must be complete before assessment"
+	if outcome.Report.Error.Message != want {
+		t.Errorf("AssessSavedPlansReport(complete=false) report error message = %q, want %q", outcome.Report.Error.Message, want)
+	}
 }
 
 // TestAssessSavedPlansAcceptsTargetedImportOnlyPlanWithoutReferenceOutputs
