@@ -28,7 +28,10 @@ type PlanTerraformRequest struct {
 	Directory     string
 	Environment   map[string]string
 	Save          bool
-	VarFiles      []string
+	// Targets carries -target=<addr> arguments, set only under
+	// PlanEnvironmentRootsOptions.ImportsOnly. An ordinary plan never targets.
+	Targets  []string
+	VarFiles []string
 }
 
 // PlanTerraform ports PlanTerraform from the original implementation.
@@ -116,6 +119,70 @@ func artifactModeForResource(root metadata.LoadedPackRoot, resourceType string) 
 	return tfrender.TransformArtifactModeGenerated, nil
 }
 
+// readOptionalStagedImportsUTF8 reads a staged imports file, tolerating
+// absence: a member simply not staged in this root is not a failure. Mirrors
+// tfrender's package-private readOptionalUtf8 (unreachable from here across
+// the package boundary) rather than forking its behavior.
+func readOptionalStagedImportsUTF8(file string) (*string, error) {
+	content, err := os.ReadFile(file)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, lifecycleFailure("READ_FAILED", "unable to read staged imports "+file, procerr.CategoryIO)
+	}
+	if !utf8.Valid(content) {
+		return nil, lifecycleFailure("INVALID_UTF8", "staged imports "+file+" is not valid UTF-8", procerr.CategoryDomain)
+	}
+	text := string(content)
+	return &text, nil
+}
+
+// stagedImportTargets reads resourceType's staged imports file inside the env
+// root directory -- stage-imports copies by basename (adopt.StageImports),
+// so the staged copy always sits at filepath.Join(directory,
+// filepath.Base(paths.Imports)) -- and returns the -target address for every
+// staged import pair. A resourceType with nothing staged in this root
+// contributes no targets.
+func stagedImportTargets(directory, resourceType string, paths tfrender.TransformArtifactPaths) ([]string, error) {
+	staged := filepath.Join(directory, filepath.Base(paths.Imports))
+	text, err := readOptionalStagedImportsUTF8(staged)
+	if err != nil {
+		return nil, err
+	}
+	if text == nil {
+		return nil, nil
+	}
+	pairs, err := tfrender.ParseGeneratedImports(resourceType, *text)
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		targets = append(targets, fmt.Sprintf("module.%s.%s.this[%q]", resourceType, resourceType, pair.Key))
+	}
+	return targets, nil
+}
+
+// dedupeSortedLifecycleStrings sorts values by canonjson.SortedStrings and
+// removes adjacent duplicates, giving the aggregated -target set a
+// deterministic, unique order across members.
+func dedupeSortedLifecycleStrings(values []string) []string {
+	sorted := canonjson.SortedStrings(values)
+	out := sorted[:0]
+	var previous string
+	hasPrevious := false
+	for _, value := range sorted {
+		if hasPrevious && value == previous {
+			continue
+		}
+		out = append(out, value)
+		previous = value
+		hasPrevious = true
+	}
+	return out
+}
+
 func cloneEnvironment(environment map[string]string) map[string]string {
 	cloned := make(map[string]string, len(environment))
 	for key, value := range environment {
@@ -138,6 +205,7 @@ func clonePlanTerraformRequest(request PlanTerraformRequest) PlanTerraformReques
 		cloned.Environment = cloneEnvironment(request.Environment)
 	}
 	cloned.VarFiles = append([]string(nil), request.VarFiles...)
+	cloned.Targets = append([]string(nil), request.Targets...)
 	return cloned
 }
 
@@ -206,6 +274,9 @@ func (adapter *planTerraformAdapter) Initialize(request PlanTerraformRequest) er
 func (adapter *planTerraformAdapter) Plan(request PlanTerraformRequest) error {
 	request = clonePlanTerraformRequest(request)
 	argv := []string{"plan", "-input=false", "-refresh=true"}
+	for _, target := range request.Targets {
+		argv = append(argv, "-target="+target)
+	}
 	for _, file := range request.VarFiles {
 		argv = append(argv, "-var-file="+file)
 	}
@@ -686,6 +757,7 @@ func PlanEnvironmentRoots(options PlanEnvironmentRootsOptions) (PlanRunResult, e
 
 		varFiles := make([]string, 0, len(selectedRoot.Members))
 		missing := make([]string, 0)
+		var targets []string
 		for _, resourceType := range selectedRoot.Members {
 			artifactMode, err := artifactModeForResource(options.Root, resourceType)
 			if err != nil {
@@ -706,12 +778,45 @@ func PlanEnvironmentRoots(options PlanEnvironmentRootsOptions) (PlanRunResult, e
 			} else {
 				missing = append(missing, paths.Config)
 			}
+			if options.ImportsOnly {
+				memberTargets, err := stagedImportTargets(directory, resourceType, paths)
+				if err != nil {
+					return PlanRunResult{}, err
+				}
+				targets = append(targets, memberTargets...)
+			}
+		}
+		if options.ImportsOnly {
+			targets = dedupeSortedLifecycleStrings(targets)
 		}
 		if len(varFiles) == 0 {
 			for _, file := range missing {
 				onDiagnostic(fmt.Sprintf("skip %s (no %s)", selectedRoot.Label, file))
 			}
 			continue
+		}
+		if options.ImportsOnly && len(targets) == 0 {
+			// A pure data-referent root has no import identity, so its target
+			// set is always empty -- but its plan is an outputs-only snapshot
+			// that can never carry the co-located drift this scoping exists
+			// to exclude, and the adoption wave deliberately plans it once to
+			// establish the data-root state (see the data-only referents
+			// design). Only importable roots with nothing staged are skipped.
+			allData := true
+			for _, member := range selectedRoot.Members {
+				mode, err := artifactModeForResource(options.Root, member)
+				if err != nil {
+					return PlanRunResult{}, err
+				}
+				if mode != tfrender.TransformArtifactModeDataReferent {
+					allData = false
+					break
+				}
+			}
+			if !allData {
+				onDiagnostic(fmt.Sprintf("skip %s (IMPORTS_ONLY: no staged imports)", selectedRoot.Label))
+				continue
+			}
 		}
 		if err := RequireBackendConfiguration(backendConfig, directory, selectedRoot.Label); err != nil {
 			return PlanRunResult{}, err
@@ -740,6 +845,9 @@ func PlanEnvironmentRoots(options PlanEnvironmentRootsOptions) (PlanRunResult, e
 			Directory:     directory,
 			Save:          options.Save,
 			VarFiles:      append([]string(nil), varFiles...),
+		}
+		if options.ImportsOnly {
+			request.Targets = append([]string(nil), targets...)
 		}
 		initInput, planInput := lifecycleFingerprintInputs(
 			directory,

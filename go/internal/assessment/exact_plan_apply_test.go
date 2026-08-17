@@ -18,6 +18,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/plan"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 const exactApplyTenant = "tenant"
@@ -515,6 +516,149 @@ func TestApplyExactSavedPlansCleanFlowAndCompleteGate(t *testing.T) {
 			t.Fatalf("typed incomplete plan Apply calls = %d, want zero", len(candidate.applied))
 		}
 	})
+}
+
+func exactApplyImportChange(address string) map[string]any {
+	return map[string]any{
+		"address": address,
+		"type":    "sample_resource",
+		"change": map[string]any{
+			"actions":   []any{"create"},
+			"importing": map[string]any{"id": "external-id"},
+		},
+	}
+}
+
+func exactApplyUpdateChange(address string) map[string]any {
+	return map[string]any{
+		"address": address,
+		"type":    "sample_resource",
+		"change": map[string]any{
+			"actions": []any{"update"},
+		},
+	}
+}
+
+func exactApplyTargetedAttestation(targets ...string) *plan.PlanCreationAttestation {
+	argv := []string{"plan", "-input=false", "-refresh=true"}
+	for _, target := range targets {
+		argv = append(argv, "-target="+target)
+	}
+	argv = append(argv, "-out=tfplan")
+	return &plan.PlanCreationAttestation{
+		FormatVersion:    plan.PlanCreationAttestationVersion,
+		TerraformVersion: "1.15.4",
+		PlanArgv:         argv,
+		Refresh:          true,
+		PlanSHA256:       strings.Repeat("a", 64),
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }
+
+// TestRequireExactApplyTypedCompleteAcceptsOnlyMatchingTargetedImportOnlyPlan
+// unit-tests the typed-scope completeness gate directly. It is the exact-apply
+// counterpart of
+// plan.TestValidateAssessmentPlanAcceptsTargetedImportOnlyIncompletePlan: both
+// call plan.AcceptIncompleteTargetedImportOnlyPlan, so the two gates cannot
+// accept different plans.
+func TestRequireExactApplyTypedCompleteAcceptsOnlyMatchingTargetedImportOnlyPlan(t *testing.T) {
+	const addressOne = `module.sample_resource.sample_resource.this["key1"]`
+	const addressTwo = `module.sample_resource.sample_resource.this["key2"]`
+	const addressThree = `module.sample_resource.sample_resource.this["key3"]`
+
+	importOnlyPlan := map[string]any{
+		"resource_changes": []any{
+			exactApplyImportChange(addressOne),
+			exactApplyImportChange(addressTwo),
+		},
+	}
+	nonImportPlan := map[string]any{
+		"resource_changes": []any{
+			exactApplyImportChange(addressOne),
+			exactApplyUpdateChange(addressTwo),
+		},
+	}
+
+	tests := []struct {
+		name          string
+		typedComplete *bool
+		raw           canonjson.Value
+		attestation   *plan.PlanCreationAttestation
+		wantErr       bool
+	}{
+		{
+			name:          "typed_complete_true_accepted_regardless_of_raw",
+			typedComplete: boolPointer(true),
+			raw:           nonImportPlan,
+			wantErr:       false,
+		},
+		{
+			name:          "targeted_import_only_matching_set_accepted",
+			typedComplete: boolPointer(false),
+			raw:           importOnlyPlan,
+			attestation:   exactApplyTargetedAttestation(addressOne, addressTwo),
+			wantErr:       false,
+		},
+		{
+			name:          "incomplete_without_targets_refused",
+			typedComplete: boolPointer(false),
+			raw:           importOnlyPlan,
+			attestation:   exactApplyTargetedAttestation(),
+			wantErr:       true,
+		},
+		{
+			name:          "extra_target_refused",
+			typedComplete: boolPointer(false),
+			raw:           importOnlyPlan,
+			attestation:   exactApplyTargetedAttestation(addressOne, addressTwo, addressThree),
+			wantErr:       true,
+		},
+		{
+			name:          "missing_target_refused",
+			typedComplete: boolPointer(false),
+			raw:           importOnlyPlan,
+			attestation:   exactApplyTargetedAttestation(addressOne),
+			wantErr:       true,
+		},
+		{
+			name:          "actionable_non_import_change_refused",
+			typedComplete: boolPointer(false),
+			raw:           nonImportPlan,
+			attestation:   exactApplyTargetedAttestation(addressOne, addressTwo),
+			wantErr:       true,
+		},
+		{
+			name:          "absent_attestation_refused",
+			typedComplete: boolPointer(false),
+			raw:           importOnlyPlan,
+			wantErr:       true,
+		},
+		{
+			name:          "typed_complete_nil_pointer_refused_without_attestation",
+			typedComplete: nil,
+			raw:           importOnlyPlan,
+			wantErr:       true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			shown := ExactPlanApplyShownPlan{
+				Typed: &tfjson.Plan{Complete: test.typedComplete},
+				Raw:   test.raw,
+			}
+			err := requireExactApplyTypedComplete(shown, test.attestation)
+			if test.wantErr {
+				if err == nil || err.Error() != "plan must be complete before assessment" {
+					t.Errorf("requireExactApplyTypedComplete() error = %v, want %q", err, "plan must be complete before assessment")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("requireExactApplyTypedComplete() error = %v, want nil", err)
+			}
+		})
+	}
 }
 
 func TestApplyExactSavedPlansAcceptsDefaultCrossStateReferenceOutput(t *testing.T) {

@@ -1045,3 +1045,102 @@ func TestValidateAssessmentPlanPermitsLegacyReferenceOutputRetirement(t *testing
 		"non-no-op output changes are not supported by saved-plan assessment",
 	)
 }
+
+func assessmentImportChangeRecord(address, resourceType string) map[string]any {
+	return map[string]any{
+		"address": address,
+		"type":    resourceType,
+		"change": map[string]any{
+			"actions":   []any{"create"},
+			"importing": map[string]any{"id": "external-id"},
+		},
+	}
+}
+
+func targetedImportOnlyPlan(complete bool, records ...any) map[string]any {
+	return map[string]any{
+		"format_version":   "1.2",
+		"complete":         complete,
+		"errored":          false,
+		"resource_changes": records,
+	}
+}
+
+func targetedImportOnlyContract(targets ...string) *AssessmentPlanContract {
+	attestation := testQualifiedPlanAttestation(true)
+	argv := append([]string(nil), attestation.PlanArgv...)
+	for _, target := range targets {
+		argv = append(argv, "-target="+target)
+	}
+	attestation.PlanArgv = argv
+	return &AssessmentPlanContract{PlanAttestation: attestation}
+}
+
+// TestValidateAssessmentPlanAcceptsTargetedImportOnlyIncompletePlan exercises
+// lifecycle.go's -target scoping through the raw-map completeness gate: a
+// targeted imports-only plan is incomplete (Terraform marks every -target
+// plan "complete": false), and AcceptIncompleteTargetedImportOnlyPlan is the
+// one fail-closed exception that lets it through. Every case here refuses
+// unless attestation, plan shape, and target set all agree.
+func TestValidateAssessmentPlanAcceptsTargetedImportOnlyIncompletePlan(t *testing.T) {
+	const addressOne = `module.sample_resource.sample_resource.this["key1"]`
+	const addressTwo = `module.sample_resource.sample_resource.this["key2"]`
+	const addressThree = `module.sample_resource.sample_resource.this["key3"]`
+
+	importOne := assessmentImportChangeRecord(addressOne, "sample_resource")
+	importTwo := assessmentImportChangeRecord(addressTwo, "sample_resource")
+	nonImportUpdate := assessmentChange("update")
+
+	tests := []struct {
+		name     string
+		plan     map[string]any
+		contract *AssessmentPlanContract
+		want     string // empty means the plan must validate cleanly
+	}{
+		{
+			name:     "matching_target_set_accepted",
+			plan:     targetedImportOnlyPlan(false, importOne, importTwo),
+			contract: targetedImportOnlyContract(addressOne, addressTwo),
+			want:     "",
+		},
+		{
+			name:     "incomplete_without_targets_refused",
+			plan:     targetedImportOnlyPlan(false, importOne, importTwo),
+			contract: targetedImportOnlyContract(),
+			want:     "plan must be complete before assessment",
+		},
+		{
+			name:     "extra_target_refused",
+			plan:     targetedImportOnlyPlan(false, importOne, importTwo),
+			contract: targetedImportOnlyContract(addressOne, addressTwo, addressThree),
+			want:     "plan must be complete before assessment",
+		},
+		{
+			name:     "missing_target_refused",
+			plan:     targetedImportOnlyPlan(false, importOne, importTwo),
+			contract: targetedImportOnlyContract(addressOne),
+			want:     "plan must be complete before assessment",
+		},
+		{
+			name:     "actionable_non_import_change_refused",
+			plan:     targetedImportOnlyPlan(false, importOne, nonImportUpdate),
+			contract: targetedImportOnlyContract(addressOne, "sample_resource.this"),
+			want:     "plan must be complete before assessment",
+		},
+		{
+			name:     "absent_attestation_refused",
+			plan:     targetedImportOnlyPlan(false, importOne, importTwo),
+			contract: &AssessmentPlanContract{},
+			want:     "plan must be complete before assessment",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.want == "" {
+				requireValidAssessmentPlan(t, "ValidateAssessmentPlan(targeted import-only)", test.plan, test.contract)
+				return
+			}
+			requireAssessmentPlanError(t, "ValidateAssessmentPlan(targeted import-only)", test.plan, test.contract, test.want)
+		})
+	}
+}
