@@ -261,6 +261,96 @@ func TestAssessSavedPlansRejectsIncompletePlanAtContractBoundary(t *testing.T) {
 		failure.Message != "saved plan is outside the supported assessment contract" {
 		t.Errorf("AssessSavedPlans(complete=false) failure = %+v, want redacted contract failure", failure.ProcessFailure)
 	}
+	wantDetail := procerr.ErrorDetail{
+		Path:    "/",
+		Code:    "ASSESSMENT_PLAN_CONTRACT",
+		Message: "plan must be complete before assessment",
+	}
+	if len(failure.Details) != 1 || failure.Details[0] != wantDetail {
+		t.Errorf("AssessSavedPlans(complete=false) details = %+v, want [%+v]", failure.Details, wantDetail)
+	}
+}
+
+// TestAssessSavedPlansReportPreservesContractViolationCause pins the REPORT
+// json explaining a contract refusal: the error message carries the exact
+// violation behind the generic INVALID_ASSESSMENT_PLAN headline instead of
+// only the headline.
+func TestAssessSavedPlansReportPreservesContractViolationCause(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	incomplete := assessmentPlanJSON(t, false, map[string]any{
+		"actions": []any{"no-op"}, "before": map[string]any{}, "after": map[string]any{},
+	})
+	executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(incomplete))
+	outcome, err := AssessSavedPlansReport(AssessSavedPlansReportOptions{
+		Assessment: SavedPlanAssessmentTransactionOptions{
+			Assessment: assessmentOptions(fixture, executable, nil),
+		},
+		Mode: AssertClean,
+		Request: AssessmentReportRequest{
+			Tenant: &fixture.rootInput.Tenant,
+		},
+	})
+	if err != nil {
+		t.Fatalf("AssessSavedPlansReport(complete=false) error = %v, want report outcome", err)
+	}
+	if outcome.Failure == nil || outcome.Failure.Code != "INVALID_ASSESSMENT_PLAN" {
+		t.Fatalf("AssessSavedPlansReport(complete=false) failure = %+v, want INVALID_ASSESSMENT_PLAN", outcome.Failure)
+	}
+	if outcome.Report.Error == nil {
+		t.Fatal("AssessSavedPlansReport(complete=false) report error = nil, want populated")
+	}
+	want := "saved plan is outside the supported assessment contract: plan must be complete before assessment"
+	if outcome.Report.Error.Message != want {
+		t.Errorf("AssessSavedPlansReport(complete=false) report error message = %q, want %q", outcome.Report.Error.Message, want)
+	}
+}
+
+// TestAssessSavedPlansAcceptsTargetedImportOnlyPlanWithoutReferenceOutputs
+// pins the attestation reaching the completeness gate for types with no
+// reference edges: the assessment contract is the only carrier of the
+// plan-creation attestation, so a contract built solely for reference-output
+// validation left attestation nil for such types and refused every targeted
+// imports-only plan (which Terraform marks "complete": false by
+// construction).
+func TestAssessSavedPlansAcceptsTargetedImportOnlyPlanWithoutReferenceOutputs(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	if fixture.rootInput.ReferenceOutputTypes != nil {
+		t.Fatalf("fixture ReferenceOutputTypes = %+v, want nil to exercise the no-reference-edges path", fixture.rootInput.ReferenceOutputTypes)
+	}
+	planBytes, err := os.ReadFile(fixture.planPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v, want nil", fixture.planPath, err)
+	}
+	planDigest := sha256.Sum256(planBytes)
+	attestation := plan.PlanCreationAttestation{
+		FormatVersion:    plan.PlanCreationAttestationVersion,
+		TerraformVersion: "1.15.4",
+		PlanArgv: []string{
+			"plan", "-input=false", "-refresh=true",
+			`-target=zpa_sample.this["one"]`, "-out=tfplan",
+		},
+		Refresh:    true,
+		PlanSHA256: hex.EncodeToString(planDigest[:]),
+	}
+	attestationPath := plan.SavedPlanAttestationPath(fixture.planPath)
+	if err := plan.WritePlanCreationAttestation(attestationPath, attestation); err != nil {
+		t.Fatalf("plan.WritePlanCreationAttestation(%q) error = %v, want nil", attestationPath, err)
+	}
+	targetedImport := assessmentPlanJSON(t, false, map[string]any{
+		"actions":   []any{"no-op"},
+		"before":    map[string]any{"status": "recorded"},
+		"after":     map[string]any{"status": "recorded"},
+		"importing": map[string]any{"id": "existing"},
+	})
+	executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(targetedImport))
+	core, err := AssessSavedPlans(assessmentOptions(fixture, executable, nil))
+	if err != nil {
+		t.Fatalf("AssessSavedPlans(targeted import-only, no reference outputs) error = %v, want nil", err)
+	}
+	if core.Status != Clean || core.Checked != 1 || core.Clean != 1 ||
+		core.Tolerated != 0 || core.Blocked != 0 {
+		t.Errorf("AssessSavedPlans(targeted import-only) counts = %+v, want clean 1/1/0/0", core)
+	}
 }
 
 func TestAssessSavedPlansInvalidatesOriginalControlAndPolicyMutations(t *testing.T) {

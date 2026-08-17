@@ -88,6 +88,20 @@ func (failure *SavedPlanAssessmentFailure) Unwrap() error {
 	return failure.ProcessFailure
 }
 
+// assessmentReportErrorMessage restores the contract-violation cause behind
+// the generic INVALID_ASSESSMENT_PLAN headline into the error report, so the
+// REPORT json explains the refusal the same way the rendered ProcessFailure
+// details do. Other detail kinds (cleanup failures) stay out of the message.
+func assessmentReportErrorMessage(failure *SavedPlanAssessmentFailure) string {
+	message := failure.Message
+	for _, detail := range failure.Details {
+		if detail.Code == assessmentPlanContractDetailCode {
+			message += ": " + detail.Message
+		}
+	}
+	return message
+}
+
 // SavedPlanAssessmentReportOutcome pairs the report with the assessment
 // failure represented by an error report. Failure is nil on success.
 type SavedPlanAssessmentReportOutcome struct {
@@ -759,6 +773,11 @@ func cloneAssessmentGuidance(values []AssessmentGuidanceGroup) []AssessmentGuida
 	return result
 }
 
+// assessmentPlanContractDetailCode marks the ProcessFailure detail carrying
+// the exact assessment-plan contract violation behind the generic
+// INVALID_ASSESSMENT_PLAN message.
+const assessmentPlanContractDetailCode = "ASSESSMENT_PLAN_CONTRACT"
+
 func safeAssessmentFailure(err error) *procerr.ProcessFailure {
 	var failure *procerr.ProcessFailure
 	if errors.As(err, &failure) {
@@ -772,10 +791,20 @@ func safeAssessmentFailure(err error) *procerr.ProcessFailure {
 	}
 	var planFailure *plan.AssessmentPlanError
 	if errors.As(err, &planFailure) {
+		// The generic message stays the headline; the contract violation
+		// itself rides along as a detail. AssessmentPlanError messages name
+		// structural paths, addresses, and field names -- never plan values --
+		// so surfacing them costs nothing the published findings do not
+		// already expose, and hiding them costs a diagnosis.
 		return procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
 			Code:     "INVALID_ASSESSMENT_PLAN",
 			Category: procerr.CategoryDomain,
 			Message:  "saved plan is outside the supported assessment contract",
+			Details: []procerr.ErrorDetail{{
+				Path:    "/",
+				Code:    assessmentPlanContractDetailCode,
+				Message: planFailure.Error(),
+			}},
 		})
 	}
 	return procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
@@ -1097,12 +1126,15 @@ func runSavedPlanAssessment[T any](
 			primaryFailure = safeAssessmentFailure(err)
 			return completed, nil
 		}
-		contract := (*plan.AssessmentPlanContract)(nil)
-		if root.ReferenceOutputTypes != nil {
-			contract = &plan.AssessmentPlanContract{
-				ReferenceOutputTypes: append([]plan.ReferenceOutputType{}, root.ReferenceOutputTypes...),
-				PlanAttestation:      capturedEvidence.PlanAttestation,
-			}
+		// The contract also carries the plan-creation attestation, which the
+		// completeness gate needs for every type -- a targeted imports-only
+		// plan on a type with no reference edges is only acceptable through
+		// AcceptIncompleteTargetedImportOnlyPlan. ReferenceOutputTypes stays
+		// empty for such types; every reference-output branch gates on a
+		// non-empty list.
+		contract := &plan.AssessmentPlanContract{
+			ReferenceOutputTypes: append([]plan.ReferenceOutputType{}, root.ReferenceOutputTypes...),
+			PlanAttestation:      capturedEvidence.PlanAttestation,
 		}
 		classification, err := ClassifyPlanWithOptions(
 			planValue,
@@ -1353,7 +1385,7 @@ func AssessSavedPlansReport(
 				Request: request,
 				Partial: failure.Partial,
 				Error: AssessmentReportError{
-					Kind: failure.ReportKind, Message: failure.Message,
+					Kind: failure.ReportKind, Message: assessmentReportErrorMessage(failure),
 				},
 				Guidance: isolated,
 			})
