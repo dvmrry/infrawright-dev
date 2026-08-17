@@ -14,6 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
+	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 )
 
 const (
@@ -781,10 +782,14 @@ func TestPlanEnvironmentRootsImportsOnlySkipsDerivedRoot(t *testing.T) {
 	}
 }
 
-// TestPlanEnvironmentRootsDataReferentImportsOnlyPlansOnce is the group (c)
-// acceptance. A data-only root has no derive declaration and no imports
-// artifact, but it is still a real root: imports-only planning must initialize
-// and plan it once, and saved-plan artifacts must be the ordinary pair.
+// TestPlanEnvironmentRootsDataReferentImportsOnlySkipsNoStagedImports
+// documents the imports-only retargeting behavior change: a data-only root
+// has no import identity, and adopt.StageImports treats an all-data-referent
+// selection as a reasoned no-op that never writes a staged imports file for
+// it (see import_staging.go's dataReferentOnly branch). Under the new
+// exactly-staged-imports semantics its target set is therefore always empty,
+// so imports-only planning skips it instead of planning the whole type --
+// unlike before this change, when a data-only root still planned once.
 func TestPlanEnvironmentRootsDataReferentImportsOnlyPlansOnce(t *testing.T) {
 	const resourceType = "zia_location_groups"
 	workspace := t.TempDir()
@@ -839,6 +844,170 @@ func TestPlanEnvironmentRootsDataReferentImportsOnlyPlansOnce(t *testing.T) {
 	}
 	if len(sources) == 0 {
 		t.Error("tfplan.sources is empty, want saved-plan fingerprint")
+	}
+}
+
+// TestPlanTerraformEmitsTargetArgsBeforeVarFiles is the adapter-level unit
+// for lifecycle.go's -target scoping: PlanTerraformRequest.Targets must
+// render as -target=<addr> arguments, in the given order, after
+// -refresh=true and before any -var-file.
+func TestPlanTerraformEmitsTargetArgsBeforeVarFiles(t *testing.T) {
+	directory := t.TempDir()
+	adapter := CreatePlanTerraform(CreatePlanTerraformOptions{
+		TerraformExecutable: "/terraform",
+	}).(*planTerraformAdapter)
+	var calls []terraformcmd.TerraformCommandOptions
+	adapter.run = func(options terraformcmd.TerraformCommandOptions) (terraformcmd.TerraformCommandResult, error) {
+		calls = append(calls, options)
+		return terraformcmd.TerraformCommandResult{}, nil
+	}
+	request := PlanTerraformRequest{
+		Directory: directory,
+		Targets: []string{
+			`module.zia_url_categories.zia_url_categories.this["one"]`,
+			`module.zia_url_categories.zia_url_categories.this["two"]`,
+		},
+		VarFiles: []string{"/workspace/a.tfvars"},
+	}
+	if err := adapter.Plan(request); err != nil {
+		t.Fatalf("PlanTerraform.Plan(targets) error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("Terraform command calls = %d, want 1", len(calls))
+	}
+	want := []string{
+		"plan", "-input=false", "-refresh=true",
+		`-target=module.zia_url_categories.zia_url_categories.this["one"]`,
+		`-target=module.zia_url_categories.zia_url_categories.this["two"]`,
+		"-var-file=/workspace/a.tfvars",
+	}
+	if !reflect.DeepEqual(calls[0].Argv, want) {
+		t.Errorf("Plan argv = %#v, want %#v", calls[0].Argv, want)
+	}
+}
+
+// TestPlanEnvironmentRootsImportsOnlyTargetsStagedImportAddresses is the
+// PlanRoots-level counterpart: a staged imports file inside the env root
+// (stage-imports's own copy-by-basename convention) must become the plan
+// request's exact -target address set, sorted and deduplicated.
+func TestPlanEnvironmentRootsImportsOnlyTargetsStagedImportAddresses(t *testing.T) {
+	workspace := t.TempDir()
+	directory := writeLifecycleRoot(t, workspace, "tenant", lifecycleTestResource, []string{lifecycleTestResource}, nil, false)
+	config := lifecycleTestConfigPath(workspace, "tenant", lifecycleTestResource, ".auto.tfvars.json")
+	writeLifecycleText(t, config, `{"zia_url_categories_items":{}}`+"\n")
+
+	pairs := []tfrender.GeneratedImportPair{
+		{Key: "zeta", ImportID: "id-zeta"},
+		{Key: "alpha", ImportID: "id-alpha"},
+	}
+	importsText, err := tfrender.RenderGeneratedImports(lifecycleTestResource, pairs)
+	if err != nil {
+		t.Fatalf("tfrender.RenderGeneratedImports() error: %v", err)
+	}
+	writeLifecycleText(t, filepath.Join(directory, lifecycleTestResource+"_imports.tf"), importsText)
+
+	fake := &lifecycleFakeTerraform{}
+	result, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
+		Deployment:  lifecycleTestDeployment(),
+		ImportsOnly: true,
+		Root:        lifecycleTestOrdinaryRoot(),
+		Save:        true,
+		Selectors:   []string{lifecycleTestResource},
+		Tenant:      "tenant",
+		Terraform:   fake,
+		Workspace:   workspace,
+	})
+	if err != nil {
+		t.Fatalf("PlanEnvironmentRoots(imports-only, staged) error: %v", err)
+	}
+	if result.Planned != 1 {
+		t.Errorf("PlanEnvironmentRoots(imports-only, staged).Planned = %d, want 1", result.Planned)
+	}
+	if len(fake.planned) != 1 {
+		t.Fatalf("Plan calls = %d, want 1", len(fake.planned))
+	}
+	want := []string{
+		`module.zia_url_categories.zia_url_categories.this["alpha"]`,
+		`module.zia_url_categories.zia_url_categories.this["zeta"]`,
+	}
+	if !reflect.DeepEqual(fake.planned[0].Targets, want) {
+		t.Errorf("Plan request Targets = %#v, want %#v", fake.planned[0].Targets, want)
+	}
+}
+
+// TestPlanEnvironmentRootsImportsOnlySkipsNoStagedImports covers an
+// ordinary importable root (not derived, not data-referent) that simply has
+// not had stage-imports run for it: imports-only now means exactly the
+// staged addresses, so an empty target set skips the root instead of
+// planning the whole type.
+func TestPlanEnvironmentRootsImportsOnlySkipsNoStagedImports(t *testing.T) {
+	workspace := t.TempDir()
+	writeLifecycleRoot(t, workspace, "tenant", lifecycleTestResource, []string{lifecycleTestResource}, nil, false)
+	config := lifecycleTestConfigPath(workspace, "tenant", lifecycleTestResource, ".auto.tfvars.json")
+	writeLifecycleText(t, config, `{"zia_url_categories_items":{}}`+"\n")
+
+	fake := &lifecycleFakeTerraform{}
+	var diagnostics []string
+	_, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
+		Deployment:   lifecycleTestDeployment(),
+		ImportsOnly:  true,
+		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
+		Root:         lifecycleTestOrdinaryRoot(),
+		Save:         true,
+		Selectors:    []string{lifecycleTestResource},
+		Tenant:       "tenant",
+		Terraform:    fake,
+		Workspace:    workspace,
+	})
+	requireLifecycleFailure(t, err, "NO_ROOTS_PLANNED")
+	want := []string{"skip " + lifecycleTestResource + " (IMPORTS_ONLY: no staged imports)"}
+	if !reflect.DeepEqual(diagnostics, want) {
+		t.Errorf("PlanEnvironmentRoots(imports-only, no staged imports) diagnostics = %#v, want %#v", diagnostics, want)
+	}
+	if len(fake.initialized) != 0 || len(fake.planned) != 0 {
+		t.Errorf(
+			"Terraform calls for imports-only no-staged-imports skip = (%d init, %d plan), want (0, 0)",
+			len(fake.initialized), len(fake.planned),
+		)
+	}
+}
+
+// TestPlanEnvironmentRootsOrdinaryPlanNeverTargets proves an ordinary
+// (non-ImportsOnly) plan never sets Targets, even when a staged imports file
+// happens to be present -- targeting is exclusively an ImportsOnly behavior.
+func TestPlanEnvironmentRootsOrdinaryPlanNeverTargets(t *testing.T) {
+	workspace := t.TempDir()
+	directory := writeLifecycleRoot(t, workspace, "tenant", lifecycleTestResource, []string{lifecycleTestResource}, nil, false)
+	config := lifecycleTestConfigPath(workspace, "tenant", lifecycleTestResource, ".auto.tfvars.json")
+	writeLifecycleText(t, config, `{"zia_url_categories_items":{}}`+"\n")
+	pairs := []tfrender.GeneratedImportPair{{Key: "alpha", ImportID: "id-alpha"}}
+	importsText, err := tfrender.RenderGeneratedImports(lifecycleTestResource, pairs)
+	if err != nil {
+		t.Fatalf("tfrender.RenderGeneratedImports() error: %v", err)
+	}
+	writeLifecycleText(t, filepath.Join(directory, lifecycleTestResource+"_imports.tf"), importsText)
+
+	fake := &lifecycleFakeTerraform{}
+	result, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
+		Deployment: lifecycleTestDeployment(),
+		Root:       lifecycleTestOrdinaryRoot(),
+		Save:       true,
+		Selectors:  []string{lifecycleTestResource},
+		Tenant:     "tenant",
+		Terraform:  fake,
+		Workspace:  workspace,
+	})
+	if err != nil {
+		t.Fatalf("PlanEnvironmentRoots(ordinary) error: %v", err)
+	}
+	if result.Planned != 1 {
+		t.Errorf("PlanEnvironmentRoots(ordinary).Planned = %d, want 1", result.Planned)
+	}
+	if len(fake.planned) != 1 {
+		t.Fatalf("Plan calls = %d, want 1", len(fake.planned))
+	}
+	if len(fake.planned[0].Targets) != 0 {
+		t.Errorf("Plan request Targets = %#v, want none for an ordinary plan", fake.planned[0].Targets)
 	}
 }
 

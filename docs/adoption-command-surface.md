@@ -124,6 +124,20 @@ Re-run `make plan SAVE=1` after any of those inputs change. When planning with
 `assert-adoptable`, and `apply`; omitting it or changing its contents makes the
 saved plan stale before classification or apply.
 
+`make plan IMPORTS_ONLY=1` scopes each plan to `-target` exactly the staged
+import addresses in that env root, so co-located refresh drift on
+already-managed objects stays out of the plan and the import applies in
+isolation; an importable root with no staged imports is skipped rather than
+planning the whole type, while a pure data-referent root -- whose plan is an
+outputs-only snapshot with no import identity -- keeps its single untargeted
+plan, since establishing the data-root state during the adoption wave is that
+plan's whole purpose. The resulting saved plan is Terraform-incomplete by construction
+(`-target` always reports `"complete": false`); `assert-clean`,
+`assert-adoptable`, and `apply` accept that only for an attested, import-only
+plan whose `-target` set exactly equals its own import addresses, refusing
+otherwise. Drift skipped this way is not lost -- it is planned normally,
+without targeting, on the next ordinary `make plan SAVE=1` cycle.
+
 ## Committed Config Must Stay Fetchable
 
 Committed config means you own a resource; a `fetch` block in the registry

@@ -327,14 +327,23 @@ func decodeExactApplyTypedPlan(raw canonjson.Value) (*tfjson.Plan, error) {
 	return &typed, nil
 }
 
-func requireExactApplyTypedComplete(shown ExactPlanApplyShownPlan) error {
-	if shown.Typed == nil || shown.Typed.Complete == nil || !*shown.Typed.Complete {
-		// Keep the independent terraform-json typed gate before raw
-		// classification, but preserve plan-contract.ts's operator-visible
-		// failure bytes instead of inventing a second CLI classification.
-		return errors.New("plan must be complete before assessment")
+// requireExactApplyTypedComplete keeps the independent terraform-json typed
+// gate before raw classification: a plan Terraform itself reports complete
+// passes outright. A targeted imports-only plan is incomplete by
+// construction (Terraform marks every -target plan "complete": false), so
+// the one fail-closed exception is plan.AcceptIncompleteTargetedImportOnlyPlan
+// -- the same helper plan/contract.go's ValidateAssessmentPlan uses, so the
+// two independent completeness checks cannot accept different plans. Any
+// other incomplete plan preserves plan-contract.ts's operator-visible
+// failure bytes instead of inventing a second CLI classification.
+func requireExactApplyTypedComplete(shown ExactPlanApplyShownPlan, attestation *plan.PlanCreationAttestation) error {
+	if shown.Typed != nil && shown.Typed.Complete != nil && *shown.Typed.Complete {
+		return nil
 	}
-	return nil
+	if plan.AcceptIncompleteTargetedImportOnlyPlan(shown.Raw, attestation) {
+		return nil
+	}
+	return errors.New("plan must be complete before assessment")
 }
 
 func pythonApplyStringRepr(value string) string {
@@ -344,41 +353,6 @@ func pythonApplyStringRepr(value string) string {
 	value = strings.ReplaceAll(value, "\r", `\r`)
 	value = strings.ReplaceAll(value, "\n", `\n`)
 	return "'" + value + "'"
-}
-
-// exactApplyImportOnlyPlan reports whether every planned resource change is
-// an import: at least one record carries a non-empty importing block, and
-// each record is either a no-op or the classifier's own Clean import shape
-// (importing plus a single create action, eval.go's importing case). Only
-// such plans select the adoption refresh-drift tolerance at apply; any
-// actionable non-import change keeps the strict stance.
-func exactApplyImportOnlyPlan(planValue any) bool {
-	planObject, _ := planValue.(map[string]any)
-	records, _ := planObject["resource_changes"].([]any)
-	imports := 0
-	for _, rawRecord := range records {
-		record, _ := rawRecord.(map[string]any)
-		change, _ := record["change"].(map[string]any)
-		importing, _ := change["importing"].(map[string]any)
-		actions, _ := change["actions"].([]any)
-		noOp := true
-		for _, action := range actions {
-			if action != "no-op" {
-				noOp = false
-			}
-		}
-		if len(importing) > 0 {
-			if noOp || (len(actions) == 1 && actions[0] == "create") {
-				imports++
-				continue
-			}
-			return false
-		}
-		if !noOp {
-			return false
-		}
-	}
-	return imports > 0
 }
 
 func exactApplyDestroyCount(planValue any) int {
@@ -596,7 +570,7 @@ func applyExactPlanRoot(
 	if err != nil {
 		return false, err
 	}
-	if err := requireExactApplyTypedComplete(shownPlan); err != nil {
+	if err := requireExactApplyTypedComplete(shownPlan, evidence.PlanAttestation); err != nil {
 		return false, err
 	}
 	// The schema types the assert gate classified under, plus a refresh-
@@ -625,7 +599,7 @@ func applyExactPlanRoot(
 		return false, err
 	}
 	classification := strict
-	if exactApplyImportOnlyPlan(shownPlan.Raw) {
+	if plan.ImportOnlyPlanShape(shownPlan.Raw) {
 		classification, err = ClassifyPlanWithOptions(
 			shownPlan.Raw,
 			policy.Policy,

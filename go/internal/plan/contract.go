@@ -757,6 +757,143 @@ func validateSiblingReferenceOutputChange(
 	}
 }
 
+// ImportOnlyPlanShape reports whether every planned resource change in
+// planValue is an import: at least one record carries a non-empty importing
+// block, and each such record is either a no-op or a single create action
+// (eval.go's importing case). Any other actionable change makes the plan not
+// import-only. Shared by ValidateAssessmentPlan's incomplete-plan acceptance
+// below and exact-plan apply's refresh-drift tolerance
+// (assessment.exactApplyImportOnlyPlan) so "what counts as import-only" can
+// never fork between the two call sites.
+func ImportOnlyPlanShape(planValue any) bool {
+	planObject, _ := planValue.(map[string]any)
+	records, _ := planObject["resource_changes"].([]any)
+	imports := 0
+	for _, rawRecord := range records {
+		record, _ := rawRecord.(map[string]any)
+		change, _ := record["change"].(map[string]any)
+		importing, _ := change["importing"].(map[string]any)
+		actions, _ := change["actions"].([]any)
+		noOp := true
+		for _, action := range actions {
+			if action != "no-op" {
+				noOp = false
+			}
+		}
+		if len(importing) > 0 {
+			if noOp || (len(actions) == 1 && actions[0] == "create") {
+				imports++
+				continue
+			}
+			return false
+		}
+		if !noOp {
+			return false
+		}
+	}
+	return imports > 0
+}
+
+// targetedPlanArgvAddresses extracts -target=<addr> values from a plan
+// creation attestation's argv, in argv order.
+func targetedPlanArgvAddresses(argv []string) []string {
+	var targets []string
+	for _, argument := range argv {
+		if address, ok := strings.CutPrefix(argument, "-target="); ok {
+			targets = append(targets, address)
+		}
+	}
+	return targets
+}
+
+// importingResourceChangeAddresses returns the resource_changes addresses
+// whose change carries a non-empty importing block. ok is false when
+// planValue is not a well-formed plan object or any matching record is
+// malformed.
+func importingResourceChangeAddresses(planValue any) (addresses []string, ok bool) {
+	planObject, isObject := planValue.(map[string]any)
+	if !isObject {
+		return nil, false
+	}
+	value, present := planObject["resource_changes"]
+	if !present {
+		return []string{}, true
+	}
+	records, recordsOK := value.([]any)
+	if !recordsOK {
+		return nil, false
+	}
+	for _, rawRecord := range records {
+		record, recordOK := rawRecord.(map[string]any)
+		if !recordOK {
+			return nil, false
+		}
+		change, changeOK := record["change"].(map[string]any)
+		if !changeOK {
+			return nil, false
+		}
+		importing, _ := change["importing"].(map[string]any)
+		if len(importing) == 0 {
+			continue
+		}
+		address, addressOK := record["address"].(string)
+		if !addressOK || address == "" {
+			return nil, false
+		}
+		addresses = append(addresses, address)
+	}
+	return addresses, true
+}
+
+// sameAddressSet reports whether left and right hold the same addresses,
+// ignoring order and duplicate entries.
+func sameAddressSet(left, right []string) bool {
+	return canonjson.SameStringSequence(
+		dedupeSortedLifecycleStrings(left),
+		dedupeSortedLifecycleStrings(right),
+	)
+}
+
+// AcceptIncompleteTargetedImportOnlyPlan is the fail-closed exception to
+// "plan must be complete before assessment": a lifecycle-targeted
+// imports-only plan (see PlanTerraformRequest.Targets) is incomplete by
+// construction -- Terraform marks every -target plan "complete": false --
+// so acceptance has to prove, independent of that flag, that the plan is
+// exactly the targeted import and nothing else. All three must hold:
+//
+//  1. attestation is present (already digest-validated by the caller --
+//     validatePresentPlanAttestation for the raw-map scope below,
+//     PrepareSavedPlanEvidence/RecheckSavedPlanEvidence for exact-plan
+//     apply's typed scope) and its PlanArgv contains at least one -target=.
+//  2. planValue matches ImportOnlyPlanShape.
+//  3. the -target= address set in PlanArgv exactly equals the set of
+//     resource_changes addresses whose change carries a non-empty importing
+//     block -- no extra target, no missing target.
+//
+// Both ValidateAssessmentPlan below and
+// assessment.requireExactApplyTypedComplete call this one helper (plan
+// already sits below assessment in the import graph, so the shared logic
+// lives here rather than being duplicated or forked in assessment) so the
+// two independent "is this plan complete" gates cannot accept different
+// plans.
+func AcceptIncompleteTargetedImportOnlyPlan(planValue any, attestation *PlanCreationAttestation) bool {
+	if attestation == nil {
+		return false
+	}
+	targets := targetedPlanArgvAddresses(attestation.PlanArgv)
+	if len(targets) == 0 {
+		return false
+	}
+	if !ImportOnlyPlanShape(planValue) {
+		return false
+	}
+	addresses, ok := importingResourceChangeAddresses(planValue)
+	if !ok {
+		return false
+	}
+	return sameAddressSet(targets, addresses)
+}
+
 func validatePresentPlanAttestation(plan map[string]any, attestation *PlanCreationAttestation) {
 	if attestation == nil {
 		return
@@ -930,10 +1067,12 @@ func ValidateAssessmentPlan(planValue any, contract *AssessmentPlanContract) (er
 			assessmentFail("plan terraform_version must be a string when present")
 		}
 	}
+	var attestation *PlanCreationAttestation
 	if contract != nil {
-		validatePresentPlanAttestation(plan, contract.PlanAttestation)
+		attestation = contract.PlanAttestation
+		validatePresentPlanAttestation(plan, attestation)
 	}
-	if plan["complete"] != true {
+	if plan["complete"] != true && !AcceptIncompleteTargetedImportOnlyPlan(plan, attestation) {
 		assessmentFail("plan must be complete before assessment")
 	}
 	if plan["errored"] != false {
