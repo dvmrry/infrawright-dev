@@ -612,7 +612,7 @@ func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 					if err != nil {
 						return StageImportsResult{}, err
 					}
-					filtered, err := FilterGeneratedImports(text, addresses)
+					filtered, err := FilterGeneratedImports(resourceType, text, addresses)
 					if err != nil {
 						return StageImportsResult{}, err
 					}

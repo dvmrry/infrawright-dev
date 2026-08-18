@@ -116,7 +116,7 @@ func newStateAwareStagingFixture(t *testing.T) stateAwareStagingFixture {
 		t.Fatalf("os.MkdirAll(%q) error: %v", environmentRoot, err)
 	}
 	managedAddress := stagingImportAddress(t, stagingTestResource, "managed")
-	filtered, err := FilterGeneratedImports(sourceText, []string{managedAddress})
+	filtered, err := FilterGeneratedImports(stagingTestResource, sourceText, []string{managedAddress})
 	if err != nil {
 		t.Fatalf("FilterGeneratedImports(fixture) error: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestStageImportsStateAwareSnapshotsSelectedSingletonOnce(t *testing.T) {
 	if fake.calls[1].Request != request {
 		t.Errorf("StageImports(singleton state-aware) state-list request = %#v, want init request %#v", fake.calls[1].Request, request)
 	}
-	want, err := FilterGeneratedImports(firstText, []string{stagingImportAddress(t, first, "managed")})
+	want, err := FilterGeneratedImports(first, firstText, []string{stagingImportAddress(t, first, "managed")})
 	if err != nil {
 		t.Fatalf("FilterGeneratedImports(%s) error = %v, want nil", first, err)
 	}
@@ -572,6 +572,7 @@ func TestStageImportsStateAwareSnapshotsEachSelectedTypeIndependently(t *testing
 		}
 		got := readStagingText(t, filepath.Join(workspace, "envs", "tenant", resourceType, resourceType+"_imports.tf"))
 		want, filterErr := FilterGeneratedImports(
+			resourceType,
 			stagingImports(t, resourceType, "managed", "new"),
 			[]string{stagingImportAddress(t, resourceType, "managed")},
 		)
@@ -632,7 +633,7 @@ func TestStageImportsStateAwareBackendPreflightAndExactFiltering(t *testing.T) {
 		request.Directory != environmentRoot || request.Label != stagingTestResource || request.Tenant != "tenant" {
 		t.Errorf("StageImports(state-aware) request = %#v, want resolved backend/root/label/tenant", request)
 	}
-	filtered, err := FilterGeneratedImports(text, []string{stagingImportAddress(t, stagingTestResource, "managed")})
+	filtered, err := FilterGeneratedImports(stagingTestResource, text, []string{stagingImportAddress(t, stagingTestResource, "managed")})
 	if err != nil {
 		t.Fatalf("FilterGeneratedImports(expected staged bytes) error: %v", err)
 	}
@@ -854,7 +855,7 @@ func TestStageImportsRejectsUnsuccessfulStateBeforePublication(t *testing.T) {
 
 func TestStageImportsPythonNewlineAndBOMContracts(t *testing.T) {
 	canonical := stagingImports(t, stagingTestResource, "managed", "new")
-	filtered, err := FilterGeneratedImports(canonical, []string{stagingImportAddress(t, stagingTestResource, "managed")})
+	filtered, err := FilterGeneratedImports(stagingTestResource, canonical, []string{stagingImportAddress(t, stagingTestResource, "managed")})
 	if err != nil {
 		t.Fatalf("FilterGeneratedImports(canonical) error: %v", err)
 	}
@@ -862,10 +863,15 @@ func TestStageImportsPythonNewlineAndBOMContracts(t *testing.T) {
 		name string
 		text string
 		want string
+		// wantRefused pins fail-closed staging for sources the canonical
+		// parser refuses: post-#324 a staged non-canonical artifact would
+		// only fail later, at plan time, so the filter refuses it here. A
+		// BOM used to pass through unfiltered.
+		wantRefused bool
 	}{
 		{name: "cr", text: strings.ReplaceAll(canonical, "\n", "\r"), want: filtered.Text},
 		{name: "crlf", text: strings.Replace(canonical, "\n", "\r\n", 1), want: filtered.Text},
-		{name: "bom", text: "\ufeff" + canonical, want: "\ufeff" + canonical},
+		{name: "bom", text: "\ufeff" + canonical, wantRefused: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -884,6 +890,13 @@ func TestStageImportsPythonNewlineAndBOMContracts(t *testing.T) {
 				Deployment: dep, Root: stagingTestRoot(stagingTestResource), Selectors: []string{stagingTestResource},
 				StateAware: true, Tenant: "tenant", Terraform: fake, Workspace: workspace,
 			})
+			if test.wantRefused {
+				requireStagingFailure(t, err, "INVALID_GENERATED_IMPORTS")
+				if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+					t.Errorf("StageImports(%s source) staged despite refusal: %v", test.name, statErr)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("StageImports(%s source) error: %v", test.name, err)
 			}
