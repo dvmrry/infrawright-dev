@@ -1,6 +1,8 @@
 package assessment
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -516,6 +518,45 @@ func TestApplyExactSavedPlansCleanFlowAndCompleteGate(t *testing.T) {
 			t.Fatalf("typed incomplete plan Apply calls = %d, want zero", len(candidate.applied))
 		}
 	})
+}
+
+// TestApplyExactSavedPlansAcceptsTargetedImportOnlyPlanWithoutReferenceOutputs
+// drives the full apply path with a targeted imports-only plan on a root that
+// has no reference output types. The typed gate already took the attestation
+// straight from evidence, but the raw classification right after it reads the
+// attestation only through exactApplyContract -- a constructor that used to
+// return nil for such roots, so the plan passed the typed gate and was then
+// refused by the contract gate. The apply must go through.
+func TestApplyExactSavedPlansAcceptsTargetedImportOnlyPlanWithoutReferenceOutputs(t *testing.T) {
+	fixture := newExactApplyFixture(t)
+	root := fixture.roots[0]
+	if root.ReferenceOutputTypes != nil {
+		t.Fatalf("fixture ReferenceOutputTypes = %+v, want nil to exercise the no-reference-edges path", root.ReferenceOutputTypes)
+	}
+	fixture.restoreSavedPair(t, root)
+	const address = `module.zia_url_categories.zia_url_categories.this["one"]`
+	planBytes, err := os.ReadFile(root.SavedPlanPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error: %v", root.SavedPlanPath, err)
+	}
+	planDigest := sha256.Sum256(planBytes)
+	attestation := exactApplyTargetedAttestation(address)
+	attestation.PlanSHA256 = hex.EncodeToString(planDigest[:])
+	attestationPath := plan.SavedPlanAttestationPath(root.SavedPlanPath)
+	if err := plan.WritePlanCreationAttestation(attestationPath, *attestation); err != nil {
+		t.Fatalf("plan.WritePlanCreationAttestation(%q) error: %v", attestationPath, err)
+	}
+	planValue := exactApplyCleanPlan()
+	planValue["complete"] = false
+	planValue["resource_changes"] = []any{exactApplyImportChange(address)}
+	fake := &fakeExactPlanApplyTerraform{currentPlan: planValue}
+	result, err := applyExactSavedPlans(exactApplyOptions(fixture, fake), exactApplyTestHooks(fixture))
+	if err != nil {
+		t.Fatalf("applyExactSavedPlans(targeted import-only, no reference outputs) error = %v, want nil", err)
+	}
+	if result.Applied != 1 || len(fake.applied) != 1 {
+		t.Fatalf("targeted import-only result = %#v apply calls = %d, want one apply", result, len(fake.applied))
+	}
 }
 
 func exactApplyImportChange(address string) map[string]any {

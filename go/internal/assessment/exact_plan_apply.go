@@ -441,10 +441,15 @@ func recheckExactApplyEvidence(
 	return controlevidence.RecheckAssessmentControlFiles(controlFiles)
 }
 
+// exactApplyContract always builds the contract: it is the only carrier of
+// the plan-creation attestation into ValidateAssessmentPlan's completeness
+// gate, which every type needs -- a targeted imports-only plan on a type
+// with no reference edges is only acceptable through
+// AcceptIncompleteTargetedImportOnlyPlan. ReferenceOutputTypes stays empty
+// for such types; every reference-output branch gates on a non-empty list.
+// Same shape as the raw-assessment constructor in assessment.go -- these are
+// the only two AssessmentPlanContract constructors, and they must agree.
 func exactApplyContract(root SavedPlanAssessmentRootInput) *plan.AssessmentPlanContract {
-	if root.ReferenceOutputTypes == nil {
-		return nil
-	}
 	return &plan.AssessmentPlanContract{
 		ReferenceOutputTypes: append([]plan.ReferenceOutputType(nil), root.ReferenceOutputTypes...),
 	}
@@ -586,9 +591,7 @@ func applyExactPlanRoot(
 	// STRICT classification so a drift-sourced delete keeps refusing
 	// without --allow-destroy whatever the stance demoted.
 	contract := exactApplyContract(root)
-	if contract != nil {
-		contract.PlanAttestation = evidence.PlanAttestation
-	}
+	contract.PlanAttestation = evidence.PlanAttestation
 	strict, err := ClassifyPlanWithOptions(
 		shownPlan.Raw,
 		policy.Policy,
