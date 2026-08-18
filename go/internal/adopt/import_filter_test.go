@@ -2,6 +2,7 @@ package adopt
 
 import (
 	"errors"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -33,14 +34,19 @@ func stagingImports(t *testing.T, resourceType string, keys ...string) string {
 	return rendered
 }
 
-// TestFilterGeneratedImportsFrozenNodeVectors ports "generated import
-// filtering matches frozen Python text contracts" from
-// the original test corpus.
-func TestFilterGeneratedImportsFrozenNodeVectors(t *testing.T) {
-	managed := stagingImports(t, "zia_fake", "managed")
-	kept := stagingImports(t, "zia_fake", "keep")
+func renderedImports(t *testing.T, resourceType string, pairs ...tfrender.GeneratedImportPair) string {
+	t.Helper()
+	rendered, err := tfrender.RenderGeneratedImports(resourceType, pairs)
+	if err != nil {
+		t.Fatalf("tfrender.RenderGeneratedImports(%q, %v) error: %v", resourceType, pairs, err)
+	}
+	return rendered
+}
+
+func TestFilterGeneratedImportsKeepsOnlyUnmanagedPairs(t *testing.T) {
+	dangerousKey := "line\nkey\ttail\\\" }"
 	dangerous, err := tfrender.RenderGeneratedImports("zia_fake", []tfrender.GeneratedImportPair{{
-		Key:      "line\nkey\ttail\\\" }",
+		Key:      dangerousKey,
 		ImportID: "abc}def\nwith\ttab\\tail",
 	}})
 	if err != nil {
@@ -58,15 +64,29 @@ func TestFilterGeneratedImportsFrozenNodeVectors(t *testing.T) {
 			text:      stagingImports(t, "zia_fake", "already_managed", "needs_import"),
 			addresses: []string{stagingImportAddress(t, "zia_fake", "already_managed")},
 			want: FilteredGeneratedImports{
-				Text:    "\nimport {\n  to = module.zia_fake.zia_fake.this[\"needs_import\"]\n  id = \"id-1\"\n}\n",
+				Text:    renderedImports(t, "zia_fake", tfrender.GeneratedImportPair{Key: "needs_import", ImportID: "id-1"}),
 				Kept:    1,
 				Skipped: 1,
 			},
 		},
 		{
+			name:      "every_import_managed",
+			text:      stagingImports(t, "zia_fake", "one", "two"),
+			addresses: []string{stagingImportAddress(t, "zia_fake", "one"), stagingImportAddress(t, "zia_fake", "two")},
+			want:      FilteredGeneratedImports{Text: "", Kept: 0, Skipped: 2},
+		},
+		{
+			name: "nothing_managed_is_identity",
+			text: stagingImports(t, "zia_fake", "one", "two"),
+			want: FilteredGeneratedImports{
+				Text: stagingImports(t, "zia_fake", "one", "two"),
+				Kept: 2,
+			},
+		},
+		{
 			name:      "quoted_braces_managed",
 			text:      dangerous,
-			addresses: []string{stagingImportAddress(t, "zia_fake", "line\nkey\ttail\\\" }")},
+			addresses: []string{stagingImportAddress(t, "zia_fake", dangerousKey)},
 			want:      FilteredGeneratedImports{Text: "", Kept: 0, Skipped: 1},
 		},
 		{
@@ -75,46 +95,13 @@ func TestFilterGeneratedImportsFrozenNodeVectors(t *testing.T) {
 			want: FilteredGeneratedImports{Text: dangerous, Kept: 1, Skipped: 0},
 		},
 		{
-			name: "mixed_hcl",
-			text: "resource \"x\" \"y\" {\n  value = \"not an import } block\"\n}\n" + managed +
-				"locals {\n  keep = true\n}\n" + kept + "# tail\n",
-			addresses: []string{stagingImportAddress(t, "zia_fake", "managed")},
-			want: FilteredGeneratedImports{
-				Text: "resource \"x\" \"y\" {\n  value = \"not an import } block\"\n}\n" +
-					"locals {\n  keep = true\n}\n" + kept + "# tail\n",
-				Kept: 1, Skipped: 1,
-			},
-		},
-		{
-			name:      "ordinary_resource",
-			text:      "resource \"x\" \"y\" {\n  value = \"abc}def\"\n}\n",
-			addresses: []string{"resource.x.y"},
-			want: FilteredGeneratedImports{
-				Text: "resource \"x\" \"y\" {\n  value = \"abc}def\"\n}\n",
-			},
-		},
-		{
-			name:      "nonbreaking_whitespace_does_not_anchor",
-			text:      "\u00a0" + managed + "\u3000",
-			addresses: []string{stagingImportAddress(t, "zia_fake", "managed")},
-			want:      FilteredGeneratedImports{Text: "\u00a0" + managed + "\u3000"},
-		},
-		{
-			name:      "carriage_return_does_not_anchor",
-			text:      "# not a Python line\r" + managed,
-			addresses: []string{stagingImportAddress(t, "zia_fake", "managed")},
-			want:      FilteredGeneratedImports{Text: "# not a Python line\r" + managed},
-		},
-		{
-			name:      "line_separator_does_not_anchor",
-			text:      "# not a Python line\u2028" + managed,
-			addresses: []string{stagingImportAddress(t, "zia_fake", "managed")},
-			want:      FilteredGeneratedImports{Text: "# not a Python line\u2028" + managed},
+			name: "empty_file",
+			want: FilteredGeneratedImports{},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := FilterGeneratedImports(test.text, test.addresses)
+			got, err := FilterGeneratedImports("zia_fake", test.text, test.addresses)
 			if err != nil {
 				t.Fatalf("FilterGeneratedImports(%q, %v) error: %v", test.text, test.addresses, err)
 			}
@@ -125,20 +112,79 @@ func TestFilterGeneratedImportsFrozenNodeVectors(t *testing.T) {
 	}
 }
 
-// TestFilterGeneratedImportsRejectsMalformedBlocks ports "generated import
-// filtering rejects malformed and unterminated strings" from
-// the original test corpus.
-func TestFilterGeneratedImportsRejectsMalformedBlocks(t *testing.T) {
-	texts := []string{
-		"import {\n  to = module.zia_fake.zia_fake.this[\"danger\"]\n  id = \"abc}def\"\n",
-		"import {\n  to = module.zia_fake.zia_fake.this[\"danger\"]\n  id = \"bad\\u0020escape\"\n}\n",
+// TestFilterGeneratedImportsRoundTripsThroughParser pins the invariant #324
+// made load-bearing: anything the filter writes to a staged imports file must
+// parse back through tfrender.ParseGeneratedImports, because
+// stagedImportTargets derives the imports-only -target set from the staged
+// file. The pre-#325 splicing filter violated this exactly in the common
+// steady-state -- at least one skipped block and at least one kept block in
+// the same file left the skipped blocks' separators behind, and the strict
+// parser refused the staged artifact at plan time (downstream hit this as one
+// new rule among 137 managed).
+func TestFilterGeneratedImportsRoundTripsThroughParser(t *testing.T) {
+	const total = 6
+	keys := make([]string, total)
+	for index := range keys {
+		keys[index] = "key-" + strconv.Itoa(index)
 	}
-	for _, text := range texts {
-		_, err := FilterGeneratedImports(text, []string{stagingImportAddress(t, "zia_fake", "danger")})
-		var failure *procerr.ProcessFailure
-		if !errors.As(err, &failure) || failure.Code != "INVALID_GENERATED_IMPORT_BLOCK" {
-			t.Errorf("FilterGeneratedImports(%q) error = %v, want INVALID_GENERATED_IMPORT_BLOCK", text, err)
+	text := stagingImports(t, "zia_fake", keys...)
+	for managedCount := 0; managedCount <= total; managedCount++ {
+		addresses := make([]string, 0, managedCount)
+		for _, key := range keys[:managedCount] {
+			addresses = append(addresses, stagingImportAddress(t, "zia_fake", key))
 		}
+		filtered, err := FilterGeneratedImports("zia_fake", text, addresses)
+		if err != nil {
+			t.Fatalf("FilterGeneratedImports(%d managed) error: %v", managedCount, err)
+		}
+		if filtered.Kept != total-managedCount || filtered.Skipped != managedCount {
+			t.Fatalf("FilterGeneratedImports(%d managed) kept/skipped = %d/%d, want %d/%d",
+				managedCount, filtered.Kept, filtered.Skipped, total-managedCount, managedCount)
+		}
+		pairs, err := tfrender.ParseGeneratedImports("zia_fake", filtered.Text)
+		if err != nil {
+			t.Fatalf("ParseGeneratedImports(filtered, %d managed) error = %v, want round-trip", managedCount, err)
+		}
+		wantKeys := keys[managedCount:]
+		gotKeys := make([]string, len(pairs))
+		for index, pair := range pairs {
+			gotKeys[index] = pair.Key
+		}
+		if len(wantKeys) == 0 {
+			wantKeys = []string{}
+		}
+		if !reflect.DeepEqual(gotKeys, wantKeys) {
+			t.Errorf("round-trip keys (%d managed) = %v, want %v", managedCount, gotKeys, wantKeys)
+		}
+	}
+}
+
+// TestFilterGeneratedImportsRefusesNonCanonicalInput pins fail-closed
+// staging: an imports artifact that is not a complete canonical generated
+// import file is refused when it is filtered, not passed through to fail at
+// plan time. The splicing filter used to pass surrounding HCL and malformed
+// text through unchanged.
+func TestFilterGeneratedImportsRefusesNonCanonicalInput(t *testing.T) {
+	managed := stagingImports(t, "zia_fake", "managed")
+	texts := map[string]struct {
+		text     string
+		wantCode string
+	}{
+		"unterminated_block": {"import {\n  to = module.zia_fake.zia_fake.this[\"danger\"]\n  id = \"abc}def\"\n", "INVALID_GENERATED_IMPORTS"},
+		"invalid_escape":     {"import {\n  to = module.zia_fake.zia_fake.this[\"danger\"]\n  id = \"bad\\u0020escape\"\n}\n", "INVALID_HCL_QUOTED_STRING"},
+		"surrounding_hcl":    {"resource \"x\" \"y\" {\n  value = \"not an import } block\"\n}\n" + managed, "INVALID_GENERATED_IMPORTS"},
+		"leading_whitespace": {" " + managed, "INVALID_GENERATED_IMPORTS"},
+		"orphan_separator":   {"\n" + managed, "INVALID_GENERATED_IMPORTS"},
+		"wrong_resource":     {stagingImports(t, "zpa_other", "key"), "INVALID_GENERATED_IMPORTS"},
+	}
+	for name, test := range texts {
+		t.Run(name, func(t *testing.T) {
+			_, err := FilterGeneratedImports("zia_fake", test.text, []string{stagingImportAddress(t, "zia_fake", "danger")})
+			var failure *procerr.ProcessFailure
+			if !errors.As(err, &failure) || failure.Code != test.wantCode {
+				t.Errorf("FilterGeneratedImports(%q) error = %v, want %s", test.text, err, test.wantCode)
+			}
+		})
 	}
 }
 
