@@ -47,6 +47,10 @@ type RunSavedPlanAssertionOptions struct {
 	BackendConfig *string
 	PolicyPath    *string
 	ReportPath    *string
+	// ImportScope enables the assert-clean post-import verification mode. The
+	// assessment engine derives the address set from staged imports; callers
+	// never provide addresses through this option.
+	ImportScope bool
 
 	TerraformExecutable        string
 	ResolveTerraformExecutable func() (string, error)
@@ -655,6 +659,7 @@ func runSavedPlanAssertion(
 	resolved.Assessment.TerraformExecutable = terraformExecutable
 	transaction := SavedPlanAssessmentTransactionOptions{
 		Assessment:              resolved.Assessment,
+		ImportScope:             options.ImportScope,
 		ExpectedPolicySHA256:    cloneStringPointer(policySHA256),
 		HasExpectedPolicySHA256: true,
 	}

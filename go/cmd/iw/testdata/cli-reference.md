@@ -128,6 +128,7 @@ Flags:
       --backend-config string   Terraform backend configuration path
       --deployment string       deployment overlay path
   -h, --help                    help for assert-clean
+      --import-scope            import-scope
       --profile string          pack profile path
       --report string           assessment report destination or standard output
       --resource string         resource selector (repeatable)

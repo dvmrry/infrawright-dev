@@ -138,6 +138,32 @@ func readOptionalStagedImportsUTF8(file string) (*string, error) {
 	return &text, nil
 }
 
+// stagedImportTargetsFromFile parses one staged imports artifact and returns
+// both its derived targets and whether the artifact was present. Keeping the
+// presence bit separate lets imports-only planning treat absence as a normal
+// skip while post-import assessment can fail closed instead of mistaking
+// absence for an empty import set.
+func stagedImportTargetsFromFile(
+	staged, resourceType string,
+) ([]string, bool, error) {
+	text, err := readOptionalStagedImportsUTF8(staged)
+	if err != nil {
+		return nil, false, err
+	}
+	if text == nil {
+		return nil, false, nil
+	}
+	pairs, err := tfrender.ParseGeneratedImports(resourceType, *text)
+	if err != nil {
+		return nil, true, err
+	}
+	targets := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		targets = append(targets, fmt.Sprintf("module.%s.%s.this[%q]", resourceType, resourceType, pair.Key))
+	}
+	return targets, true, nil
+}
+
 // stagedImportTargets reads resourceType's staged imports file inside the env
 // root directory -- stage-imports copies by basename (adopt.StageImports),
 // so the staged copy always sits at filepath.Join(directory,
@@ -146,22 +172,44 @@ func readOptionalStagedImportsUTF8(file string) (*string, error) {
 // contributes no targets.
 func stagedImportTargets(directory, resourceType string, paths tfrender.TransformArtifactPaths) ([]string, error) {
 	staged := filepath.Join(directory, filepath.Base(paths.Imports))
-	text, err := readOptionalStagedImportsUTF8(staged)
+	targets, _, err := stagedImportTargetsFromFile(staged, resourceType)
+	return targets, err
+}
+
+// RequiredStagedImportScope derives the opaque, engine-owned import scope for
+// a root whose post-import assessment explicitly needs provenance that no
+// longer appears in the consumed plan. Unlike imports-only planning, this lane
+// refuses an absent artifact so an assessment can never turn an unavailable
+// scope into a whole-root or empty-scope assertion.
+func RequiredStagedImportScope(
+	directory, resourceType string, paths tfrender.TransformArtifactPaths,
+) (*ImportAddressScope, error) {
+	staged := filepath.Join(directory, filepath.Base(paths.Imports))
+	targets, present, err := stagedImportTargetsFromFile(staged, resourceType)
 	if err != nil {
 		return nil, err
 	}
-	if text == nil {
-		return nil, nil
+	if !present {
+		return nil, lifecycleFailure(
+			"MISSING_STAGED_IMPORTS",
+			"staged imports artifact is required for post-import assessment scope",
+			procerr.CategoryDomain,
+		)
 	}
-	pairs, err := tfrender.ParseGeneratedImports(resourceType, *text)
+	return &ImportAddressScope{addresses: targets}, nil
+}
+
+// RequiredStagedImportTargets is the read-only target view of
+// RequiredStagedImportScope, retained for lifecycle callers and diagnostics
+// that need the derived addresses without using the assessment contract.
+func RequiredStagedImportTargets(
+	directory, resourceType string, paths tfrender.TransformArtifactPaths,
+) ([]string, error) {
+	scope, err := RequiredStagedImportScope(directory, resourceType, paths)
 	if err != nil {
 		return nil, err
 	}
-	targets := make([]string, 0, len(pairs))
-	for _, pair := range pairs {
-		targets = append(targets, fmt.Sprintf("module.%s.%s.this[%q]", resourceType, resourceType, pair.Key))
-	}
-	return targets, nil
+	return scope.Addresses(), nil
 }
 
 // dedupeSortedLifecycleStrings sorts values by canonjson.SortedStrings and

@@ -50,6 +50,30 @@ func assessmentChange(actions ...string) map[string]any {
 	}
 }
 
+func assessmentNoOpChangeRecord(address, resourceType string) map[string]any {
+	return map[string]any{
+		"address": address,
+		"type":    resourceType,
+		"change": map[string]any{
+			"actions": []any{"no-op"},
+			"before":  map[string]any{},
+			"after":   map[string]any{},
+		},
+	}
+}
+
+func assessmentUpdateChangeRecord(address, resourceType string) map[string]any {
+	return map[string]any{
+		"address": address,
+		"type":    resourceType,
+		"change": map[string]any{
+			"actions": []any{"update"},
+			"before":  map[string]any{"status": "recorded"},
+			"after":   map[string]any{"status": "remote"},
+		},
+	}
+}
+
 func planWithAssessmentChange(record any) map[string]any {
 	plan := completeAssessmentPlan()
 	plan["resource_changes"] = []any{record}
@@ -1141,6 +1165,100 @@ func TestValidateAssessmentPlanAcceptsTargetedImportOnlyIncompletePlan(t *testin
 				return
 			}
 			requireAssessmentPlanError(t, "ValidateAssessmentPlan(targeted import-only)", test.plan, test.contract, test.want)
+		})
+	}
+}
+
+// TestValidateAssessmentPlanAcceptsTargetedPostImportIncompletePlan pins the
+// second incomplete-plan arm: after apply, importing records are gone, so the
+// only surviving provenance is the engine-derived staged import scope. The
+// plan must have no pending resource changes before that provenance can waive
+// Terraform's incomplete marker, while refresh drift remains available for
+// the scoped assessment to inspect.
+func TestValidateAssessmentPlanAcceptsTargetedPostImportIncompletePlan(t *testing.T) {
+	const addressOne = `module.sample_resource.sample_resource.this["key1"]`
+	const addressTwo = `module.sample_resource.sample_resource.this["key2"]`
+	const siblingAddress = `module.sample_resource.sample_resource.this["sibling"]`
+	scope := &ImportAddressScope{addresses: []string{addressOne, addressTwo}}
+	postImportPlan := func(records ...any) map[string]any {
+		plan := targetedImportOnlyPlan(false, records...)
+		plan["resource_drift"] = []any{map[string]any{
+			"address": siblingAddress,
+			"type":    "sample_resource",
+			"change": map[string]any{
+				"actions": []any{"update"},
+				"before":  map[string]any{"status": "recorded"},
+				"after":   map[string]any{"status": "remote"},
+			},
+		}}
+		return plan
+	}
+	postImportContract := func(targets ...string) *AssessmentPlanContract {
+		attestation := testQualifiedPlanAttestation(true)
+		attestation.PlanArgv = append(attestation.PlanArgv, "-target="+targets[0])
+		for _, target := range targets[1:] {
+			attestation.PlanArgv = append(attestation.PlanArgv, "-target="+target)
+		}
+		return &AssessmentPlanContract{
+			PlanAttestation: attestation,
+			ImportScope:     scope,
+		}
+	}
+
+	tests := []struct {
+		name     string
+		plan     map[string]any
+		contract *AssessmentPlanContract
+		want     string
+	}{
+		{
+			name: "matching_targets_and_all_no_ops_accepted",
+			plan: postImportPlan(
+				assessmentNoOpChangeRecord(addressOne, "sample_resource"),
+				assessmentNoOpChangeRecord(addressTwo, "sample_resource"),
+			),
+			contract: postImportContract(addressOne, addressTwo),
+		},
+		{
+			name:     "target_set_differs_refused",
+			plan:     postImportPlan(assessmentNoOpChangeRecord(addressOne, "sample_resource")),
+			contract: postImportContract(addressOne),
+			want:     "plan must be complete before assessment",
+		},
+		{
+			name:     "non_no_op_resource_change_refused",
+			plan:     postImportPlan(assessmentUpdateChangeRecord(addressOne, "sample_resource")),
+			contract: postImportContract(addressOne, addressTwo),
+			want:     "plan must be complete before assessment",
+		},
+		{
+			name: "absent_attestation_refused",
+			plan: postImportPlan(
+				assessmentNoOpChangeRecord(addressOne, "sample_resource"),
+				assessmentNoOpChangeRecord(addressTwo, "sample_resource"),
+			),
+			contract: &AssessmentPlanContract{ImportScope: scope},
+			want:     "plan must be complete before assessment",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.want == "" {
+				requireValidAssessmentPlan(
+					t,
+					"ValidateAssessmentPlan(targeted post-import)",
+					test.plan,
+					test.contract,
+				)
+				return
+			}
+			requireAssessmentPlanError(
+				t,
+				"ValidateAssessmentPlan(targeted post-import)",
+				test.plan,
+				test.contract,
+				test.want,
+			)
 		})
 	}
 }
