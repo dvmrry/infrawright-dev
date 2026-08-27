@@ -303,6 +303,72 @@ func validateEmptyArray(plan map[string]any, field string) {
 	}
 }
 
+// referenceOutputMatchesEvidence reports whether an engine reference-output
+// value is authorized by the evidence reconstructed from the plan.
+//
+// Ordinarily the two must be equal: an untargeted plan carries every instance
+// of every contracted type, so any key the output claims and the evidence
+// does not prove is an unproven reference ID.
+//
+// Under the sanctioned imports-only targeted shape (the same trio
+// AcceptIncompleteTargetedImportOnlyPlan gates: a digest-validated
+// attestation whose argv -target set equals the plan's importing addresses,
+// over an import-only plan) the two sides are drawn from DIFFERENT
+// POPULATIONS by construction. planned_values holds only the -target'ed
+// addresses, while the root's reference output derives from the module's
+// items output, which covers every committed instance. Requiring equality
+// there refuses correct plans: staging one new import into an
+// already-populated module is the ordinary incremental-adoption shape, and
+// its evidence is a strict subset of its output by design.
+//
+// Authorization is therefore weakened to exactly what such a plan can prove:
+// every instance the plan DOES carry must bind its exact provider-observed
+// value, and instances the plan deliberately excluded are not asserted. The
+// original property is preserved for every address the plan touches -- a
+// targeted import still cannot smuggle in an unproven reference ID -- and a
+// claim naming a resource type the contract never declared is refused in
+// both modes.
+func referenceOutputMatchesEvidence(actual any, expected map[string]any, waived bool) bool {
+	if canonjson.TerraformJSONEqual(actual, expected) {
+		return true
+	}
+	if !waived {
+		return false
+	}
+	actualObject, ok := assessmentObject(actual)
+	if !ok {
+		return false
+	}
+	for _, resourceType := range assessmentObjectKeys(actualObject) {
+		if _, declared := expected[resourceType]; !declared {
+			return false
+		}
+	}
+	for resourceType, rawProven := range expected {
+		proven, provenOK := assessmentObject(rawProven)
+		if !provenOK {
+			return false
+		}
+		if len(proven) == 0 {
+			// The plan carries no instance of this type, so it proves
+			// nothing about it; the output's entries for it are not
+			// asserted rather than assumed wrong.
+			continue
+		}
+		claimed, claimedOK := assessmentObject(actualObject[resourceType])
+		if !claimedOK {
+			return false
+		}
+		for key, value := range proven {
+			claimedValue, present := claimed[key]
+			if !present || !canonjson.TerraformJSONEqual(claimedValue, value) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // referenceOutputValue reconstructs managed authorization from
 // planned_values.root_module and data authorization from the refreshed
 // prior_state.values.root_module. Data authorization is deliberately keyed by
@@ -312,6 +378,7 @@ func validateEmptyArray(plan map[string]any, field string) {
 func referenceOutputValue(
 	plan map[string]any,
 	resourceTypes []ReferenceOutputType,
+	waived bool,
 ) map[string]any {
 	expected := referenceOutputEvidence(plan, resourceTypes, "id")
 
@@ -337,7 +404,7 @@ func referenceOutputValue(
 		}
 		outputValue, hasValue := plannedOutput["value"]
 		if plannedOutput["sensitive"] != true || !hasValue ||
-			!canonjson.TerraformJSONEqual(outputValue, expected) {
+			!referenceOutputMatchesEvidence(outputValue, expected, waived) {
 			assessmentFail("planned engine reference output does not match provider-observed resource IDs")
 		}
 	}
@@ -607,7 +674,8 @@ func validateReferenceOutputChange(
 		}
 		break
 	}
-	expected := referenceOutputValue(plan, resourceTypes)
+	waived := AcceptIncompleteTargetedImportOnlyPlan(plan, attestation)
+	expected := referenceOutputValue(plan, resourceTypes, waived)
 	actions, ok := change["actions"].([]any)
 	if !ok || len(actions) != 1 {
 		assessmentFail("engine reference output permits only create, update, or no-op actions")
@@ -617,7 +685,7 @@ func validateReferenceOutputChange(
 		assessmentFail("engine reference output permits only create, update, or no-op actions")
 	}
 	after, hasAfter := change["after"]
-	if !hasAfter || !canonjson.TerraformJSONEqual(after, expected) {
+	if !hasAfter || !referenceOutputMatchesEvidence(after, expected, waived) {
 		assessmentFail("engine reference output does not match provider-observed resource IDs")
 	}
 	before, hasBefore := change["before"]
@@ -627,7 +695,7 @@ func validateReferenceOutputChange(
 	if action == "update" && !hasBefore {
 		assessmentFail("engine reference output update must bind its prior value")
 	}
-	if action == "no-op" && (!hasBefore || !canonjson.TerraformJSONEqual(before, expected)) {
+	if action == "no-op" && (!hasBefore || !referenceOutputMatchesEvidence(before, expected, waived)) {
 		assessmentFail("engine reference output no-op must bind the provider-observed IDs")
 	}
 	if afterUnknown, present := change["after_unknown"]; present {
@@ -674,7 +742,9 @@ func validateSiblingReferenceOutputChange(
 	resourceTypes []ReferenceOutputType,
 	field string,
 	outputName string,
+	attestation *PlanCreationAttestation,
 ) {
+	waived := AcceptIncompleteTargetedImportOnlyPlan(plan, attestation)
 	actions, ok := change["actions"].([]any)
 	if !ok || len(actions) != 1 {
 		assessmentFail("engine reference output permits only create, update, or no-op actions")
@@ -706,7 +776,7 @@ func validateSiblingReferenceOutputChange(
 	if len(claimed) > 0 {
 		expected = referenceOutputEvidence(plan, claimed, field)
 	}
-	if !canonjson.TerraformJSONEqual(after, expected) {
+	if !referenceOutputMatchesEvidence(after, expected, waived) {
 		assessmentFail("engine reference output does not match provider-observed resource IDs")
 	}
 
@@ -724,7 +794,7 @@ func validateSiblingReferenceOutputChange(
 	}
 	outputValue, hasValue := plannedOutput["value"]
 	if plannedOutput["sensitive"] != true || !hasValue ||
-		!canonjson.TerraformJSONEqual(outputValue, expected) {
+		!referenceOutputMatchesEvidence(outputValue, expected, waived) {
 		assessmentFail("planned engine reference output does not match provider-observed resource IDs")
 	}
 
@@ -735,7 +805,7 @@ func validateSiblingReferenceOutputChange(
 	if action == "update" && !hasBefore {
 		assessmentFail("engine reference output update must bind its prior value")
 	}
-	if action == "no-op" && (!hasBefore || !canonjson.TerraformJSONEqual(before, expected)) {
+	if action == "no-op" && (!hasBefore || !referenceOutputMatchesEvidence(before, expected, waived)) {
 		assessmentFail("engine reference output no-op must bind the provider-observed IDs")
 	}
 	if afterUnknown, present := change["after_unknown"]; present {
@@ -984,7 +1054,7 @@ func validateOutputChanges(plan map[string]any, contract *AssessmentPlanContract
 			if actionsOK && len(actions) == 1 && actions[0] == "no-op" {
 				validateNoOpOutputChange(change)
 			} else {
-				validateSiblingReferenceOutputChange(change, plan, resourceTypes, field, name)
+				validateSiblingReferenceOutputChange(change, plan, resourceTypes, field, name, planAttestation)
 			}
 			continue
 		}

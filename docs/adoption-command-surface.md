@@ -138,6 +138,20 @@ plan whose `-target` set exactly equals its own import addresses, refusing
 otherwise. Drift skipped this way is not lost -- it is planned normally,
 without targeting, on the next ordinary `make plan SAVE=1` cycle.
 
+Targeting also splits the two populations the reference-output contract
+compares. `planned_values` carries only the targeted addresses, while the
+root's `iw_reference_ids` output (and each `iw_reference_ids_<field>` sibling)
+derives from the module's `items` output, which covers every committed
+instance. Whole-output equality therefore cannot hold for the ordinary
+incremental shape -- staging one new import into a module that already holds
+committed items -- so under the same attested import-only targeting the
+contract authorizes what the plan actually proves: every targeted address must
+bind its exact provider-observed ID, and instances the plan deliberately
+excluded are not asserted. A claim naming a resource type the contract never
+declared is still refused, as is a missing or altered ID at any targeted
+address, and any plan outside that sanctioned shape still requires whole-output
+equality.
+
 ## Committed Config Must Stay Fetchable
 
 Committed config means you own a resource; a `fetch` block in the registry
