@@ -938,11 +938,26 @@ func ClassifyPlanWithOptions(
 	}
 	planObject := planValue.(map[string]any)
 	findings := make([]PlanFinding, 0)
+	var importAddresses map[string]struct{}
+	if contract != nil && contract.ImportScope != nil {
+		addresses := contract.ImportScope.Addresses()
+		importAddresses = make(map[string]struct{}, len(addresses))
+		for _, address := range addresses {
+			importAddresses[address] = struct{}{}
+		}
+	}
 	for _, source := range []string{"resource_changes", "resource_drift"} {
 		records, _ := planObject[source].([]any)
 		demote := options.TolerateRefreshDrift && source == "resource_drift"
 		for _, rawRecord := range records {
-			for _, finding := range classifyChange(rawRecord.(map[string]any), source, policy, options.SchemaTypes) {
+			record := rawRecord.(map[string]any)
+			if importAddresses != nil {
+				address := record["address"].(string)
+				if _, included := importAddresses[address]; !included {
+					continue
+				}
+			}
+			for _, finding := range classifyChange(record, source, policy, options.SchemaTypes) {
 				if demote && finding.Status == Blocked {
 					finding.Status = Tolerated
 				}

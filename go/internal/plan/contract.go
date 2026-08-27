@@ -57,6 +57,26 @@ type AssessmentPlanError struct {
 // Error implements error.
 func (e *AssessmentPlanError) Error() string { return e.message }
 
+// ImportAddressScope is the engine-derived set of Terraform addresses that a
+// post-import assessment is allowed to classify. It is deliberately separate
+// from plan evidence: Terraform consumes importing records during apply, so
+// the staged artifact is the surviving provenance for this narrow verification
+// mode.
+type ImportAddressScope struct {
+	addresses []string
+}
+
+// Addresses returns a copy of the engine-derived scope for classification and
+// recheck bookkeeping. There is intentionally no public constructor accepting
+// addresses: the only production path that creates a non-empty scope parses a
+// staged imports artifact in lifecycle.go.
+func (scope *ImportAddressScope) Addresses() []string {
+	if scope == nil {
+		return nil
+	}
+	return append([]string{}, scope.addresses...)
+}
+
 // ReferenceOutputKind binds a contracted reference-output type to the
 // Terraform resource mode that is authorized to prove its IDs.
 type ReferenceOutputKind string
@@ -82,6 +102,10 @@ type AssessmentPlanContract struct {
 	// PlanAttestation is required for a non-no-op data reference-output claim.
 	// Managed claims retain the pre-attestation behavior when it is absent.
 	PlanAttestation *PlanCreationAttestation
+	// ImportScope is supplied only by the assessment engine after it derives
+	// addresses from the root's staged imports artifact. A nil scope preserves
+	// the ordinary whole-root contract and classification behavior.
+	ImportScope *ImportAddressScope
 }
 
 func assessmentFail(message string) {
@@ -964,6 +988,54 @@ func AcceptIncompleteTargetedImportOnlyPlan(planValue any, attestation *PlanCrea
 	return sameAddressSet(targets, addresses)
 }
 
+// AcceptIncompleteTargetedPostImportPlan is the second fail-closed exception
+// to "plan must be complete before assessment". A targeted verification plan
+// made after apply carries no importing records, so the first exception cannot
+// attest what was adopted. This arm requires the engine-observed staged import
+// addresses, an attested target list equal to that set, and a resource-change
+// section containing no pending writes; refresh drift remains available for
+// the scoped classifier to inspect on the imported addresses.
+func AcceptIncompleteTargetedPostImportPlan(
+	planValue any,
+	attestation *PlanCreationAttestation,
+	importScope *ImportAddressScope,
+) bool {
+	if attestation == nil || importScope == nil || len(importScope.Addresses()) == 0 {
+		return false
+	}
+	planObject, ok := planValue.(map[string]any)
+	if !ok || planObject["complete"] != false {
+		return false
+	}
+	targets := targetedPlanArgvAddresses(attestation.PlanArgv)
+	if len(targets) == 0 || !sameAddressSet(targets, importScope.Addresses()) {
+		return false
+	}
+	value, present := planObject["resource_changes"]
+	if !present {
+		return false
+	}
+	records, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, rawRecord := range records {
+		record, ok := rawRecord.(map[string]any)
+		if !ok {
+			return false
+		}
+		change, ok := record["change"].(map[string]any)
+		if !ok {
+			return false
+		}
+		actions, ok := change["actions"].([]any)
+		if !ok || len(actions) != 1 || actions[0] != "no-op" {
+			return false
+		}
+	}
+	return true
+}
+
 func validatePresentPlanAttestation(plan map[string]any, attestation *PlanCreationAttestation) {
 	if attestation == nil {
 		return
@@ -1142,7 +1214,13 @@ func ValidateAssessmentPlan(planValue any, contract *AssessmentPlanContract) (er
 		attestation = contract.PlanAttestation
 		validatePresentPlanAttestation(plan, attestation)
 	}
-	if plan["complete"] != true && !AcceptIncompleteTargetedImportOnlyPlan(plan, attestation) {
+	var importScope *ImportAddressScope
+	if contract != nil {
+		importScope = contract.ImportScope
+	}
+	if plan["complete"] != true &&
+		!AcceptIncompleteTargetedImportOnlyPlan(plan, attestation) &&
+		!AcceptIncompleteTargetedPostImportPlan(plan, attestation, importScope) {
 		assessmentFail("plan must be complete before assessment")
 	}
 	if plan["errored"] != false {

@@ -262,8 +262,8 @@ refresh: dist/iw ## Reconcile recorded state with reality; changes nothing remot
 clean-plans: dist/iw ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
 	$(IW) clean-plans $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-assert-clean: dist/iw ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
-	@$(IW) assert-clean $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --terraform "$(TF)" $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
+assert-clean: dist/iw ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [IMPORT_SCOPE=1] [BACKEND_CONFIG=<file>] [REPORT=<file>])
+	@$(IW) assert-clean $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --terraform "$(TF)" $(if $(IMPORT_SCOPE),--import-scope) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 assert-adoptable: dist/iw ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
 	@$(IW) assert-adoptable $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --terraform "$(TF)" $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")

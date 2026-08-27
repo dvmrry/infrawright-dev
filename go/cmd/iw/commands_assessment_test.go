@@ -269,6 +269,7 @@ func TestAssessmentCLIOptionGrammarAndLastWins(t *testing.T) {
 		{name: "duplicate tenant", mode: assessment.AssertClean, arguments: []string{"--tenant", "one", "--tenant", "two"}, want: "--tenant may be specified only once"},
 		{name: "duplicate report", mode: assessment.AssertClean, arguments: []string{"--report", "one", "--report", "two"}, want: "--report may be specified only once"},
 		{name: "clean rejects policy", mode: assessment.AssertClean, arguments: []string{"--policy", "policy.json"}, want: "unknown flag: --policy"},
+		{name: "adoptable rejects import scope", mode: assessment.AssertAdoptable, arguments: []string{"--import-scope"}, want: "unknown flag: --import-scope"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := assessmentCLIOptionsFor(test.arguments, test.mode, root)
@@ -294,6 +295,16 @@ func TestAssessmentCLIOptionGrammarAndLastWins(t *testing.T) {
 	}
 	if options.policy == nil || *options.policy != "second.json" {
 		t.Errorf("policy = %#v, want last occurrence", options.policy)
+	}
+
+	cleanOptions, err := assessmentCLIOptionsFor(
+		[]string{"--import-scope"}, assessment.AssertClean, root,
+	)
+	if err != nil {
+		t.Fatalf("assessmentCLIOptionsFor(import scope) error = %v", err)
+	}
+	if !cleanOptions.importScope {
+		t.Error("importScope = false, want true for --import-scope")
 	}
 }
 

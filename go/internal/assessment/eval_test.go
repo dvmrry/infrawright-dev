@@ -3,12 +3,15 @@ package assessment
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/plan"
+	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 )
 
 func mustParseDataJSON(t *testing.T, text string) any {
@@ -265,6 +268,118 @@ func TestClassifyPlanRefreshDriftStanceIsExplicitAndScoped(t *testing.T) {
 	if scoped.Status != Blocked || len(scoped.Findings) != 1 ||
 		scoped.Findings[0].Status != Blocked {
 		t.Errorf("ClassifyPlanWithOptions(pending change) = %#v, want blocked resource_changes finding", scoped)
+	}
+}
+
+func scopedImportAssessmentPlan(driftAddress string) map[string]any {
+	const importedAddress = `module.sample_resource.sample_resource.this["imported"]`
+	return map[string]any{
+		"format_version": "1.2",
+		"complete":       true,
+		"errored":        false,
+		"resource_changes": []any{map[string]any{
+			"address": importedAddress,
+			"type":    "sample_resource",
+			"change": map[string]any{
+				"actions": []any{"no-op"},
+				"before":  map[string]any{"id": "remote"},
+				"after":   map[string]any{"id": "remote"},
+			},
+		}},
+		"resource_drift": []any{map[string]any{
+			"address": driftAddress,
+			"type":    "sample_resource",
+			"change": map[string]any{
+				"actions": []any{"update"},
+				"before":  map[string]any{"status": "recorded"},
+				"after":   map[string]any{"status": "remote"},
+			},
+		}},
+	}
+}
+
+func scopedImportAddressScope(t *testing.T) *plan.ImportAddressScope {
+	t.Helper()
+	const resourceType = "sample_resource"
+	directory := t.TempDir()
+	paths := tfrender.TransformArtifactPaths{
+		Imports: filepath.Join("imports", "downstream", resourceType+"_imports.tf"),
+	}
+	content, err := tfrender.RenderGeneratedImports(resourceType, []tfrender.GeneratedImportPair{
+		{Key: "imported", ImportID: "remote-imported"},
+	})
+	if err != nil {
+		t.Fatalf("tfrender.RenderGeneratedImports() error = %v, want nil", err)
+	}
+	staged := filepath.Join(directory, filepath.Base(paths.Imports))
+	if err := os.WriteFile(staged, []byte(content), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v, want nil", staged, err)
+	}
+	scope, err := plan.RequiredStagedImportScope(directory, resourceType, paths)
+	if err != nil {
+		t.Fatalf("plan.RequiredStagedImportScope() error = %v, want nil", err)
+	}
+	return scope
+}
+
+// TestClassifyPlanImportScopeFiltersOnlyOutOfScopeFindings pins the scoped
+// gate's population boundary. The imported address keeps strict classification
+// while a sibling drift record disappears only when the engine supplies the
+// matching scope; the same plan remains blocked without that mode.
+func TestClassifyPlanImportScopeFiltersOnlyOutOfScopeFindings(t *testing.T) {
+	const importedAddress = `module.sample_resource.sample_resource.this["imported"]`
+	const siblingAddress = `module.sample_resource.sample_resource.this["sibling"]`
+	scope := scopedImportAddressScope(t)
+	tests := []struct {
+		name          string
+		scope         *plan.ImportAddressScope
+		driftAddress  string
+		wantStatus    PlanStatus
+		wantAddresses []string
+	}{
+		{
+			name:          "scoped_sibling_drift_is_excluded",
+			scope:         scope,
+			driftAddress:  siblingAddress,
+			wantStatus:    Clean,
+			wantAddresses: []string{},
+		},
+		{
+			name:          "scoped_imported_drift_still_blocks",
+			scope:         scope,
+			driftAddress:  importedAddress,
+			wantStatus:    Blocked,
+			wantAddresses: []string{importedAddress},
+		},
+		{
+			name:          "unscoped_sibling_drift_still_blocks",
+			driftAddress:  siblingAddress,
+			wantStatus:    Blocked,
+			wantAddresses: []string{siblingAddress},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := ClassifyPlanWithOptions(
+				scopedImportAssessmentPlan(test.driftAddress),
+				nil,
+				&plan.AssessmentPlanContract{ImportScope: test.scope},
+				ClassifyPlanOptions{},
+			)
+			if err != nil {
+				t.Fatalf("ClassifyPlanWithOptions(%s) error = %v, want nil", test.name, err)
+			}
+			if got.Status != test.wantStatus {
+				t.Errorf("ClassifyPlanWithOptions(%s).Status = %q, want %q", test.name, got.Status, test.wantStatus)
+			}
+			addresses := make([]string, len(got.Findings))
+			for index, finding := range got.Findings {
+				addresses[index] = finding.Address
+			}
+			if !reflect.DeepEqual(addresses, test.wantAddresses) {
+				t.Errorf("ClassifyPlanWithOptions(%s).finding addresses = %#v, want %#v", test.name, addresses, test.wantAddresses)
+			}
+		})
 	}
 }
 

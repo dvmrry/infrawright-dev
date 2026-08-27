@@ -185,10 +185,11 @@ func TestRunSavedPlanAssertionOrdersPolicyInputsTopologyTerraformAssessmentAndRe
 	diagnostics := []string{}
 	selectors := []string{"sample_resource"}
 	options := RunSavedPlanAssertionOptions{
-		Workspace: t.TempDir(),
-		Mode:      AssertClean,
-		Tenant:    runnerTestString("tenant"),
-		Selectors: selectors,
+		Workspace:   t.TempDir(),
+		Mode:        AssertClean,
+		ImportScope: true,
+		Tenant:      runnerTestString("tenant"),
+		Selectors:   selectors,
 		LoadInputs: func() (SavedPlanAssertionInputs, error) {
 			events = append(events, "inputs")
 			selectors[0] = "mutated-after-capture"
@@ -235,6 +236,9 @@ func TestRunSavedPlanAssertionOrdersPolicyInputsTopologyTerraformAssessmentAndRe
 		}
 		if !got.Assessment.HasExpectedPolicySHA256 || got.Assessment.ExpectedPolicySHA256 != nil {
 			t.Errorf("AssessSavedPlansReport() expected policy = checked:%t sha:%v, want checked nil", got.Assessment.HasExpectedPolicySHA256, got.Assessment.ExpectedPolicySHA256)
+		}
+		if !got.Assessment.ImportScope {
+			t.Error("AssessSavedPlansReport().Assessment.ImportScope = false, want true")
 		}
 		return SavedPlanAssessmentReportOutcome{Report: runnerTestReport(t, AssertClean, Clean)}, nil
 	}

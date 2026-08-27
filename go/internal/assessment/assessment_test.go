@@ -15,9 +15,11 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/artifacts"
 	"github.com/dvmrry/infrawright-dev/go/internal/controlevidence"
+	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/plan"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
+	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 )
 
 type assessmentTransactionFixture struct {
@@ -183,6 +185,75 @@ func assessmentOptions(
 		TerraformExecutable: executable,
 		Roots:               []SavedPlanAssessmentRootInput{fixture.rootInput},
 		PolicyPath:          policyPath,
+	}
+}
+
+// TestDeriveAssessmentImportScopeFailsClosed keeps artifact provenance a
+// prerequisite for the opt-in mode, including the empty-artifact case.
+func TestDeriveAssessmentImportScopeFailsClosed(t *testing.T) {
+	const resourceType = "sample_resource"
+	const tenant = "downstream"
+	tests := []struct {
+		name          string
+		content       *string
+		wantAddresses []string
+	}{
+		{name: "missing_artifact"},
+		{name: "unparseable_artifact", content: func() *string { value := "not generated\n"; return &value }()},
+		{name: "empty_artifact", content: func() *string { value := ""; return &value }()},
+		{name: "canonical_artifact", content: func() *string {
+			value, err := tfrender.RenderGeneratedImports(resourceType, []tfrender.GeneratedImportPair{
+				{Key: "one", ImportID: "remote-one"},
+			})
+			if err != nil {
+				t.Fatalf("tfrender.RenderGeneratedImports() error = %v, want nil", err)
+			}
+			return &value
+		}(), wantAddresses: []string{`module.sample_resource.sample_resource.this["one"]`}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			envDir := filepath.Join(workspace, "env")
+			if err := os.MkdirAll(envDir, 0o700); err != nil {
+				t.Fatalf("os.MkdirAll(%q) error = %v, want nil", envDir, err)
+			}
+			if test.content != nil {
+				artifact := filepath.Join(envDir, resourceType+"_imports.tf")
+				if err := os.WriteFile(artifact, []byte(*test.content), 0o600); err != nil {
+					t.Fatalf("os.WriteFile(%q) error = %v, want nil", artifact, err)
+				}
+			}
+			root := SavedPlanAssessmentRootInput{
+				Tenant: tenant, Label: resourceType, Members: []string{resourceType}, EnvDir: envDir,
+			}
+			assessment := SavedPlanAssessmentOptions{
+				LoadedContext: &LoadedSavedPlanAssessmentContext{
+					Deployment: deployment.Deployment{Overlay: "."},
+				},
+			}
+			got, err := deriveAssessmentImportScope(assessment, root)
+			if len(test.wantAddresses) == 0 {
+				if err == nil {
+					t.Fatalf("deriveAssessmentImportScope(%s) error = nil, want fail-closed ProcessFailure", test.name)
+				}
+				var failure *procerr.ProcessFailure
+				if !errors.As(err, &failure) || failure.Code != "IMPORT_SCOPE_FAILED" {
+					t.Fatalf("deriveAssessmentImportScope(%s) error = %T(%v), want ProcessFailure code IMPORT_SCOPE_FAILED", test.name, err, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("deriveAssessmentImportScope(%s) error = %v, want nil", test.name, err)
+			}
+			if got == nil || !reflect.DeepEqual(got.Addresses(), test.wantAddresses) {
+				var addresses []string
+				if got != nil {
+					addresses = got.Addresses()
+				}
+				t.Errorf("deriveAssessmentImportScope(%s).Addresses = %#v, want %#v", test.name, addresses, test.wantAddresses)
+			}
+		})
 	}
 }
 

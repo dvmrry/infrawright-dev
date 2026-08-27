@@ -71,7 +71,7 @@ Supporting adoption commands:
 |---|---|
 | `make unstage-imports` | Remove staged import/move blocks from env roots. |
 | `make clean-plans` | Remove saved plan artifacts. |
-| `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Blocks on refresh drift, which is the out-of-band change this gate exists to catch. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
+| `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Blocks on refresh drift, which is the out-of-band change this gate exists to catch. After an import-only apply, `IMPORT_SCOPE=1` narrows classification to the engine-derived staged import addresses for each root. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
 | `make check-config` | Require every resource type with committed config to be fetchable. Runs in the credential-free lane with the other validators and reads only files already in your tree. |
 | `make roots` | Emit the configured root topology as versioned JSON for downstream path-to-root scoping. |
 | `make scope-paths` | Map a caller-supplied JSON list of changed paths to affected resources and complete logical roots without invoking a VCS. |
@@ -151,6 +151,20 @@ excluded are not asserted. A claim naming a resource type the contract never
 declared is still refused, as is a missing or altered ID at any targeted
 address, and any plan outside that sanctioned shape still requires whole-output
 equality.
+
+After an import-only apply, the next verification plan has consumed its
+`importing` records, and a whole-root `assert-clean` would otherwise treat
+unrelated refresh drift as evidence against the newly adopted object. Use
+`make assert-clean IMPORT_SCOPE=1` for that verification. The engine reads and
+parses each root's staged imports artifact to derive the scope; the command
+accepts no caller-supplied address list. A missing, empty, or unparseable
+artifact fails closed. Findings outside the derived addresses are omitted from
+classification, while drift on a derived address remains strict and blocks.
+The targeted post-apply plan is allowed to retain Terraform's
+`"complete": false` only when its attested `-target` set equals that derived
+scope and every `resource_changes` record is a no-op. The default
+`assert-clean` invocation remains whole-root and keeps its existing
+classification semantics.
 
 ## Committed Config Must Stay Fetchable
 

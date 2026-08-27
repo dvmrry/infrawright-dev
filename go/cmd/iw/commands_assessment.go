@@ -26,6 +26,7 @@ type assessmentCLIOptions struct {
 	policy        *string
 	report        *string
 	terraform     *string
+	importScope   bool
 }
 
 // assessmentCLIOptionsFor ports assessmentCliOptions. The rootDirectory
@@ -74,6 +75,7 @@ func assessmentCLIOptionsInput(
 	if value, ok := lastCommandOption(parsed, "--terraform"); ok {
 		options.terraform = &value
 	}
+	options.importScope = parsed.Flags.Has("--import-scope")
 	return options, nil
 }
 
@@ -85,6 +87,7 @@ func runAssessmentCommand(
 	err := assessment.RunSavedPlanAssertion(assessment.RunSavedPlanAssertionOptions{
 		Workspace:     workspace,
 		Mode:          mode,
+		ImportScope:   options.importScope,
 		Tenant:        options.tenant,
 		Selectors:     options.resources,
 		BackendConfig: options.backendConfig,
@@ -157,15 +160,18 @@ func assessmentCobraSpec(
 		"--tenant", "--resource", "--backend-config", "--report", "--terraform",
 		"--deployment", "--root", "--profile",
 	}
+	bools := []string{}
 	if mode == assessment.AssertAdoptable {
 		values = append(values, "--policy")
+	} else {
+		bools = append(bools, "--import-scope")
 	}
 	return typedCobraCommandSpec{
 		use: string(mode), short: map[assessment.AssessmentMode]string{
 			assessment.AssertClean:     "Require saved plans to be clean",
 			assessment.AssertAdoptable: "Require saved plans to satisfy adoption policy",
 		}[mode],
-		valueFlags: values, allowEmpty: []string{"--tenant"},
+		valueFlags: values, boolFlags: bools, allowEmpty: []string{"--tenant"},
 		rejectDuplicates: []string{"--tenant", "--report"}, run: run,
 	}
 }

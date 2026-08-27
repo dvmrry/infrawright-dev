@@ -935,6 +935,71 @@ func TestPlanEnvironmentRootsImportsOnlyTargetsStagedImportAddresses(t *testing.
 	}
 }
 
+// TestRequiredStagedImportTargetsFailsClosed distinguishes an absent artifact
+// from an empty-but-present one so the assessment mode cannot silently widen
+// its population when import provenance is unavailable.
+func TestRequiredStagedImportTargetsFailsClosed(t *testing.T) {
+	const resourceType = "zia_url_categories"
+	paths := tfrender.TransformArtifactPaths{
+		Imports: filepath.Join("imports", "downstream", resourceType+"_imports.tf"),
+	}
+	valid, err := tfrender.RenderGeneratedImports(resourceType, []tfrender.GeneratedImportPair{
+		{Key: "one", ImportID: "id-one"},
+	})
+	if err != nil {
+		t.Fatalf("tfrender.RenderGeneratedImports() error = %v, want nil", err)
+	}
+	tests := []struct {
+		name        string
+		content     *string
+		wantTargets []string
+		wantCode    string
+	}{
+		{
+			name:     "missing_artifact",
+			wantCode: "MISSING_STAGED_IMPORTS",
+		},
+		{
+			name:     "unparseable_artifact",
+			content:  func() *string { value := "not generated\n"; return &value }(),
+			wantCode: "INVALID_GENERATED_IMPORTS",
+		},
+		{
+			name:        "canonical_artifact",
+			content:     &valid,
+			wantTargets: []string{`module.zia_url_categories.zia_url_categories.this["one"]`},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			if test.content != nil {
+				staged := filepath.Join(directory, filepath.Base(paths.Imports))
+				if err := os.WriteFile(staged, []byte(*test.content), 0o600); err != nil {
+					t.Fatalf("os.WriteFile(%q) error = %v, want nil", staged, err)
+				}
+			}
+			got, err := RequiredStagedImportTargets(directory, resourceType, paths)
+			if test.wantCode != "" {
+				if err == nil {
+					t.Fatalf("RequiredStagedImportTargets(%s) error = nil, want code %q", test.name, test.wantCode)
+				}
+				var failure *procerr.ProcessFailure
+				if !errors.As(err, &failure) || failure.Code != test.wantCode {
+					t.Fatalf("RequiredStagedImportTargets(%s) error = %T(%v), want ProcessFailure code %q", test.name, err, err, test.wantCode)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("RequiredStagedImportTargets(%s) error = %v, want nil", test.name, err)
+			}
+			if !reflect.DeepEqual(got, test.wantTargets) {
+				t.Errorf("RequiredStagedImportTargets(%s) = %#v, want %#v", test.name, got, test.wantTargets)
+			}
+		})
+	}
+}
+
 // TestPlanEnvironmentRootsImportsOnlySkipsNoStagedImports covers an
 // ordinary importable root (not derived, not data-referent) that simply has
 // not had stage-imports run for it: imports-only now means exactly the

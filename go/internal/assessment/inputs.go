@@ -5,6 +5,7 @@ package assessment
 // saved-plan assessment and rechecks that root selection has not changed.
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -115,6 +116,110 @@ func artifactModeForResource(root metadata.LoadedPackRoot, resourceType string) 
 		}
 	}
 	return tfrender.TransformArtifactModeGenerated, nil
+}
+
+func assessmentImportScopeFailure(root SavedPlanAssessmentRootInput, err error) *procerr.ProcessFailure {
+	var processFailure *procerr.ProcessFailure
+	if errors.As(err, &processFailure) {
+		return procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
+			Code:     "IMPORT_SCOPE_FAILED",
+			Category: processFailure.Category,
+			Message:  "unable to derive post-import assessment scope for root " + root.Label,
+			Details: []procerr.ErrorDetail{{
+				Path:    "/imports",
+				Code:    processFailure.Code,
+				Message: processFailure.Message,
+			}},
+		})
+	}
+	return procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
+		Code:     "IMPORT_SCOPE_FAILED",
+		Category: procerr.CategoryDomain,
+		Message:  "unable to derive post-import assessment scope for root " + root.Label,
+		Details: []procerr.ErrorDetail{{
+			Path:    "/imports",
+			Code:    "IMPORT_SCOPE_SOURCE",
+			Message: err.Error(),
+		}},
+	})
+}
+
+// deriveAssessmentImportScope reconstructs the population an import-only
+// apply adopted from the staged artifact that survived that apply. The
+// loaded context is required because deployment metadata selects the same
+// artifact naming convention as lifecycle planning; without it, accepting a
+// caller-supplied path or address would sever scope from engine provenance.
+func deriveAssessmentImportScope(
+	assessment SavedPlanAssessmentOptions,
+	root SavedPlanAssessmentRootInput,
+) (*plan.ImportAddressScope, error) {
+	if assessment.LoadedContext == nil {
+		return nil, assessmentImportScopeFailure(
+			root,
+			errors.New("post-import assessment scope requires loaded pack context"),
+		)
+	}
+	if len(root.Members) != 1 {
+		return nil, assessmentImportScopeFailure(
+			root,
+			errors.New("post-import assessment scope requires one root member"),
+		)
+	}
+	resourceType := root.Members[0]
+	paths, err := tfrender.ComputeTransformArtifactPaths(
+		assessment.LoadedContext.Deployment,
+		resourceType,
+		root.Tenant,
+		tfrender.TransformArtifactModeGenerated,
+	)
+	if err != nil {
+		return nil, assessmentImportScopeFailure(root, err)
+	}
+	importScope, err := plan.RequiredStagedImportScope(root.EnvDir, resourceType, paths)
+	if err != nil {
+		return nil, assessmentImportScopeFailure(root, err)
+	}
+	if len(importScope.Addresses()) == 0 {
+		return nil, assessmentImportScopeFailure(
+			root,
+			errors.New("staged imports artifact contains no import addresses"),
+		)
+	}
+	return importScope, nil
+}
+
+func assessmentRootKey(root SavedPlanAssessmentRootInput) string {
+	return root.Tenant + "\x00" + root.Label
+}
+
+func sameAssessmentAddressSet(left, right []string) bool {
+	return sameStringSequence(canonjson.SortedStrings(left), canonjson.SortedStrings(right))
+}
+
+func recheckAssessmentImportScopes(
+	assessment SavedPlanAssessmentOptions,
+	expected map[string][]string,
+) error {
+	if len(expected) != len(assessment.Roots) {
+		return assessmentDomainFailure(
+			"IMPORT_SCOPE_CHANGED",
+			"post-import assessment scope changed during assessment",
+		)
+	}
+	for _, root := range assessment.Roots {
+		actual, err := deriveAssessmentImportScope(assessment, root)
+		if err != nil {
+			return fmt.Errorf("recheck post-import assessment scope for root %s: %w", root.Label, err)
+		}
+		want, ok := expected[assessmentRootKey(root)]
+		if !ok || !sameAssessmentAddressSet(actual.Addresses(), want) {
+			return assessmentDomainFailure(
+				"IMPORT_SCOPE_CHANGED",
+				"post-import assessment scope changed during assessment",
+			)
+		}
+	}
+	return nil
 }
 
 // ResolvedSavedPlanAssessment pairs materialized inputs with whole-root

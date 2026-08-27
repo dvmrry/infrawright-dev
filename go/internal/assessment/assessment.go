@@ -58,6 +58,10 @@ type SavedPlanAssessmentResultLimits struct {
 // omitted-versus-explicit-zero distinction.
 type SavedPlanAssessmentTransactionOptions struct {
 	Assessment SavedPlanAssessmentOptions
+	// ImportScope enables the assert-clean post-import mode. The engine derives
+	// addresses from each root's staged imports artifact; callers provide only
+	// this mode bit, never an address list.
+	ImportScope bool
 
 	ExpectedPolicySHA256    *string
 	HasExpectedPolicySHA256 bool
@@ -125,6 +129,7 @@ type AssessSavedPlansReportOptions struct {
 
 type capturedAssessmentOptions struct {
 	assessment                SavedPlanAssessmentOptions
+	importScope               bool
 	expectedPolicySHA256      *string
 	checkExpectedPolicySHA256 bool
 	sourceLimits              artifacts.BoundedReadLimits
@@ -284,6 +289,7 @@ func captureAssessmentOptions(
 
 	result := capturedAssessmentOptions{
 		assessment:                capturedBase,
+		importScope:               options.ImportScope,
 		expectedPolicySHA256:      cloneString(options.ExpectedPolicySHA256),
 		checkExpectedPolicySHA256: options.HasExpectedPolicySHA256 || options.ExpectedPolicySHA256 != nil,
 		sourceLimits:              artifacts.DefaultBoundedReadLimits(),
@@ -1013,6 +1019,7 @@ func runSavedPlanAssessment[T any](
 	findingCount := 0
 	findingPathCount := 0
 	findingMetadataBytes := 0
+	importScopes := make(map[string][]string)
 	for _, root := range captured.assessment.Roots {
 		if _, err := assessmentRemainingTime(deadline, hooks.now); err != nil {
 			primaryFailure = safeAssessmentFailure(err)
@@ -1132,15 +1139,25 @@ func runSavedPlanAssessment[T any](
 		// AcceptIncompleteTargetedImportOnlyPlan. ReferenceOutputTypes stays
 		// empty for such types; every reference-output branch gates on a
 		// non-empty list.
+		rootClassifyOptions := classifyOptions
 		contract := &plan.AssessmentPlanContract{
 			ReferenceOutputTypes: append([]plan.ReferenceOutputType{}, root.ReferenceOutputTypes...),
 			PlanAttestation:      capturedEvidence.PlanAttestation,
+		}
+		if captured.importScope {
+			importScope, scopeErr := deriveAssessmentImportScope(captured.assessment, root)
+			if scopeErr != nil {
+				primaryFailure = safeAssessmentFailure(scopeErr)
+				return completed, nil
+			}
+			importScopes[assessmentRootKey(root)] = importScope.Addresses()
+			contract.ImportScope = importScope
 		}
 		classification, err := ClassifyPlanWithOptions(
 			planValue,
 			boundPolicy.Policy,
 			contract,
-			classifyOptions,
+			rootClassifyOptions,
 		)
 		if err != nil {
 			primaryFailure = safeAssessmentFailure(err)
@@ -1274,6 +1291,12 @@ func runSavedPlanAssessment[T any](
 			primaryFailure = safeAssessmentFailure(err)
 			return completed, nil
 		}
+		if captured.importScope {
+			if err := recheckAssessmentImportScopes(captured.assessment, importScopes); err != nil {
+				primaryFailure = safeAssessmentFailure(err)
+				return completed, nil
+			}
+		}
 	}
 	if _, err := assessmentRemainingTime(deadline, hooks.now); err != nil {
 		primaryFailure = safeAssessmentFailure(err)
@@ -1342,6 +1365,12 @@ func AssessSavedPlansReport(
 		Policy:    cloneString(options.Request.Policy),
 	}
 	assessmentPolicy := options.Assessment.Assessment.PolicyPath
+	if options.Assessment.ImportScope && mode != AssertClean {
+		return SavedPlanAssessmentReportOutcome{}, assessmentDomainFailure(
+			"INVALID_ASSESSMENT_REQUEST",
+			"post-import assessment scope requires assert-clean mode",
+		)
+	}
 	if (mode == AssertClean && (request.Policy != nil || assessmentPolicy != nil)) ||
 		(mode == AssertAdoptable && ((request.Policy == nil) != (assessmentPolicy == nil))) {
 		return SavedPlanAssessmentReportOutcome{}, assessmentDomainFailure(
@@ -1349,8 +1378,9 @@ func AssessSavedPlansReport(
 			"assessment mode and policy input disagree",
 		)
 	}
+	assessment := options.Assessment
 	report, err := runSavedPlanAssessment(
-		options.Assessment,
+		assessment,
 		// Adoption is the one caller that can neither clear refresh drift
 		// before the gate nor be helped by refusing on it. Every other
 		// entry point keeps the strict zero value.
