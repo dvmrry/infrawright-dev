@@ -1144,3 +1144,158 @@ func TestValidateAssessmentPlanAcceptsTargetedImportOnlyIncompletePlan(t *testin
 		})
 	}
 }
+
+// partialImportReferencePlan builds the shape #324's -target scoping created
+// and the reference-output contract did not anticipate: an incremental
+// adoption where the staged imports are a strict SUBSET of the module's
+// committed instances. planned_values carries only the -target'ed address,
+// while the root's reference output derives from the module's items output
+// and therefore covers every committed instance. The two sides are drawn
+// from different populations by construction, so whole-output equality
+// cannot hold however correct the plan is.
+func partialImportReferencePlan(outputValue map[string]any) map[string]any {
+	const targeted = `module.zpa_segment_group.zpa_segment_group.this["segment_two"]`
+	return map[string]any{
+		"format_version": "1.2",
+		// Terraform marks every -target plan incomplete.
+		"complete": false,
+		"errored":  false,
+		"planned_values": map[string]any{
+			"outputs": map[string]any{
+				infrawrightReferenceOutput: map[string]any{"sensitive": true, "value": outputValue},
+			},
+			"root_module": map[string]any{
+				"child_modules": []any{
+					map[string]any{
+						"address": "module.zpa_segment_group",
+						// Only the targeted instance is planned; the
+						// already-committed sibling is excluded by -target.
+						"resources": []any{
+							map[string]any{
+								"address": targeted,
+								"index":   "segment_two",
+								"mode":    "managed",
+								"type":    "zpa_segment_group",
+								"values":  map[string]any{"id": "72059380790653546", "name": "Segment Two"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"resource_changes": []any{
+			assessmentImportChangeRecord(targeted, "zpa_segment_group"),
+		},
+		"output_changes": map[string]any{
+			infrawrightReferenceOutput: map[string]any{
+				"actions": []any{"update"},
+				"before": map[string]any{
+					"zpa_segment_group": map[string]any{"segment_one": "72059380790653545"},
+				},
+				"after":            outputValue,
+				"before_sensitive": true,
+				"after_sensitive":  true,
+				"after_unknown":    false,
+			},
+		},
+	}
+}
+
+func partialImportReferenceContract(targets ...string) *AssessmentPlanContract {
+	contract := targetedImportOnlyContract(targets...)
+	contract.ReferenceOutputTypes = []ReferenceOutputType{{
+		Type: "zpa_segment_group", Kind: ReferenceOutputKindManaged,
+	}}
+	return contract
+}
+
+// TestValidateAssessmentPlanAuthorizesPartialImportReferenceOutput pins the
+// population asymmetry #324 introduced into the reference-output contract.
+// Adopting ONE new object into a module that already holds committed items is
+// the ordinary incremental path -- not an edge case -- and its evidence is a
+// strict subset of its output by design. The gate must authorize what the
+// plan proves (every targeted address binds its provider-observed ID) without
+// demanding evidence for the instances -target deliberately excluded, and must
+// keep demanding whole-output equality everywhere the waiver does not apply.
+func TestValidateAssessmentPlanAuthorizesPartialImportReferenceOutput(t *testing.T) {
+	const targeted = `module.zpa_segment_group.zpa_segment_group.this["segment_two"]`
+	// The output covers both the committed instance and the newly imported
+	// one; only the latter appears in planned_values.
+	bothInstances := map[string]any{
+		"zpa_segment_group": map[string]any{
+			"segment_one": "72059380790653545",
+			"segment_two": "72059380790653546",
+		},
+	}
+
+	t.Run("partial_import_accepted", func(t *testing.T) {
+		requireValidAssessmentPlan(
+			t,
+			"ValidateAssessmentPlan(partial import)",
+			partialImportReferencePlan(bothInstances),
+			partialImportReferenceContract(targeted),
+		)
+	})
+
+	t.Run("untargeted_plan_still_requires_whole_output_equality", func(t *testing.T) {
+		// Same subset shape, but the attestation carries no -target, so the
+		// waiver cannot fire and the original strict contract applies.
+		requireAssessmentPlanError(
+			t,
+			"ValidateAssessmentPlan(untargeted subset)",
+			partialImportReferencePlan(bothInstances),
+			partialImportReferenceContract(),
+			"plan must be complete before assessment",
+		)
+	})
+
+	t.Run("wrong_id_at_targeted_address_refused", func(t *testing.T) {
+		// The one address the plan DOES prove must still bind exactly.
+		wrong := map[string]any{
+			"zpa_segment_group": map[string]any{
+				"segment_one": "72059380790653545",
+				"segment_two": "72059380790653999",
+			},
+		}
+		requireAssessmentPlanError(
+			t,
+			"ValidateAssessmentPlan(wrong targeted id)",
+			partialImportReferencePlan(wrong),
+			partialImportReferenceContract(targeted),
+			"planned engine reference output does not match provider-observed resource IDs",
+		)
+	})
+
+	t.Run("undeclared_resource_type_refused", func(t *testing.T) {
+		// A waived plan must not become a way to publish IDs for a type the
+		// reference contract never declared.
+		undeclared := map[string]any{
+			"zpa_segment_group": map[string]any{
+				"segment_one": "72059380790653545",
+				"segment_two": "72059380790653546",
+			},
+			"zpa_server_group": map[string]any{"smuggled": "72059380790653777"},
+		}
+		requireAssessmentPlanError(
+			t,
+			"ValidateAssessmentPlan(undeclared type)",
+			partialImportReferencePlan(undeclared),
+			partialImportReferenceContract(targeted),
+			"planned engine reference output does not match provider-observed resource IDs",
+		)
+	})
+
+	t.Run("missing_targeted_address_refused", func(t *testing.T) {
+		// Dropping the imported key entirely leaves the import unproven.
+		missing := map[string]any{
+			"zpa_segment_group": map[string]any{"segment_one": "72059380790653545"},
+		}
+		requireAssessmentPlanError(
+			t,
+			"ValidateAssessmentPlan(missing targeted id)",
+			partialImportReferencePlan(missing),
+			partialImportReferenceContract(targeted),
+			"planned engine reference output does not match provider-observed resource IDs",
+		)
+	})
+}
