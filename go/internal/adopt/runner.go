@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -172,7 +173,7 @@ func prepareAdoptionItems(rawItems []any, resource metadata.LoadedResourceMetada
 
 // projectAdoptionItems verifies exact Oracle key coverage and projects each
 // observed state object in deterministic key order.
-func projectAdoptionItems(policy *metadata.DriftPolicy, prepared preparedAdoptionItems, root metadata.LoadedPackRoot, state map[string]OracleStateObject) (tfrender.PullTransformResult, error) {
+func projectAdoptionItems(policy *metadata.DriftPolicy, prepared preparedAdoptionItems, root metadata.LoadedPackRoot, state map[string]OracleStateObject, write func(string)) (tfrender.PullTransformResult, error) {
 	originals := make(map[string]map[string]any, len(prepared.IdentityByKey))
 	if len(prepared.KeyToImportID) == 0 {
 		return tfrender.PullTransformResult{Drops: []string{}, Items: map[string]map[string]any{}, Originals: originals}, nil
@@ -203,6 +204,13 @@ func projectAdoptionItems(policy *metadata.DriftPolicy, prepared preparedAdoptio
 		return tfrender.PullTransformResult{}, fmt.Errorf("%s adoption Oracle keys did not match requested identities (missing=%s unexpected=%s)", prepared.Resource.Type, missingText, unexpectedText)
 	}
 	items := make(map[string]map[string]any, len(state))
+	type valueRewriteDiagnosticKey struct {
+		resourceType string
+		path         string
+		from         string
+		to           string
+	}
+	firedValueRewrites := make(map[valueRewriteDiagnosticKey]int)
 	for _, key := range canonjson.SortedStrings(adoptMapKeys(state)) {
 		observed := state[key]
 		identity, ok := prepared.IdentityByKey[key]
@@ -216,6 +224,12 @@ func projectAdoptionItems(policy *metadata.DriftPolicy, prepared preparedAdoptio
 			Root:            &root,
 			SensitiveValues: observed.SensitiveValues,
 			StateValues:     observed.Values,
+			OnValueRewrite: func(resourceType, path, from, to string) {
+				if write == nil {
+					return
+				}
+				firedValueRewrites[valueRewriteDiagnosticKey{resourceType: resourceType, path: path, from: from, to: to}]++
+			},
 		})
 		if err != nil {
 			return tfrender.PullTransformResult{}, err
@@ -223,12 +237,30 @@ func projectAdoptionItems(policy *metadata.DriftPolicy, prepared preparedAdoptio
 		originals[key] = cloneAdoptionRecord(identity)
 		items[key] = projected
 	}
+	if write != nil && len(firedValueRewrites) > 0 {
+		keys := make([]valueRewriteDiagnosticKey, 0, len(firedValueRewrites))
+		for key := range firedValueRewrites {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			for _, values := range [][2]string{{keys[i].resourceType, keys[j].resourceType}, {keys[i].path, keys[j].path}, {keys[i].from, keys[j].from}, {keys[i].to, keys[j].to}} {
+				if values[0] == values[1] {
+					continue
+				}
+				return canonjson.ComparePythonStrings(values[0], values[1]) < 0
+			}
+			return false
+		})
+		for _, key := range keys {
+			write(formatValueRewriteDiagnostic(key.resourceType, key.path, key.from, key.to, firedValueRewrites[key]))
+		}
+	}
 	return tfrender.PullTransformResult{Drops: []string{}, Items: items, Originals: originals}, nil
 }
 
-func adoptPreparedResourceItems(policy *metadata.DriftPolicy, prepared preparedAdoptionItems, root metadata.LoadedPackRoot, loader AdoptionStateLoader) (tfrender.PullTransformResult, error) {
+func adoptPreparedResourceItems(policy *metadata.DriftPolicy, prepared preparedAdoptionItems, root metadata.LoadedPackRoot, loader AdoptionStateLoader, write func(string)) (tfrender.PullTransformResult, error) {
 	if len(prepared.KeyToImportID) == 0 {
-		return projectAdoptionItems(policy, prepared, root, map[string]OracleStateObject{})
+		return projectAdoptionItems(policy, prepared, root, map[string]OracleStateObject{}, write)
 	}
 	if loader == nil {
 		return tfrender.PullTransformResult{}, fmt.Errorf("%s adoption requires a state loader", prepared.Resource.Type)
@@ -242,7 +274,7 @@ func adoptPreparedResourceItems(policy *metadata.DriftPolicy, prepared preparedA
 	if err != nil {
 		return tfrender.PullTransformResult{}, err
 	}
-	return projectAdoptionItems(policy, prepared, root, state)
+	return projectAdoptionItems(policy, prepared, root, state, write)
 }
 
 // AdoptResourceItems derives identity, loads provider state, and projects one
@@ -258,7 +290,7 @@ func AdoptResourceItems(policy *metadata.DriftPolicy, rawItems []any, resource m
 	if preflight.Status == "unsupported" {
 		return tfrender.PullTransformResult{}, fmt.Errorf("%s contains %d unsupported item(s); no Oracle command or artifact publication is permitted", resource.Type, preflight.Counts.Unsupported)
 	}
-	return adoptPreparedResourceItems(policy, preflight.Prepared, root, loader)
+	return adoptPreparedResourceItems(policy, preflight.Prepared, root, loader, write)
 }
 
 func pendingMovesPath(dep deployment.Deployment, resourceType, tenant string) (string, error) {
@@ -456,7 +488,7 @@ func RunAdoptBatch(options RunAdoptBatchOptions) (AdoptBatchResult, error) {
 			result.Failed = appendUnique(result.Failed, resourceType)
 			write(fmt.Sprintf("error: %s: %s", resourceType, pendingErr))
 		} else {
-			projected, adoptErr := adoptPreparedResourceItems(options.Policy, preflight.Prepared, options.Root, options.StateLoader)
+			projected, adoptErr := adoptPreparedResourceItems(options.Policy, preflight.Prepared, options.Root, options.StateLoader, write)
 			if adoptErr == nil {
 				adoptErr = assertNoPendingMoves(options.Deployment, resourceType, options.Tenant)
 			}

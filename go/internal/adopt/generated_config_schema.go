@@ -43,32 +43,6 @@ func stripCollection(path []any) []any {
 	return path
 }
 
-func schemaStatusEncoding(encoding metadata.TerraformTypeEncoding, path []any, base string) string {
-	if len(path) == 0 {
-		return base
-	}
-	switch typed := encoding.(type) {
-	case metadata.TerraformPrimitiveType:
-		return "unknown"
-	case metadata.TerraformCollectionType:
-		switch typed.Kind {
-		case "list", "set":
-			return schemaStatusEncoding(typed.Inner, stripCollection(path), base)
-		case "map":
-			return base
-		default:
-			return "unknown"
-		}
-	case metadata.TerraformObjectType:
-		segment, ok := path[0].(string)
-		inner, exists := typed.Members[segment]
-		if ok && exists {
-			return schemaStatusEncoding(inner, path[1:], base)
-		}
-	}
-	return "unknown"
-}
-
 func contains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
@@ -90,79 +64,11 @@ func requiredNestedBlock(blockType metadata.JsonObject) bool {
 	}
 }
 
-func schemaStatusBlock(block metadata.JsonObject, path []any, label string, resourceTop, requiredness bool) (string, error) {
-	if len(path) == 0 {
-		return "block", nil
-	}
-	segment, ok := path[0].(string)
-	if !ok || segment == "*" {
-		return "unknown", nil
-	}
-	attributes, err := metadata.TerraformAttributesForBlock(block, label)
-	if err != nil {
-		return "", err
-	}
-	inputs, err := classifiedAttributes(block, label, resourceTop)
-	if err != nil {
-		return "", err
-	}
-	if contains(inputs.Required, segment) || contains(inputs.Optional, segment) {
-		base := "optional"
-		if contains(inputs.Required, segment) {
-			base = "required"
-		}
-		if len(path) == 1 {
-			return base, nil
-		}
-		attribute, err := metadata.TerraformRequireObject(attributes[segment], label+".attributes."+segment)
-		if err != nil {
-			return "", err
-		}
-		encoding, err := metadata.TerraformAttributeType(attribute, label+".attributes."+segment)
-		if err != nil {
-			return "", err
-		}
-		return schemaStatusEncoding(encoding, path[1:], base), nil
-	}
-	allBlocks, err := metadata.TerraformBlockTypesForBlock(block, label)
-	if err != nil {
-		return "", err
-	}
-	inputBlocks, err := metadata.TerraformInputBlockTypes(block, label)
-	if err != nil {
-		return "", err
-	}
-	if blockType, exists := inputBlocks[segment]; exists {
-		if len(path) == 1 && requiredness {
-			if requiredNestedBlock(blockType) {
-				return "required", nil
-			}
-			return "optional", nil
-		}
-		child, err := metadata.TerraformRequireObject(blockType["block"], label+".block_types."+segment+".block")
-		if err != nil {
-			return "", err
-		}
-		return schemaStatusBlock(child, stripCollection(path[1:]), label+".block_types."+segment+".block", false, requiredness)
-	}
-	if _, exists := attributes[segment]; exists {
-		return "computed_only", nil
-	}
-	if _, exists := allBlocks[segment]; exists {
-		return "computed_only", nil
-	}
-	return "unknown", nil
-}
-
 // ProviderSchemaStatus ports providerSchemaStatus from
 // the original implementation. D3 reuses this narrow D1 substrate rather
 // than maintaining a second schema walker.
 func ProviderSchemaStatus(schema metadata.JsonObject, resourceType string, path []any, requiredness bool) (string, error) {
-	block, err := metadata.TerraformBlockForSchema(schema, resourceType)
-	if err != nil {
-		return "", err
-	}
-	return schemaStatusBlock(block, path, resourceType, true, requiredness)
+	return metadata.TerraformProviderSchemaStatus(schema, resourceType, path, requiredness)
 }
 
 func attributeSensitive(attribute metadata.JsonObject) (bool, error) {

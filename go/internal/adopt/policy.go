@@ -97,6 +97,27 @@ func PackAdoptionPolicyData(root metadata.LoadedPackRoot) any {
 		}
 		output = MergeAdoptionPolicyData(output, policy)
 	}
+	// value_rewrite is authored in the per-resource override file rather than
+	// in the manifest drift_policy document. Promote it into the existing
+	// validated policy-entry stream so adoption uses the same declaration-order
+	// and stale-match accounting as projection_sync/fill. Resource-map order is
+	// sorted because these overrides are keyed by resource type, not manifest
+	// declaration order.
+	for _, resourceType := range canonjson.SortedStrings(adoptMapKeys(root.Resources)) {
+		resource := root.Resources[resourceType]
+		raw, present := resource.Override["value_rewrite"]
+		if !present {
+			continue
+		}
+		output = MergeAdoptionPolicyData(output, metadata.JsonObject{
+			"version": float64(1),
+			"resource_types": metadata.JsonObject{
+				resourceType: metadata.JsonObject{
+					"value_rewrite": cloneAdoptionValue(raw),
+				},
+			},
+		})
+	}
 	return output
 }
 
@@ -119,5 +140,56 @@ func LoadAdoptionPolicy(root metadata.LoadedPackRoot, path *string) (*metadata.D
 	if _, err := metadata.NewDriftPolicy(user, *path); err != nil {
 		return nil, err
 	}
-	return metadata.NewDriftPolicy(MergeAdoptionPolicyData(base, user), *path+" merged with pack drift policy")
+	merged := MergeAdoptionPolicyData(base, user)
+	mergedSource := *path + " merged with pack drift policy"
+	if err := validateAdoptionValueRewriteSchema(root, merged, mergedSource); err != nil {
+		return nil, err
+	}
+	return metadata.NewDriftPolicy(merged, mergedSource)
+}
+
+// validateAdoptionValueRewriteSchema applies the pack schema contract after
+// pack and operator policy entries have been merged. Structural policy
+// validation alone cannot identify computed-only, repeated, non-string, or
+// enum-invalid targets, so operator-supplied entries must pass the same
+// schema-aware check before any adoption item is projected.
+func validateAdoptionValueRewriteSchema(root metadata.LoadedPackRoot, value any, source string) error {
+	record, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	resources, ok := record["resource_types"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	for _, resourceType := range canonjson.SortedStrings(adoptMapKeys(resources)) {
+		rawConfig, ok := resources[resourceType].(map[string]any)
+		if !ok {
+			continue
+		}
+		rawEntries, present := rawConfig["value_rewrite"]
+		if !present {
+			continue
+		}
+		resource, registered := root.Resources[resourceType]
+		if !registered {
+			return fmt.Errorf("%s resource type %s is not registered for value_rewrite", source, resourceType)
+		}
+		if _, derived := resource.Registry["derive"]; derived {
+			return fmt.Errorf("%s value_rewrite for %s is invalid: this primitive only applies to generated adopt types; derive-delegated and data_referent types use the transform batch", source, resourceType)
+		}
+		if dataReferent, ok := resource.Registry["data_referent"].(bool); ok && dataReferent {
+			return fmt.Errorf("%s value_rewrite for %s is invalid: this primitive only applies to generated adopt types; derive-delegated and data_referent types use the transform batch", source, resourceType)
+		}
+		schema, err := root.LoadResourceSchema(resourceType)
+		if err != nil {
+			return err
+		}
+		override := metadata.JsonObject{"value_rewrite": rawEntries}
+		entrySource := fmt.Sprintf("%s.resource_types.%s", source, resourceType)
+		if err := metadata.ValidateValueRewriteOverrideSchema(schema, resourceType, override, entrySource); err != nil {
+			return err
+		}
+	}
+	return nil
 }

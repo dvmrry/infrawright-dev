@@ -6,10 +6,14 @@ package metadata
 // exported-wrapper/unexported-implementation convention.
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -26,6 +30,8 @@ var fetchKeys = stringSet("envelope", "expand", "follow_paths", "merge_paths", "
 var paginationStyles = stringSet("single", "zcc_v2", "zia", "zpa")
 
 var fetchQueryKeys = stringSet("query")
+
+var valueRewriteIntegerString = regexp.MustCompile(`^[+-]?[0-9](?:_?[0-9])*$`)
 
 // dotPathSegment ports DOT_PATH_SEGMENT from the original implementation.
 var dotPathSegment = regexp.MustCompile(`(?i)^(?:\.|%2e){1,2}$`)
@@ -51,6 +57,7 @@ var overrideKeys = stringSet(
 	"key_field_references",
 	"ranges", "references", "renames", "sample", "skip_if", "skip_if_lte",
 	"sort_lists", "split_csv", "strip_prefix", "value_map",
+	"value_rewrite",
 )
 
 // IsCanonicalResourceType reports whether value is a canonical Terraform
@@ -826,9 +833,53 @@ func validateOverride(value any, source string) JsonObject {
 	}
 	validateModuleSingleBlocks(data, source)
 	validateKeyFieldReferences(data, source)
+	validateValueRewriteOverride(data, source)
 	skipFields := validateSkipMatchers(data, source)
 	validateSkipRenameConflicts(data, source, skipFields)
 	return data
+}
+
+// validateValueRewriteOverride validates the override-local contract before a
+// provider schema is loaded. Pack loading performs the second, schema-aware
+// pass: this first pass is intentionally independent so malformed entries
+// cannot disappear when a consumer later constructs its policy view.
+func validateValueRewriteOverride(data JsonObject, source string) {
+	rawEntries, present := data["value_rewrite"]
+	if !present {
+		return
+	}
+	entries, ok := rawEntries.([]any)
+	if !ok || len(entries) == 0 {
+		failf("%s.value_rewrite must be a non-empty list", source)
+	}
+	seen := make(map[string]struct{}, len(entries))
+	for index, rawEntry := range entries {
+		label := fmt.Sprintf("%s.value_rewrite[%d]", source, index)
+		entry, ok := rawEntry.(JsonObject)
+		if !ok {
+			failf("%s must be an object", label)
+		}
+		rejectUnknownKeys(entry, stringSet("path", "from", "to", "why"), label)
+		pathText := requireNonEmptyString(entry["path"], label+".path")
+		fromText := requireNonEmptyString(entry["from"], label+".from")
+		toText := requireNonEmptyString(entry["to"], label+".to")
+		requireNonEmptyString(entry["why"], label+".why")
+		if fromText == toText {
+			failf("%s from and to must differ", label)
+		}
+		path, err := ParsePolicyPath(pathText, label+".path")
+		if err != nil {
+			failf("%s: %s", label, err)
+		}
+		if policyPathHasWildcardOrIndex(path) {
+			failf("%s.path must not contain wildcard or index selectors", label)
+		}
+		scope := pathMarker(path) + "\x00" + fromText
+		if _, duplicate := seen[scope]; duplicate {
+			failf("%s contains duplicate from value %s for path %s", source, jsonQuote(fromText), jsonQuote(pathText))
+		}
+		seen[scope] = struct{}{}
+	}
 }
 
 // validateKeyFieldReferences validates the key-composition surface that
@@ -1027,6 +1078,234 @@ func LoadResourceSchema(metadata PackMetadata, resourceType string) (schema Json
 	return loadResourceSchema(metadata, resourceType), nil
 }
 
+// validateValueRewriteOverrideSchema is the pack-level half of value_rewrite
+// validation. The structural override pass has already rejected malformed
+// entry shapes; this pass binds each path to the active provider schema before
+// the override can become an adoption policy entry.
+//
+// A hard precondition is intentionally documented rather than inferred here:
+// value_rewrite only converges when the vendor normalizes a successful write
+// of `to` and returns `to` from Read. That behavior requires live vendor
+// evidence, so it cannot be checked mechanically from pack metadata. The
+// entry's `why` text must record the evidence that the vendor normalizes; if
+// Read keeps returning `from`, committed configuration and refreshed state
+// diverge forever and the post-import assert-clean gate blocks permanently.
+func validateValueRewriteOverrideSchema(schema JsonObject, resourceType string, override JsonObject, source string) {
+	rawEntries, present := override["value_rewrite"]
+	if !present {
+		return
+	}
+	entries, ok := rawEntries.([]any)
+	if !ok {
+		// validateValueRewriteOverride reports this first for normal pack loads.
+		// Keep this consumer of the contract fail-closed for hand-built metadata.
+		failf("%s.value_rewrite must be a non-empty list", source)
+	}
+	for index, rawEntry := range entries {
+		label := fmt.Sprintf("%s.value_rewrite[%d]", source, index)
+		entry, ok := rawEntry.(JsonObject)
+		if !ok {
+			failf("%s must be an object", label)
+		}
+		pathText, _ := entry["path"].(string)
+		path, err := ParsePolicyPath(pathText, label+".path")
+		if err != nil {
+			failf("%s: %s", label, err)
+		}
+		status, err := TerraformProviderSchemaStatus(schema, resourceType, path, false)
+		if err != nil {
+			failf("%s: %s", label, err)
+		}
+		if status != "required" && status != "optional" {
+			failf("%s.path %s of %s is not a writable input attribute", label, jsonQuote(pathText), resourceType)
+		}
+		attribute, found, err := TerraformValueRewriteAttribute(schema, resourceType, path)
+		if err != nil {
+			failf("%s: %s", label, err)
+		}
+		if !found {
+			failf("%s.path %s of %s is not a writable input attribute", label, jsonQuote(pathText), resourceType)
+		}
+		encoding, err := TerraformAttributeType(attribute, label+".path")
+		if err != nil {
+			failf("%s: %s", label, err)
+		}
+		primitive, isPrimitive := encoding.(TerraformPrimitiveType)
+		if !isPrimitive || primitive != TerraformPrimitiveType("string") {
+			failf("%s.path %s of %s must target a string attribute", label, jsonQuote(pathText), resourceType)
+		}
+		toText, _ := entry["to"].(string)
+		validateValueRewriteEnum(attribute, toText, label)
+		validateValueRewriteDropDefault(path, pathText, toText, override, label, resourceType)
+	}
+}
+
+// ValidateValueRewriteOverrideSchema exposes the schema-aware value_rewrite
+// pass to policy consumers. The pack loader calls the unexported function
+// directly; LoadAdoptionPolicy uses this wrapper after merging an operator
+// policy so the same writable-path, string-encoding, enum, and interaction
+// checks run before adoption starts.
+func ValidateValueRewriteOverrideSchema(schema JsonObject, resourceType string, override JsonObject, source string) (err error) {
+	defer recoverMetadataError(&err)
+	validateValueRewriteOverride(override, source)
+	validateValueRewriteOverrideSchema(schema, resourceType, override, source)
+	return nil
+}
+
+func validateValueRewriteDropDefault(path []any, pathText, toText string, override JsonObject, source, resourceType string) {
+	dropDefaults, ok := override["drop_if_default"].(JsonObject)
+	if !ok {
+		return
+	}
+	rewriteMarker := pathMarker(path)
+	for dropPathText, defaultValue := range dropDefaults {
+		dropPath, err := ParsePolicyPath(dropPathText, source+".drop_if_default")
+		if err != nil || pathMarker(dropPath) != rewriteMarker {
+			continue
+		}
+		if valueRewriteMatchesTransformDefault(toText, defaultValue) {
+			failf("%s value_rewrite path %s of %s conflicts with drop_if_default: to value %s is removed as the default", source, jsonQuote(pathText), resourceType, jsonQuote(toText))
+		}
+	}
+}
+
+// valueRewriteMatchesTransformDefault mirrors the transform-side default
+// comparison for the only non-string case a string rewrite can encounter:
+// an integer default accepts an integer-shaped string. String defaults use
+// exact whole-value equality, matching the v1 rewrite contract.
+func valueRewriteMatchesTransformDefault(value string, defaultValue any) bool {
+	if defaultText, ok := defaultValue.(string); ok {
+		return value == defaultText
+	}
+	defaultToken, ok := valueRewriteIntegerToken(defaultValue)
+	if !ok {
+		return false
+	}
+	integerText := strings.TrimSpace(value)
+	if !valueRewriteIntegerString.MatchString(integerText) {
+		return false
+	}
+	parsed, ok := new(big.Int).SetString(strings.ReplaceAll(integerText, "_", ""), 10)
+	if !ok {
+		return false
+	}
+	return canonjson.JSONEqual(json.Number(parsed.String()), json.Number(defaultToken))
+}
+
+func valueRewriteIntegerToken(value any) (string, bool) {
+	switch typed := value.(type) {
+	case json.Number:
+		token := string(typed)
+		if jsonIntegerToken.MatchString(token) {
+			return token, true
+		}
+	case float64:
+		if !math.IsInf(typed, 0) && typed == math.Trunc(typed) && math.Abs(typed) <= (1<<53-1) {
+			return strconv.FormatInt(int64(typed), 10), true
+		}
+	}
+	return "", false
+}
+
+// validateValueRewriteEnum enforces the enum guard when schema data supplies
+// one. Current vendored provider schemas contain no structural attribute-level
+// enum metadata (the repository's "enums" hit is an ordinary attribute name),
+// so this branch is intentionally inert for shipped packs. Keeping the check
+// at the pack-validation site means a future schema with an enum array gains
+// the guard without trusting a consumer-side best effort.
+func validateValueRewriteEnum(attribute JsonObject, toText, source string) {
+	rawEnum, present := attribute["enum"]
+	if !present {
+		return
+	}
+	values, ok := rawEnum.([]any)
+	if !ok || len(values) == 0 {
+		failf("%s.enum must be a non-empty list of strings", source)
+	}
+	for index, rawValue := range values {
+		value, ok := rawValue.(string)
+		if !ok || value == "" {
+			failf("%s.enum[%d] must be a non-empty string", source, index)
+		}
+		if value == toText {
+			return
+		}
+	}
+	failf("%s.to %s is not in the provider schema enum", source, jsonQuote(toText))
+}
+
+func validateValueRewritePackOverrides(metadata PackMetadata, registry LoadedRegistry, overrides LoadedOverrides) {
+	for _, resourceType := range sortedMapKeys(overrides.Entries) {
+		override := overrides.Entries[resourceType]
+		if _, present := override["value_rewrite"]; !present {
+			continue
+		}
+		registryEntry, registered := registry.Entries[resourceType]
+		if !registered {
+			source := overrides.Sources[resourceType]
+			failf("%s value_rewrite resource type %s is not registered", source, jsonQuote(resourceType))
+		}
+		validateValueRewriteGeneratedAdoptType(registryEntry, resourceType, overrides.Sources[resourceType])
+		schema := loadResourceSchema(metadata, resourceType)
+		validateValueRewriteOverrideSchema(schema, resourceType, override, overrides.Sources[resourceType])
+	}
+}
+
+func validateValueRewriteGeneratedAdoptType(registryEntry JsonObject, resourceType, source string) {
+	_, deriveDelegated := registryEntry["derive"]
+	dataReferent, isDataReferent := registryEntry["data_referent"].(bool)
+	if deriveDelegated || (isDataReferent && dataReferent) {
+		failf("%s value_rewrite for %s is invalid: this primitive only applies to generated adopt types; derive-delegated and data_referent types use the transform batch", source, jsonQuote(resourceType))
+	}
+}
+
+// validateValueRewritePackPolicies covers the same schema-aware contract for
+// a value_rewrite that reaches a pack manifest's drift_policy document. The
+// authoring shape is the per-resource override file, but the shared policy
+// vocabulary also accepts manifest policy data; validating both surfaces
+// keeps a manifest from becoming a schema-validation escape hatch.
+func validateValueRewritePackPolicies(metadata PackMetadata, registry LoadedRegistry, packNames []string) {
+	selected := make(map[string]struct{}, len(packNames))
+	for _, packName := range packNames {
+		selected[packName] = struct{}{}
+	}
+	for _, manifest := range metadata.Manifests {
+		if packNames != nil {
+			if _, active := selected[manifest.Name]; !active {
+				continue
+			}
+		}
+		policy, ok := manifest.Data["drift_policy"].(JsonObject)
+		if !ok {
+			continue
+		}
+		resources, ok := policy["resource_types"].(JsonObject)
+		if !ok {
+			continue
+		}
+		for _, resourceType := range sortedKeys(resources) {
+			config, ok := resources[resourceType].(JsonObject)
+			if !ok {
+				continue
+			}
+			rawEntries, present := config["value_rewrite"]
+			if !present {
+				continue
+			}
+			source := fmt.Sprintf("%s.drift_policy.resource_types.%s", manifest.Path, resourceType)
+			override := JsonObject{"value_rewrite": rawEntries}
+			validateValueRewriteOverride(override, source)
+			registryEntry, registered := registry.Entries[resourceType]
+			if !registered {
+				failf("%s value_rewrite resource type %s is not registered", source, jsonQuote(resourceType))
+			}
+			validateValueRewriteGeneratedAdoptType(registryEntry, resourceType, source)
+			schema := loadResourceSchema(metadata, resourceType)
+			validateValueRewriteOverrideSchema(schema, resourceType, override, source)
+		}
+	}
+}
+
 func loadResourceMainOverride(metadata PackMetadata, resourceType string) (*string, error) {
 	provider := ProviderForResource(metadata, resourceType)
 	overridePath := filepath.Join(manifestForProvider(metadata, provider).Directory, "overrides", resourceType, "main.tf")
@@ -1043,6 +1322,8 @@ func LoadResourceMainOverride(metadata PackMetadata, resourceType string) (conte
 func validatePackResources(metadata PackMetadata, packNames []string) (LoadedRegistry, LoadedOverrides) {
 	registry := loadRegistry(metadata, packNames)
 	overrides := loadOverrides(metadata, packNames)
+	validateValueRewritePackPolicies(metadata, registry, packNames)
+	validateValueRewritePackOverrides(metadata, registry, overrides)
 	validateUnsupportedProviderScopes(metadata, registry)
 	return registry, overrides
 }

@@ -414,7 +414,63 @@ Allowed top-level keys:
 | `split_csv` | Post-rename fields whose comma-joined string values are split into real lists with empty parts removed. |
 | `strip_prefix` | Field-to-prefix map for removing provider-added read prefixes from strings or lists of strings. |
 | `value_map` | Field-to-value map for converting API enum/string values to Terraform config values. Unmapped values pass through. |
+| `value_rewrite` | Adoption-only, exact whole-value normalization for a provider read value that the provider accepts and normalizes to a different write value. |
 <!-- override-key-table:end -->
+
+### `value_rewrite`
+
+First rule of use: the vendor must normalize the asymmetry. After a
+successful write of `to`, the vendor's Read must return `to`. If Read keeps
+returning `from`, committed configuration contains `to` while refreshed state
+contains `from`; they diverge forever, and the post-import assert-clean gate
+(which intentionally accepts no drift policy) blocks permanently. Record the
+evidence for this vendor-normalizing behavior in each entry's `why` text.
+
+Each entry is an object with exactly these four required, non-empty string
+fields:
+
+```json
+{
+  "value_rewrite": [
+    {
+      "path": "field_name",
+      "from": "provider-read-value",
+      "to": "provider-write-value",
+      "why": "Evidence that a successful write is normalized and read back as provider-write-value."
+    }
+  ]
+}
+```
+
+The seven v1 guards are:
+
+1. the entry has the exact `path`/`from`/`to`/`why` shape, with all four
+   fields non-empty strings and no unknown fields;
+2. `from` and `to` differ;
+3. `path` is a valid policy path with no wildcard or numeric-index selector;
+4. the same `from` value is not repeated for the same path;
+5. `path` resolves to a required or optional writable input attribute, not an
+   unknown or computed-only path or a traversal through a repeated block;
+6. the terminal attribute encoding is `string`; and
+7. when the provider schema supplies an enum for the attribute, `to` is one
+   of its values.
+
+Pack validation also refuses entries for `derive`-delegated or
+`data_referent` resource types because this primitive applies only to
+generated adopt types, and refuses a `to` value that the same path's
+`drop_if_default` would immediately remove. These checks keep a valid entry
+from being inert or silently turning into an unmanaged field.
+
+Version 1 compares only the complete decoded string at the exact path. It does
+not perform template matching, substring matching, or template/substring
+escaping; those forms are explicitly out of scope. The rewrite is applied in
+the adoption projection after provider-state projection and before pack
+`drop_if_default` handling. It does not change the transform or provider-write
+lanes.
+
+These entries are removable by design. Once the vendor fixes the asymmetry,
+remove the corresponding entry and its now-unneeded evidence rather than
+keeping a normalization exception indefinitely.
 
 Skip predicates run before transform `renames`, while adoption identity fallback
 applies `renames` before checking skip predicates. To keep transform and
