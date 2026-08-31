@@ -63,11 +63,13 @@ const (
 	// PolicyProjectionFill ports MODES[2] from
 	// the original implementation.
 	PolicyProjectionFill PolicyMode = "projection_fill"
-	// PolicyProjectionOmitIf ports MODES[3] from
-	// the original implementation.
+	// PolicyValueRewrite is a read-side projection correction promoted from a
+	// pack override. It remains in the policy vocabulary so the existing
+	// declaration-order, validation, and match-accounting plumbing is shared.
+	PolicyValueRewrite PolicyMode = "value_rewrite"
+	// PolicyProjectionOmitIf ports the existing projection_omit_if mode.
 	PolicyProjectionOmitIf PolicyMode = "projection_omit_if"
-	// PolicyPlanTolerate ports MODES[4] from
-	// the original implementation.
+	// PolicyPlanTolerate ports the existing plan_tolerate mode.
 	PolicyPlanTolerate PolicyMode = "plan_tolerate"
 )
 
@@ -75,6 +77,7 @@ var policyModes = []PolicyMode{
 	PolicyProjectionOmit,
 	PolicyProjectionSync,
 	PolicyProjectionFill,
+	PolicyValueRewrite,
 	PolicyProjectionOmitIf,
 	PolicyPlanTolerate,
 }
@@ -86,7 +89,7 @@ var (
 	policyTopLevelKeys = stringSet("version", "resource_types")
 	policyResourceKeys = stringSet(
 		"projection_omit", "projection_sync", "projection_fill",
-		"projection_omit_if", "plan_tolerate",
+		"value_rewrite", "projection_omit_if", "plan_tolerate",
 	)
 	policyCommonKeys = stringSet("path", "reason", "approved_by", "ticket")
 )
@@ -729,6 +732,8 @@ func driftEntryKeys(mode string) map[string]struct{} {
 		return stringSet("target_path", "source_path", "reason", "approved_by", "ticket")
 	case "projection_fill":
 		return stringSet("path", "source", "reason", "approved_by", "ticket")
+	case "value_rewrite":
+		return stringSet("path", "from", "to", "why")
 	case "projection_omit_if":
 		return unionStringSets(policyCommonKeys, stringSet("values"))
 	case "plan_tolerate":
@@ -746,6 +751,8 @@ func driftRequiredStrings(mode string) []string {
 		return []string{"target_path", "source_path", "reason", "approved_by"}
 	case "projection_fill":
 		return []string{"path", "source", "reason", "approved_by"}
+	case "value_rewrite":
+		return []string{"path", "from", "to", "why"}
 	default:
 		return []string{"path", "reason", "approved_by"}
 	}
@@ -882,6 +889,19 @@ func validateEntry(source, resourceType, mode string, entryValue any) string {
 			driftFail("%s projection_fill entry for %s source must not contain wildcard or index selectors", source, resourceType)
 		}
 		return "projection_fill\x00" + pathText
+	case "value_rewrite":
+		fromText := driftRequireString(entry, "from", context)
+		toText := driftRequireString(entry, "to", context)
+		if fromText == toText {
+			driftFail("%s value_rewrite entry for %s from and to must differ", source, resourceType)
+		}
+		if policyPathHasWildcardOrIndex(parsed) {
+			driftFail("%s value_rewrite entry for %s path must not contain wildcard or index selectors", source, resourceType)
+		}
+		// The from value participates in the scope key: multiple source values
+		// are useful for one path, but repeating one makes declaration order
+		// semantic and is therefore rejected.
+		return "value_rewrite\x00" + pathMarker(parsed) + "\x00" + fromText
 	case "projection_omit_if":
 		valuesRaw, hasValues := entry["values"]
 		values, isArray := valuesRaw.([]any)

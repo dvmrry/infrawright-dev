@@ -82,6 +82,14 @@ func writeSyntheticJSON(t *testing.T, path string, value any) {
 }
 
 func syntheticTestContext(t *testing.T) Context {
+	return syntheticTestContextWithValueRewrite(t, false)
+}
+
+func syntheticValueRewriteTestContext(t *testing.T) Context {
+	return syntheticTestContextWithValueRewrite(t, true)
+}
+
+func syntheticTestContextWithValueRewrite(t *testing.T, withValueRewrite bool) Context {
 	t.Helper()
 	packsRoot := t.TempDir()
 	writeSyntheticJSON(t, filepath.Join(packsRoot, "sample", "pack.json"), map[string]any{
@@ -104,11 +112,18 @@ func syntheticTestContext(t *testing.T) Context {
 			}}},
 		},
 	})
-	writeSyntheticJSON(t, filepath.Join(packsRoot, "sample", "overrides", "sample_resource.json"), map[string]any{
+	override := map[string]any{
 		"import_id": "{id}",
 		"key_field": "name",
 		"skip_if":   []any{map[string]any{"predefined": true}},
-	})
+	}
+	if withValueRewrite {
+		override["value_rewrite"] = []any{map[string]any{
+			"path": "name", "from": "Example", "to": "Provider Example",
+			"why": "The provider normalizes the successful write to Provider Example.",
+		}}
+	}
+	writeSyntheticJSON(t, filepath.Join(packsRoot, "sample", "overrides", "sample_resource.json"), override)
 	profile := filepath.Join(packsRoot, "profile.json")
 	writeSyntheticJSON(t, profile, map[string]any{
 		"kind": "infrawright.pack-set", "version": 1, "packs": []any{"sample"}, "shared": []any{},
@@ -316,6 +331,47 @@ func TestComparisonReviewAndAcceptedClassification(t *testing.T) {
 	}
 	if result["result"] != "classified_differences" {
 		t.Fatalf("accepted result = %s", result["result"])
+	}
+}
+
+func TestValueRewriteParityClassificationRequiresExactDivergence(t *testing.T) {
+	context := syntheticValueRewriteTestContext(t)
+	fixture := syntheticFixture(t, context, false)
+	result, err := Compare(fixture, context)
+	if err != nil {
+		t.Fatalf("Compare(value_rewrite exact divergence) error = %v", err)
+	}
+	if got, want := result["result"], ResultClassifiedDifferences; got != string(want) {
+		t.Fatalf("Compare(value_rewrite exact divergence) result = %v, want %s", got, want)
+	}
+	summary := result["summary"].(map[string]any)
+	if summary["unclassified"] != float64(0) || summary["accepted"] != float64(1) {
+		t.Fatalf("Compare(value_rewrite exact divergence) summary = %#v, want one accepted and no unclassified difference", summary)
+	}
+	differences := result["differences"].([]any)
+	if len(differences) != 1 {
+		t.Fatalf("Compare(value_rewrite exact divergence) differences = %#v, want one", differences)
+	}
+	classified := differences[0].(map[string]any)
+	if classified["classification"] != "value_rewrite" || classified["reason"] != "The provider normalizes the successful write to Provider Example." {
+		t.Fatalf("Compare(value_rewrite exact divergence) difference = %#v, want value_rewrite classification with entry why", classified)
+	}
+
+	nonMatching := syntheticFixture(t, context, false)
+	nonMatching.ProviderState["item-1"]["values"].(map[string]any)["name"] = "Unexpected Provider Example"
+	result, err = Compare(nonMatching, context)
+	if err != nil {
+		t.Fatalf("Compare(value_rewrite non-matching divergence) error = %v", err)
+	}
+	if got := result["result"]; got != string(ResultReviewRequired) {
+		t.Fatalf("Compare(value_rewrite non-matching divergence) result = %v, want %s", got, ResultReviewRequired)
+	}
+	if got := result["summary"].(map[string]any)["unclassified"]; got != float64(1) {
+		t.Fatalf("Compare(value_rewrite non-matching divergence) unclassified = %v, want 1", got)
+	}
+	nonMatchingDifference := result["differences"].([]any)[0].(map[string]any)
+	if nonMatchingDifference["status"] != "unclassified" {
+		t.Fatalf("Compare(value_rewrite non-matching divergence) difference = %#v, want unclassified", nonMatchingDifference)
 	}
 }
 

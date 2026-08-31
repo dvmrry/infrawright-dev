@@ -20,6 +20,11 @@ type ProjectProviderStateOptions struct {
 	Root            *metadata.LoadedPackRoot
 	SensitiveValues any
 	StateValues     any
+	OnDiagnostic    func(string)
+	// OnValueRewrite receives one event for each distinct rewrite that fires
+	// for this projected item. Adoption batches use it to aggregate the
+	// otherwise repetitive per-item diagnostic at their boundary.
+	OnValueRewrite func(resourceType, path, from, to string)
 }
 
 func projectionRecord(value any) (map[string]any, bool) {
@@ -474,7 +479,7 @@ func schemaTypeBlockAt(block metadata.JsonObject, path []any, label string, reso
 	return schemaTypeBlockAt(child, stripCollection(path[1:]), label+".block_types."+segment+".block", false)
 }
 
-func guardProjectionSyncPath(block metadata.JsonObject, path []any, label string, resourceTop bool, field, rawPath, resourceType string) error {
+func guardProjectionPath(block metadata.JsonObject, path []any, label string, resourceTop bool, field, rawPath, resourceType, operation string) error {
 	if len(path) <= 1 {
 		return nil
 	}
@@ -505,7 +510,7 @@ func guardProjectionSyncPath(block metadata.JsonObject, path []any, label string
 				return nil
 			case metadata.TerraformCollectionType:
 				if typed.Kind == "list" || typed.Kind == "set" {
-					return projectionErrorf("refusing to projection_sync %s %s of %s: non-terminal segment %s is a %s-typed attribute, not an object-shaped container", field, rawPath, resourceType, segment, typed.Kind)
+					return projectionErrorf("refusing to %s %s %s of %s: non-terminal segment %s is a %s-typed attribute, not an object-shaped container", operation, field, rawPath, resourceType, segment, typed.Kind)
 				}
 				if typed.Kind == "map" {
 					rest = rest[1:]
@@ -529,15 +534,19 @@ func guardProjectionSyncPath(block metadata.JsonObject, path []any, label string
 	}
 	if blockType, present := blocks[segment]; present {
 		if !metadata.TerraformBlockIsSingle(blockType) {
-			return projectionErrorf("refusing to projection_sync %s %s of %s: non-terminal segment %s is a repeated block, not an object-shaped container", field, rawPath, resourceType, segment)
+			return projectionErrorf("refusing to %s %s %s of %s: non-terminal segment %s is a repeated block, not an object-shaped container", operation, field, rawPath, resourceType, segment)
 		}
 		child, err := metadata.TerraformRequireObject(blockType["block"], label+".block_types."+segment+".block")
 		if err != nil {
 			return err
 		}
-		return guardProjectionSyncPath(child, path[1:], label+".block_types."+segment+".block", false, field, rawPath, resourceType)
+		return guardProjectionPath(child, path[1:], label+".block_types."+segment+".block", false, field, rawPath, resourceType, operation)
 	}
 	return nil
+}
+
+func guardProjectionSyncPath(block metadata.JsonObject, path []any, label string, resourceTop bool, field, rawPath, resourceType string) error {
+	return guardProjectionPath(block, path, label, resourceTop, field, rawPath, resourceType, "projection_sync")
 }
 
 // computedProjectionSyncSource reads a projection_sync source that the
@@ -727,6 +736,96 @@ func applyProjectionFill(output map[string]any, policy *metadata.DriftPolicy, ra
 	return nil
 }
 
+// applyValueRewrite corrects one explicitly enumerated read value after the
+// normal provider-state projection and projection sync/fill passes. It has no
+// write-path caller: the rewritten value is only used for committed adoption
+// configuration, while outbound Terraform/provider values remain untouched.
+func applyValueRewrite(
+	block metadata.JsonObject,
+	output map[string]any,
+	policy *metadata.DriftPolicy,
+	resourceType string,
+	schema metadata.JsonObject,
+	onDiagnostic func(string),
+	onValueRewrite func(resourceType, path, from, to string),
+) error {
+	rewrittenPaths := make(map[string]struct{})
+	for _, entry := range policy.Entries(resourceType, metadata.PolicyValueRewrite) {
+		data := entry.Data()
+		pathText, ok := data["path"].(string)
+		if !ok || pathText == "" {
+			return projectionErrorf("invalid value_rewrite path for %s", resourceType)
+		}
+		fromText, ok := data["from"].(string)
+		if !ok || fromText == "" {
+			return projectionErrorf("invalid value_rewrite from for %s path %s", resourceType, pathText)
+		}
+		toText, ok := data["to"].(string)
+		if !ok || toText == "" {
+			return projectionErrorf("invalid value_rewrite to for %s path %s", resourceType, pathText)
+		}
+		whyText, ok := data["why"].(string)
+		if !ok || whyText == "" {
+			return projectionErrorf("invalid value_rewrite why for %s path %s", resourceType, pathText)
+		}
+		if fromText == toText {
+			return projectionErrorf("invalid value_rewrite from and to for %s path %s: values must differ", resourceType, pathText)
+		}
+		path, err := metadata.ParsePolicyPath(pathText, "value_rewrite path")
+		if err != nil {
+			return err
+		}
+		for _, segment := range metadata.NormalizePolicyPath(path) {
+			if segment == "[]" {
+				return projectionErrorf("value_rewrite path %s of %s must not contain wildcard or index selectors", pathText, resourceType)
+			}
+		}
+		status, err := ProviderSchemaStatus(schema, resourceType, path, false)
+		if err != nil {
+			return err
+		}
+		if status != "required" && status != "optional" {
+			return projectionErrorf("refusing to value_rewrite path %s of %s: not a writable input attribute", pathText, resourceType)
+		}
+		if err := guardProjectionPath(block, path, resourceType, true, "path", pathText, resourceType, "value_rewrite"); err != nil {
+			return err
+		}
+		pathKey := strings.Join(metadata.NormalizePolicyPath(path), "\x00")
+		if _, rewritten := rewrittenPaths[pathKey]; rewritten {
+			continue
+		}
+		value, present := projectionPathValue(output, path)
+		if !present {
+			continue
+		}
+		current, ok := value.(string)
+		// Compare the complete decoded value. Do not trim or search within it:
+		// the known template-escaping case that would need substring semantics
+		// is deliberately outside the v1 value_rewrite contract.
+		if !ok || current != fromText {
+			continue
+		}
+		if err := setProjectionPath(output, path, toText); err != nil {
+			return err
+		}
+		rewrittenPaths[pathKey] = struct{}{}
+		policy.MarkMatched(entry)
+		if onValueRewrite != nil {
+			onValueRewrite(resourceType, pathText, fromText, toText)
+		} else if onDiagnostic != nil {
+			onDiagnostic(formatValueRewriteDiagnostic(resourceType, pathText, fromText, toText, 1))
+		}
+	}
+	return nil
+}
+
+func formatValueRewriteDiagnostic(resourceType, path, from, to string, count int) string {
+	return fmt.Sprintf(
+		"value_rewrite %s %s: %s -> %s (count=%d)",
+		resourceType, path, adoptionJSONString(from), adoptionJSONString(to), count,
+	)
+}
+
 func projectionLeaf(value any) bool {
 	if _, ok := value.([]any); ok {
 		return false
@@ -850,7 +949,9 @@ func applyProjectionOmitIf(output map[string]any, policy *metadata.DriftPolicy, 
 
 // ProjectProviderState projects one provider-observed resource state object
 // into module input shape, porting projectProviderState. The operation order
-// is schema projection, sync, fill, pack defaults, then conditional omit.
+// is schema projection, sync, fill, value rewrite, pack defaults, then
+// conditional omit. Value rewrites are deliberately confined to this
+// read/adopt-side state projection seam.
 func ProjectProviderState(options ProjectProviderStateOptions) (map[string]any, error) {
 	if options.Root == nil {
 		return nil, fmt.Errorf("provider-state projection requires a pack root")
@@ -884,6 +985,9 @@ func ProjectProviderState(options ProjectProviderStateOptions) (map[string]any, 
 			return nil, err
 		}
 		if err := applyProjectionFill(output, options.Policy, options.RawItem, options.ResourceType, schema); err != nil {
+			return nil, err
+		}
+		if err := applyValueRewrite(block, output, options.Policy, options.ResourceType, schema, options.OnDiagnostic, options.OnValueRewrite); err != nil {
 			return nil, err
 		}
 	}

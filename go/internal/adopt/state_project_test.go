@@ -2,6 +2,7 @@ package adopt
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/transform"
 )
 
 func stateProjectSchema() metadata.JsonObject {
@@ -376,5 +378,271 @@ func TestProjectionSyncComputedSourceListTraversalRefusedHonestly(t *testing.T) 
 	})
 	if err == nil || !strings.Contains(err.Error(), "not an object-shaped container") {
 		t.Fatalf("ProjectProviderState(traversal through computed set) error = %v, want the container refusal", err)
+	}
+}
+
+func valueRewritePolicy(t *testing.T, entries []any) *metadata.DriftPolicy {
+	t.Helper()
+	return stateProjectPolicy(t, metadata.JsonObject{"value_rewrite": entries})
+}
+
+func TestValueRewriteProjectionUsesExactWholeValueMatches(t *testing.T) {
+	tests := []struct {
+		name           string
+		stateValue     string
+		wantValue      string
+		wantDiagnostic bool
+	}{
+		{name: "exact", stateValue: "SHORT_FORM_VALUE", wantValue: "LONG_FORM_VALUE", wantDiagnostic: true},
+		{name: "case difference", stateValue: "short_form_value", wantValue: "short_form_value"},
+		{name: "leading whitespace", stateValue: " SHORT_FORM_VALUE", wantValue: " SHORT_FORM_VALUE"},
+		{name: "trailing whitespace", stateValue: "SHORT_FORM_VALUE ", wantValue: "SHORT_FORM_VALUE "},
+		{name: "superstring", stateValue: "SHORT_FORM_VALUE_SUFFIX", wantValue: "SHORT_FORM_VALUE_SUFFIX"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policy := valueRewritePolicy(t, []any{metadata.JsonObject{
+				"path": "name", "from": "SHORT_FORM_VALUE", "to": "LONG_FORM_VALUE",
+				"why": "The provider rejects the short read spelling on write.",
+			}})
+			diagnostics := make([]string, 0)
+			output, err := ProjectProviderState(ProjectProviderStateOptions{
+				Policy: policy, ResourceType: testResourceType, Root: stateProjectRoot(t, nil),
+				StateValues:  map[string]any{"name": test.stateValue, "required_settings": map[string]any{"mode": "strict"}},
+				OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
+			})
+			if err != nil {
+				t.Fatalf("ProjectProviderState(%s) error = %v", test.name, err)
+			}
+			if got := output["name"]; got != test.wantValue {
+				t.Errorf("ProjectProviderState(%s)[name] = %#v, want %#v", test.name, got, test.wantValue)
+			}
+			if test.wantDiagnostic {
+				want := `value_rewrite test_item name: "SHORT_FORM_VALUE" -> "LONG_FORM_VALUE" (count=1)`
+				if !reflect.DeepEqual(diagnostics, []string{want}) {
+					t.Errorf("ProjectProviderState(%s) diagnostics = %#v, want %#v", test.name, diagnostics, []string{want})
+				}
+			} else if len(diagnostics) != 0 {
+				t.Errorf("ProjectProviderState(%s) diagnostics = %#v, want none for an unfired entry", test.name, diagnostics)
+			}
+		})
+	}
+}
+
+func TestValueRewritePackOverridePromotesToAdoptionPolicy(t *testing.T) {
+	root := stateProjectRoot(t, metadata.JsonObject{"value_rewrite": []any{metadata.JsonObject{
+		"path": "name", "from": "SHORT_FORM_VALUE", "to": "LONG_FORM_VALUE",
+		"why": "The provider rejects the short read spelling on write.",
+	}}})
+	policy, err := LoadAdoptionPolicy(*root, nil)
+	if err != nil {
+		t.Fatalf("LoadAdoptionPolicy(value_rewrite override) error = %v", err)
+	}
+	if got := len(policy.Entries(testResourceType, metadata.PolicyValueRewrite)); got != 1 {
+		t.Fatalf("LoadAdoptionPolicy(value_rewrite override) entries = %d, want 1", got)
+	}
+	output, err := ProjectProviderState(ProjectProviderStateOptions{
+		Policy: policy, ResourceType: testResourceType, Root: root,
+		StateValues: map[string]any{"name": "SHORT_FORM_VALUE", "required_settings": map[string]any{"mode": "strict"}},
+	})
+	if err != nil {
+		t.Fatalf("ProjectProviderState(pack value_rewrite) error = %v", err)
+	}
+	if got, want := output["name"], "LONG_FORM_VALUE"; got != want {
+		t.Fatalf("ProjectProviderState(pack value_rewrite)[name] = %#v, want %#v", got, want)
+	}
+}
+
+func TestValueRewriteDoesNotChainWithinOneProjectionPass(t *testing.T) {
+	policy := valueRewritePolicy(t, []any{
+		metadata.JsonObject{
+			"path": "name", "from": "SHORT_FORM_VALUE", "to": "MIDDLE_FORM_VALUE",
+			"why": "The first provider spelling needs one reviewed correction.",
+		},
+		metadata.JsonObject{
+			"path": "name", "from": "MIDDLE_FORM_VALUE", "to": "LONG_FORM_VALUE",
+			"why": "A second spelling is independently documented but cannot chain.",
+		},
+	})
+	diagnostics := make([]string, 0)
+	output, err := ProjectProviderState(ProjectProviderStateOptions{
+		Policy: policy, ResourceType: testResourceType, Root: stateProjectRoot(t, nil),
+		StateValues:  map[string]any{"name": "SHORT_FORM_VALUE", "required_settings": map[string]any{"mode": "strict"}},
+		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
+	})
+	if err != nil {
+		t.Fatalf("ProjectProviderState(non-chaining value_rewrite) error = %v", err)
+	}
+	if got, want := output["name"], "MIDDLE_FORM_VALUE"; got != want {
+		t.Fatalf("ProjectProviderState(non-chaining)[name] = %#v, want %#v", got, want)
+	}
+	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0], `"SHORT_FORM_VALUE" -> "MIDDLE_FORM_VALUE"`) || !strings.Contains(diagnostics[0], "(count=1)") {
+		t.Fatalf("ProjectProviderState(non-chaining) diagnostics = %#v, want one first rewrite", diagnostics)
+	}
+}
+
+func TestValueRewriteConsumerStillRefusesNonWritablePath(t *testing.T) {
+	policy := valueRewritePolicy(t, []any{metadata.JsonObject{
+		"path": "computed_only", "from": "SHORT_FORM_VALUE", "to": "LONG_FORM_VALUE",
+		"why": "The provider rejects the short read spelling on write.",
+	}})
+	_, err := ProjectProviderState(ProjectProviderStateOptions{
+		Policy: policy, ResourceType: testResourceType, Root: stateProjectRoot(t, nil),
+		StateValues: map[string]any{"name": "Example", "computed_only": "SHORT_FORM_VALUE", "required_settings": map[string]any{"mode": "strict"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not a writable input attribute") {
+		t.Fatalf("ProjectProviderState(non-writable value_rewrite) error = %v, want a writability refusal", err)
+	}
+}
+
+func TestValueRewriteRunsBeforePackDropIfDefault(t *testing.T) {
+	root := stateProjectRoot(t, metadata.JsonObject{
+		"drop_if_default": metadata.JsonObject{"description": "LONG_FORM_VALUE"},
+		"value_rewrite": []any{metadata.JsonObject{
+			"path": "description", "from": "SHORT_FORM_VALUE", "to": "LONG_FORM_VALUE",
+			"why": "The provider normalizes the successful write to LONG_FORM_VALUE.",
+		}},
+	})
+	policy := valueRewritePolicy(t, []any{metadata.JsonObject{
+		"path": "description", "from": "SHORT_FORM_VALUE", "to": "LONG_FORM_VALUE",
+		"why": "The provider normalizes the successful write to LONG_FORM_VALUE.",
+	}})
+	diagnostics := make([]string, 0, 1)
+	output, err := ProjectProviderState(ProjectProviderStateOptions{
+		Policy: policy, ResourceType: testResourceType, Root: root,
+		StateValues: map[string]any{
+			"description": "SHORT_FORM_VALUE", "name": "Example",
+			"required_settings": map[string]any{"mode": "strict"},
+		},
+		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
+	})
+	if err != nil {
+		t.Fatalf("ProjectProviderState(rewrite then drop_if_default) error = %v", err)
+	}
+	if _, present := output["description"]; present {
+		t.Fatalf("ProjectProviderState(rewrite then drop_if_default)[description] = %#v, want absent after the pack drop", output["description"])
+	}
+	wantDiagnostic := `value_rewrite test_item description: "SHORT_FORM_VALUE" -> "LONG_FORM_VALUE" (count=1)`
+	if !reflect.DeepEqual(diagnostics, []string{wantDiagnostic}) {
+		t.Fatalf("ProjectProviderState(rewrite then drop_if_default) diagnostics = %#v, want %#v", diagnostics, []string{wantDiagnostic})
+	}
+}
+
+func TestProjectAdoptionItemsAggregatesValueRewriteDiagnostics(t *testing.T) {
+	const itemCount = 400
+	root := stateProjectRoot(t, nil)
+	policy := valueRewritePolicy(t, []any{metadata.JsonObject{
+		"path": "name", "from": "SHORT_FORM_VALUE", "to": "LONG_FORM_VALUE",
+		"why": "The provider normalizes the successful write to LONG_FORM_VALUE.",
+	}})
+	prepared := preparedAdoptionItems{
+		IdentityByKey: make(map[string]map[string]any, itemCount),
+		KeyToImportID: make(map[string]string, itemCount),
+		KeyToRaw:      make(map[string]map[string]any, itemCount),
+		Resource:      root.Resources[testResourceType],
+	}
+	state := make(map[string]OracleStateObject, itemCount)
+	for index := 0; index < itemCount; index++ {
+		key := fmt.Sprintf("item-%03d", index)
+		prepared.IdentityByKey[key] = map[string]any{"name": key}
+		prepared.KeyToImportID[key] = "import-" + key
+		prepared.KeyToRaw[key] = map[string]any{"name": "SHORT_FORM_VALUE"}
+		state[key] = OracleStateObject{Values: map[string]any{
+			"name": "SHORT_FORM_VALUE", "required_settings": map[string]any{"mode": "strict"},
+		}}
+	}
+	diagnostics := make([]string, 0, 1)
+	result, err := projectAdoptionItems(policy, prepared, *root, state, func(message string) {
+		diagnostics = append(diagnostics, message)
+	})
+	if err != nil {
+		t.Fatalf("projectAdoptionItems(aggregated value_rewrite) error = %v", err)
+	}
+	if got := len(result.Items); got != itemCount {
+		t.Fatalf("projectAdoptionItems(aggregated value_rewrite) items = %d, want %d", got, itemCount)
+	}
+	want := fmt.Sprintf(`value_rewrite test_item name: "SHORT_FORM_VALUE" -> "LONG_FORM_VALUE" (count=%d)`, itemCount)
+	if !reflect.DeepEqual(diagnostics, []string{want}) {
+		t.Fatalf("projectAdoptionItems(aggregated value_rewrite) diagnostics = %#v, want %#v", diagnostics, []string{want})
+	}
+}
+
+func TestValueRewriteOnlyChangesProjectedAdoptionConfig(t *testing.T) {
+	root := stateProjectRoot(t, metadata.JsonObject{"value_rewrite": []any{metadata.JsonObject{
+		"path": "name", "from": "SHORT_FORM_VALUE", "to": "LONG_FORM_VALUE",
+		"why": "The provider rejects the short read spelling on write.",
+	}}})
+	policy, err := LoadAdoptionPolicy(*root, nil)
+	if err != nil {
+		t.Fatalf("LoadAdoptionPolicy(value_rewrite read-only seam) error = %v", err)
+	}
+	rawItems := []any{map[string]any{"id": "one", "name": "SHORT_FORM_VALUE"}}
+	var loaderRaw map[string]any
+	result, err := AdoptResourceItems(policy, rawItems, root.Resources[testResourceType], *root, func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
+		for key, item := range request.RawItems {
+			loaderRaw = item
+			state := make(map[string]OracleStateObject, 1)
+			state[key] = OracleStateObject{
+				Address: "fixture",
+				Values:  map[string]any{"name": "SHORT_FORM_VALUE", "required_settings": map[string]any{"mode": "strict"}},
+			}
+			return state, nil
+		}
+		return map[string]OracleStateObject{}, nil
+	}, nil)
+	if err != nil {
+		t.Fatalf("AdoptResourceItems(value_rewrite read-only seam) error = %v", err)
+	}
+	if got, want := loaderRaw["name"], "SHORT_FORM_VALUE"; got != want {
+		t.Fatalf("loader raw name = %#v, want %#v; rewrite must not enter the read/request input", got, want)
+	}
+	for _, item := range result.Items {
+		if got, want := item["name"], "LONG_FORM_VALUE"; got != want {
+			t.Fatalf("projected adoption name = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestValueRewriteIsAbsentFromTransformAndGeneratedConfigWriteLanes(t *testing.T) {
+	override := metadata.JsonObject{
+		"key_field": "name",
+		"value_rewrite": []any{metadata.JsonObject{
+			"path": "name", "from": "SHORT_FORM_VALUE", "to": "LONG_FORM_VALUE",
+			"why": "The provider rejects the short read spelling on write.",
+		}},
+	}
+	root := stateProjectRoot(t, override)
+	resource := root.Resources[testResourceType]
+	schema, err := root.LoadResourceSchema(testResourceType)
+	if err != nil {
+		t.Fatalf("LoadResourceSchema(value_rewrite write lanes) error = %v", err)
+	}
+	transformed, err := transform.TransformLoadedItems(transform.TransformLoadedItemsOptions{
+		Resource: resource, Schema: schema,
+		RawItems: []any{metadata.JsonObject{"name": "SHORT_FORM_VALUE"}},
+	})
+	if err != nil {
+		t.Fatalf("TransformLoadedItems(value_rewrite) error = %v", err)
+	}
+	if len(transformed.Items) != 1 {
+		t.Fatalf("TransformLoadedItems(value_rewrite) items = %#v, want one item", transformed.Items)
+	}
+	for _, item := range transformed.Items {
+		if got, want := item["name"], "SHORT_FORM_VALUE"; got != want {
+			t.Fatalf("TransformLoadedItems(value_rewrite)[name] = %#v, want raw value %#v", got, want)
+		}
+	}
+
+	generatedText := "resource \"test_item\" \"example\" {\n  name = \"SHORT_FORM_VALUE\"\n}\n"
+	generated, err := ApplyGeneratedConfigPolicy(generatedText, GeneratedConfigPolicyResource{
+		AddressToKey: map[string]string{"test_item.example": "key"},
+		Policy:       valueRewritePolicy(t, override["value_rewrite"].([]any)),
+		ResourceType: testResourceType,
+	}, root)
+	if err != nil {
+		t.Fatalf("ApplyGeneratedConfigPolicy(value_rewrite) error = %v", err)
+	}
+	if generated.Edits != 0 || generated.Text != generatedText {
+		t.Fatalf("ApplyGeneratedConfigPolicy(value_rewrite) = edits %d text %q, want unchanged write config", generated.Edits, generated.Text)
 	}
 }

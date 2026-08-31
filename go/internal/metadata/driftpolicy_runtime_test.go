@@ -302,6 +302,10 @@ func TestDriftPolicyAcceptsCompleteNonPlanModeVector(t *testing.T) {
 					"path": "profile", "source": "raw_profile",
 					"reason": "test", "approved_by": "unit",
 				}},
+				"value_rewrite": []any{JsonObject{
+					"path": "profile", "from": "short", "to": "long",
+					"why": "the provider rejects its short read spelling on write",
+				}},
 				"projection_omit_if": []any{
 					runtimePolicyEntry("ports[].end", JsonObject{"values": []any{float64(0), nil}}),
 				},
@@ -312,7 +316,7 @@ func TestDriftPolicyAcceptsCompleteNonPlanModeVector(t *testing.T) {
 		t.Fatalf("NewDriftPolicy(complete non-plan modes) error = %v, want nil", err)
 	}
 	for _, mode := range []PolicyMode{
-		PolicyProjectionOmit, PolicyProjectionSync, PolicyProjectionFill, PolicyProjectionOmitIf,
+		PolicyProjectionOmit, PolicyProjectionSync, PolicyProjectionFill, PolicyValueRewrite, PolicyProjectionOmitIf,
 	} {
 		if got := len(policy.Entries("sample_resource", mode)); got != 1 {
 			t.Errorf("Entries(sample_resource, %s) length = %d, want 1", mode, got)
@@ -1065,11 +1069,15 @@ func TestDriftPolicyStaleFiltersPreserveSourceOrder(t *testing.T) {
 		},
 		"a_resource": JsonObject{
 			"projection_omit": []any{runtimePolicyEntry("a_path", nil)},
-			"plan_tolerate":   []any{runtimePolicyEntry("plan_path", nil)},
+			"value_rewrite": []any{JsonObject{
+				"path": "rewrite_path", "from": "SHORT", "to": "LONG", "why": "The provider normalizes the successful write.",
+			}},
+			"plan_tolerate": []any{runtimePolicyEntry("plan_path", nil)},
 		},
 	})
 	wantAll := []StalePolicyEntry{
 		{ResourceType: "a_resource", Mode: PolicyProjectionOmit, Path: "a_path"},
+		{ResourceType: "a_resource", Mode: PolicyValueRewrite, Path: "rewrite_path"},
 		{ResourceType: "a_resource", Mode: PolicyPlanTolerate, Path: "plan_path"},
 		{ResourceType: "z_resource", Mode: PolicyProjectionOmit, Path: "z_path"},
 	}

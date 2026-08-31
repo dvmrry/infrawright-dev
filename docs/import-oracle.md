@@ -23,7 +23,8 @@ raw API fetch
   -> project provider-observed state through provider schema
      (projection_omit applies inline)
   -> apply consumer-owned post-projection policy
-     (projection_sync -> projection_fill -> projection_omit_if)
+     (projection_sync -> projection_fill -> value_rewrite
+      -> pack drop_if_default -> projection_omit_if)
   -> write normal tfvars/imports/moves
   -> run normal plan
   -> classify clean / tolerated provider noise / blocked
@@ -329,7 +330,8 @@ provider state reaches projection. Empty endpoint collections remain eligible.
 
 The oracle also applies `projection_omit`, `projection_omit_if`, and
 `projection_fill` to Terraform/OpenTofu generated import config before provider
-validation. If any generated-config-applicable entries are active and the
+validation. `value_rewrite` is projection-only and is not applied to generated
+import config. If any generated-config-applicable entries are active and the
 generated-config file is missing, adoption fails closed instead of silently
 skipping the policy. Exact-index omit selectors are intentionally excluded from
 generated-config rewriting because they cannot be matched safely before stable
@@ -338,11 +340,15 @@ unchanged.
 
 Projection policy application order is fixed: `projection_omit` applies inline
 during schema projection and may suppress sensitive, absent, or optional fields,
-preserving its established behavior. After projection, `projection_sync` fills
-from provider-observed state, `projection_fill` fills from explicit raw-pull
-sources, and then `projection_omit_if` strips matching leaves. The order is not
-configurable. Conditional omit can strip a value that sync or fill just wrote;
-the shipped use cases touch disjoint paths.
+preserving its established behavior. After projection,
+`projection_sync` fills from provider-observed state, `projection_fill` fills
+from explicit raw-pull sources, `value_rewrite` normalizes exact provider-read
+strings, pack `drop_if_default` removes configured defaults, and then
+`projection_omit_if` strips matching leaves. This is the order implemented by
+`ProjectProviderState`; it is not configurable. Conditional omit can strip a
+value that sync or fill just wrote, and pack default dropping can strip a value
+that a rewrite just produced, so those interactions must be rejected or
+reviewed at authoring time.
 
 Plan tolerances classify final saved plans when provider noise remains:
 

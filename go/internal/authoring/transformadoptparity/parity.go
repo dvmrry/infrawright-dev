@@ -1016,6 +1016,15 @@ func compare(input Fixture, context Context, comparator func(any, any) ([]Differ
 		}
 		expect, found := expected[key]
 		if !found {
+			if reason, classified := valueRewriteDifferenceReason(policy, fixture.ResourceType, entry); classified {
+				differences[i] = map[string]any{
+					"path": entry.Path, "transform": sideMap(entry.Transform), "adopt": sideMap(entry.Adopt),
+					"status": "classified", "classification": "value_rewrite", "disposition": "accepted",
+					"reason": reason, "evidence": stringValues(nil),
+				}
+				accepted++
+				continue
+			}
 			differences[i] = map[string]any{"path": entry.Path, "transform": sideMap(entry.Transform), "adopt": sideMap(entry.Adopt), "status": "unclassified"}
 			unclassified++
 			continue
@@ -1057,6 +1066,55 @@ func compare(input Fixture, context Context, comparator func(any, any) ([]Differ
 	}
 	return map[string]any{"name": fixture.Name, "resource_type": fixture.ResourceType, "provenance": provenance, "result": result, "outputs": map[string]any{"byte_equal": tr == ar, "unaccounted_byte_difference": unaccounted, "transform_sha256": th, "adopt_sha256": ah}, "differences": differences, "stale_expectations": stale, "transform_unacknowledged_drops": drops, "summary": map[string]any{"differences": float64(len(actual)), "classified": float64(len(actual) - unclassified), "unclassified": float64(unclassified), "evidence_gates": float64(evidenceGates), "accepted": float64(accepted), "stale_expectations": float64(len(stale)), "unacknowledged_drops": float64(len(drops)), "unaccounted_byte_differences": boolNumber(unaccounted)}}, nil
 }
+
+// valueRewriteDifferenceReason recognizes only the exact divergence produced
+// by a validated value_rewrite entry for this resource. The parity path is an
+// items/<identity>/<attribute> JSON pointer, while the policy entry stores
+// the attribute suffix; any presence, type, path, from, or to mismatch stays
+// unclassified so an unrelated provider difference cannot borrow the pack's
+// explanation.
+func valueRewriteDifferenceReason(policy *metadata.DriftPolicy, resourceType string, difference Difference) (string, bool) {
+	if policy == nil || !difference.Transform.Present || !difference.Adopt.Present {
+		return "", false
+	}
+	pathTokens, err := tokens(difference.Path)
+	if err != nil || len(pathTokens) < 3 || pathTokens[0] != "items" {
+		return "", false
+	}
+	transformValue, transformOK := difference.Transform.Value.(string)
+	adoptValue, adoptOK := difference.Adopt.Value.(string)
+	if !transformOK || !adoptOK {
+		return "", false
+	}
+	pathSuffix := pathTokens[2:]
+	for _, entry := range policy.Entries(resourceType, metadata.PolicyValueRewrite) {
+		data := entry.Data()
+		pathText, pathOK := data["path"].(string)
+		fromText, fromOK := data["from"].(string)
+		toText, toOK := data["to"].(string)
+		whyText, whyOK := data["why"].(string)
+		if !pathOK || !fromOK || !toOK || !whyOK {
+			continue
+		}
+		policyPath, err := metadata.ParsePolicyPath(pathText)
+		if err != nil || len(policyPath) != len(pathSuffix) {
+			continue
+		}
+		matchesPath := true
+		for index, segment := range policyPath {
+			text, ok := segment.(string)
+			if !ok || text != pathSuffix[index] {
+				matchesPath = false
+				break
+			}
+		}
+		if matchesPath && transformValue == fromText && adoptValue == toText {
+			return whyText, true
+		}
+	}
+	return "", false
+}
+
 func boolNumber(value bool) float64 {
 	if value {
 		return 1

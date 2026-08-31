@@ -274,6 +274,10 @@ func TransformLoadedItems(options TransformLoadedItemsOptions) (result PullTrans
 	if override == nil {
 		override = map[string]any{}
 	}
+	// value_rewrite is deliberately not consumed by the transform lane. It
+	// corrects provider-observed state only after adoption projection; applying
+	// it here would change the raw-pull transform contract and could make a
+	// write-facing artifact contain a value the operator never reviewed.
 	block, blockErr := metadata.TerraformBlockForSchema(options.Schema, options.Resource.Type)
 	if blockErr != nil {
 		fail(blockErr.Error())

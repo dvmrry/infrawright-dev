@@ -271,9 +271,7 @@ func loadPackRoot(options LoadPackRootOptions) LoadedPackRoot {
 		profile = &profileValue
 		active = result.Active
 	}
-	registry := loadRegistry(metadata, active.Packs)
-	overrides := loadOverrides(metadata, active.Packs)
-	validateUnsupportedProviderScopes(metadata, registry)
+	registry, overrides := validatePackResources(metadata, active.Packs)
 	resources := resourceMap(metadata, registry, overrides)
 	validateDataReferentSurfaces(metadata, resources)
 	validateDataReferentReferences(metadata, active.Packs, resources)

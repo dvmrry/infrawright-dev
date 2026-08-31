@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -92,5 +93,16 @@ func TestLoadAdoptionPolicyValidatesUserBeforeMerge(t *testing.T) {
 	}
 	if _, err := LoadAdoptionPolicy(root, &path); err == nil {
 		t.Fatal("LoadAdoptionPolicy accepted unsupported user version")
+	}
+}
+
+func TestLoadAdoptionPolicyValidatesOperatorValueRewriteAgainstSchema(t *testing.T) {
+	root := stateProjectRoot(t, nil)
+	path := filepath.Join(t.TempDir(), "policy.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"resource_types":{"test_item":{"value_rewrite":[{"path":"computed_only","from":"SHORT","to":"LONG","why":"The provider normalizes the successful write to LONG."}]}}}`), 0o600); err != nil {
+		t.Fatalf("os.WriteFile: %v", err)
+	}
+	if _, err := LoadAdoptionPolicy(*root, &path); err == nil || !strings.Contains(err.Error(), "not a writable input attribute") {
+		t.Fatalf("LoadAdoptionPolicy(operator value_rewrite) error = %v, want schema writability refusal", err)
 	}
 }

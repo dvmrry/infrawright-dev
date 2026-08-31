@@ -55,6 +55,9 @@ var reconciliationBuckets = [...]ReconciliationBucket{
 	BucketDroppedKnown, BucketUnknown, BucketShapeMismatch, BucketSkipped,
 }
 
+// transformKeys is intentionally limited to transforms that this authoring
+// lane applies to raw API values. value_rewrite is an adoption-only correction
+// and must not be reported as a transform that this lane emitted.
 var transformKeys = [...]string{
 	"split_csv", "sort_lists", "references", "divide", "invert_bool", "value_map", "strip_prefix", "html_escape_fields",
 }

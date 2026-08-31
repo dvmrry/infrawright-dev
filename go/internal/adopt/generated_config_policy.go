@@ -75,6 +75,9 @@ func generatedPolicyEntriesFor(root *metadata.LoadedPackRoot, resourceType strin
 	var fills []metadata.PolicyEntry
 	var projectionOmits, projectionOmitIf []metadata.PolicyEntry
 	if policy != nil {
+		// value_rewrite is intentionally absent from this write-facing
+		// rewriter. It belongs to read/adopt state projection, so applying it
+		// here would turn an unreviewed correction into outbound config.
 		fills = policy.Entries(resourceType, metadata.PolicyProjectionFill)
 		projectionOmits = policy.Entries(resourceType, metadata.PolicyProjectionOmit)
 		projectionOmitIf = policy.Entries(resourceType, metadata.PolicyProjectionOmitIf)
