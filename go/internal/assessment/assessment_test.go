@@ -1233,8 +1233,14 @@ func TestAssessmentTemporaryCleanupRefusesUnexpectedOrReplacedEntries(t *testing
 
 func TestSavedPlanAssessmentPostFinalizerTimeoutZeroesResult(t *testing.T) {
 	fixture := newAssessmentTransactionFixture(t)
-	executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(cleanAssessmentPlanJSON(t)))
+	// This regression targets the transaction barrier after finalization. Keep
+	// Terraform show in-memory so wall-clock subprocess scheduling cannot affect
+	// when the fake clock starts reporting the expired post-finalizer deadline.
+	cleanPlan := mustParseDataJSON(t, cleanAssessmentPlanJSON(t))
 	hooks := productionAssessmentHooks()
+	hooks.showPlan = func(terraformcmd.TerraformShowOptions) (any, error) {
+		return cleanPlan, nil
+	}
 	start := time.Unix(1_700_000_000, 0)
 	finalized := false
 	hooks.now = func() time.Time {
@@ -1246,7 +1252,7 @@ func TestSavedPlanAssessmentPostFinalizerTimeoutZeroesResult(t *testing.T) {
 	timeout := int64(1_000)
 	result, err := runSavedPlanAssessment(
 		SavedPlanAssessmentTransactionOptions{
-			Assessment:         assessmentOptions(fixture, executable, nil),
+			Assessment:         assessmentOptions(fixture, filepath.Join(fixture.root, "terraform-fake"), nil),
 			OperationTimeoutMs: &timeout,
 		},
 		ClassifyPlanOptions{},

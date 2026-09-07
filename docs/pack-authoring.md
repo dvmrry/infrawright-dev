@@ -365,7 +365,7 @@ Generated-config use of an exact-index `drop_if_default` override path is
 deferred by the same safeguard.
 
 This is a generic authoring example, not current ZIA policy. The pinned ZIA
-4.8.0 pack classifies URL-filtering ISOLATE rules as version-scoped
+4.8.3 pack classifies URL-filtering ISOLATE rules as version-scoped
 unsupported before Oracle and intentionally has no `cbi_profile`
 `projection_fill`.
 
@@ -476,17 +476,17 @@ version-bound to it. The supported refresh order is:
    (and line anchors, if the source moved). Fixture validation fail-closes
    until these match the active pin.
 2. **Regenerate the derived snapshots.** `make regen-compatibility-fixtures`
-   reruns the three compatibility gates in their explicit update mode
-   (`IW_UPDATE_FIXTURES=1`): the module HCL hash snapshot
-   (`go/internal/modulesgen/testdata/module_hcl_compatibility.json`), the
-   parity compatibility capture
-   (`go/internal/authoring/transformadoptparity/testdata/parity_compatibility.json`),
-   and the frozen ZPA matrix's effective-input bindings. Each gate rewrites
-   its snapshot plus the paired SHA-256 constant in its own test source, so
-   evidence changes always surface as reviewable Go diffs. Update mode is
-   byte-idempotent when nothing changed; review the diff before committing.
-Snapshot membership never regenerates: adding resources, files, or fixtures
-to any of these snapshots stays a reviewed hand edit.
+   runs the five focused update commands listed in the root Makefile with
+   `IW_UPDATE_FIXTURES=1`: module HCL, Transform/Adopt parity, environment
+   roots, singleton topology/backend keys, and OpenAPI mapping compatibility.
+   Review each artifact and test-source delta against the provider change;
+   regenerated output alone does not establish correctness. The frozen ZPA
+   evidence corpus has been retired and is not part of this command.
+3. **Update current-version documentation.** Check README and operator docs
+   for claims about the active pin, and add a changelog entry for the refresh.
+   Preserve version strings that describe historical evidence or earlier
+   releases. Updating prose must not imply live qualification that has not
+   been performed.
 
 ## Boundaries
 
