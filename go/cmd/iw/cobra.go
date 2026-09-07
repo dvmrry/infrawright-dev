@@ -196,6 +196,7 @@ var cobraFlagDescriptions = map[string]string{
 	"--fail-on-unknown":         "return non-zero for unknown reconciliation results",
 	"--imports-only":            "require an import-only Terraform plan",
 	"--in":                      "input directory",
+	"--input-provenance":        "canonical source report's input-provenance.json",
 	"--main-branch":             "branch treated as the protected main branch",
 	"--markdown":                "Markdown summary copy destination",
 	"--openapi":                 "OpenAPI document path",

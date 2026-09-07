@@ -156,6 +156,43 @@ func TestOpenAPIMapFailureDoesNotReplaceDestination(t *testing.T) {
 	}
 }
 
+func TestOpenAPIMapCanonicalRegistryBindsInputProvenance(t *testing.T) {
+	root := repoRoot(t)
+	fixture := filepath.Join(root, "tests", "fixtures", "authoring", "source-first-v2")
+	openAPI := filepath.Join(t.TempDir(), "openapi.json")
+	out := filepath.Join(t.TempDir(), "openapi-map.json")
+	writeCoreTestFile(t, openAPI, `{
+  "openapi": "3.0.3",
+  "info": {"title": "source-first", "version": "1"},
+  "paths": {
+    "/v1/direct/{id}": {"get": {"responses": {"200": {"description": "ok"}}}},
+    "/v1/catalog/{id}": {"get": {"responses": {"200": {"description": "ok"}}}}
+  }
+}`)
+	var stdout, stderr bytes.Buffer
+	status, err := openAPIMapCommandWithDependencies([]string{
+		"--schema", filepath.Join(fixture, "provider-schema.json"),
+		"--openapi", openAPI,
+		"--provider-source", "registry.terraform.io/fixture/sourcefirst",
+		"--resource-prefix", "sourcefirst",
+		"--registry", filepath.Join(fixture, "expected", "source-evidence-report-v1.json"),
+		"--input-provenance", filepath.Join(fixture, "expected", "input-provenance.json"),
+		"--out", out,
+	}, coreTestDependencies(&stdout, &stderr))
+	if err != nil || status != 0 {
+		t.Fatalf("openAPIMapCommand(canonical registry with provenance) = (%d, %v), want (0, nil); stderr=%q", status, err, stderr.String())
+	}
+	report, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(report), `"source_trust": "verified"`) ||
+		!strings.Contains(string(report), `"source_applicable_total": 7`) ||
+		!strings.Contains(string(report), `"source_endpoint_coverage"`) {
+		t.Fatalf("openapi-map canonical report = %s, want bound source summary", report)
+	}
+}
+
 func TestTransformAdoptParityContainsOperationalFailure(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	deps := coreTestDependencies(&stdout, &stderr)

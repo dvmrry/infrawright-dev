@@ -379,7 +379,7 @@ func reconcileCommandInput(parsed commandInput, dependencies authoringCoreDepend
 
 func newOpenAPIMapCobraCommand(dependencies authoringCoreDependencies) *cobra.Command {
 	spec := authoringCobraSpec("openapi-map", "Map provider resources to OpenAPI operations",
-		[]string{"--api-prefix", "--openapi", "--out", "--provider-source", "--registry", "--resource-prefix", "--schema"}, nil, nil, nil)
+		[]string{"--api-prefix", "--input-provenance", "--openapi", "--out", "--provider-source", "--registry", "--resource-prefix", "--schema"}, nil, nil, nil)
 	spec.run = func(parsed commandInput) (int, error) { return openAPIMapCommandInput(parsed, dependencies) }
 	return newTypedCobraCommand(spec)
 }
@@ -404,6 +404,17 @@ func openAPIMapCommandInput(parsed commandInput, dependencies authoringCoreDepen
 		}
 		registryData = &registry
 	}
+	var inputProvenanceData []byte
+	if provenancePath := authoringLastOption(parsed, "--input-provenance"); provenancePath != nil {
+		if registryData == nil {
+			return 0, usageError("--input-provenance requires --registry")
+		}
+		var readErr error
+		inputProvenanceData, readErr = dependencies.readFile(*provenancePath)
+		if readErr != nil {
+			return 0, readErr
+		}
+	}
 	schemaPath, err := authoringRequiredOption(parsed, "--schema")
 	if err != nil {
 		return 0, err
@@ -417,12 +428,13 @@ func openAPIMapCommandInput(parsed commandInput, dependencies authoringCoreDepen
 		resourcePrefix = *value
 	}
 	report, err := openapimap.Build(context.Background(), openapimap.Options{
-		SchemaData:     schemaData,
-		Document:       document,
-		ProviderSource: authoringLastOption(parsed, "--provider-source"),
-		ResourcePrefix: resourcePrefix,
-		APIPrefix:      authoringLastOption(parsed, "--api-prefix"),
-		RegistryData:   registryData,
+		SchemaData:          schemaData,
+		Document:            document,
+		ProviderSource:      authoringLastOption(parsed, "--provider-source"),
+		ResourcePrefix:      resourcePrefix,
+		APIPrefix:           authoringLastOption(parsed, "--api-prefix"),
+		RegistryData:        registryData,
+		InputProvenanceData: inputProvenanceData,
 	})
 	if err != nil {
 		return 0, err

@@ -167,6 +167,10 @@ func qualifiedOpenAPIMap(ctx context.Context, recipe loadedRecipe, evidence sour
 	if err != nil {
 		return Artifact{}, false
 	}
+	sourceEvidence, err := evidence.CanonicalBytes()
+	if err != nil {
+		return Artifact{}, false
+	}
 	adapter, err := openapiadapter.Analyze(ctx, snapshot.OpenAPI, report)
 	if err != nil {
 		return Artifact{}, false
@@ -184,11 +188,13 @@ func qualifiedOpenAPIMap(ctx context.Context, recipe loadedRecipe, evidence sour
 		return Artifact{}, false
 	}
 	mapReport, err := openapimap.Build(ctx, openapimap.Options{
-		SchemaData:     schema,
-		Document:       document,
-		ProviderSource: cloneOptionalString(recipe.provider),
-		ResourcePrefix: stringOr(recipe.resource, ""),
-		APIPrefix:      cloneOptionalString(recipe.api),
+		SchemaData:          schema,
+		Document:            document,
+		ProviderSource:      cloneOptionalString(recipe.provider),
+		ResourcePrefix:      stringOr(recipe.resource, ""),
+		APIPrefix:           cloneOptionalString(recipe.api),
+		SourceEvidenceData:  sourceEvidence,
+		InputProvenanceData: append([]byte(nil), snapshot.InputProvenanceBytes...),
 	})
 	if err != nil {
 		return Artifact{}, false

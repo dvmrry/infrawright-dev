@@ -457,14 +457,15 @@ Usage:
   iw openapi-map [flags]
 
 Flags:
-      --api-prefix string        OpenAPI path prefix
-  -h, --help                     help for openapi-map
-      --openapi string           OpenAPI document path
-      --out string               output path
-      --provider-source string   Terraform provider source address
-      --registry string          registry metadata path
-      --resource-prefix string   Terraform resource-type prefix
-      --schema string            Terraform provider schema path
+      --api-prefix string         OpenAPI path prefix
+  -h, --help                      help for openapi-map
+      --input-provenance string   canonical source report's input-provenance.json
+      --openapi string            OpenAPI document path
+      --out string                output path
+      --provider-source string    Terraform provider source address
+      --registry string           registry metadata path
+      --resource-prefix string    Terraform resource-type prefix
+      --schema string             Terraform provider schema path
 ```
 
 ## `iw plan`
