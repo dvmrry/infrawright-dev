@@ -14,7 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/fixtureupdate"
 )
 
-const mappingCompatibilitySHA256 = "862b6f392a662f0d8bf2fe17e7b7984aec3cddca79e47b1d1f5f6f60c48dea34"
+const mappingCompatibilitySHA256 = "25be033d142646087b1bca864895233669bdf7f0d4b0b7f7f8d3e5892bd49226"
 
 // updateMappingCompatibility is the IW_UPDATE_FIXTURES=1 refresh path: every
 // case's inputs are fully recorded in the fixture, so the expected report is
