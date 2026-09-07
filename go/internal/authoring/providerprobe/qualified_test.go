@@ -17,6 +17,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceanalysis"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourcebind"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceoperation"
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
 func TestQualifiedRootsResolveRecipeRelativePathsAndCopySDKRoots(t *testing.T) {
@@ -324,6 +325,80 @@ func TestRunQualifiedUsableOpenAPIAppendsOnlyDiagnosticMap(t *testing.T) {
 		if got[i].Name != artifact.Name || !bytes.Equal(got[i].Bytes, artifact.Bytes) {
 			t.Fatalf("usable OpenAPI core artifact %d differs from direct composition", i)
 		}
+	}
+}
+
+func TestRunQualifiedOpenAPIMapCarriesCanonicalSourceEvidence(t *testing.T) {
+	recipePath, _ := materializeQualifiedSourceOnlyFixture(t)
+	addQualifiedOpenAPI(t, filepath.Dir(recipePath), []byte(`{"openapi":"3.0.3","info":{"title":"source-first","version":"1"},"paths":{"/v1/direct/{id}":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"get":{"responses":{"200":{"description":"ok"}}}},"/v1/catalog/{id}":{"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"get":{"responses":{"200":{"description":"ok"}}}}}}`))
+	writeQualifiedRecipe(t, recipePath, map[string]any{
+		"provider_source": "registry.terraform.io/fixture/sourcefirst", "resource_prefix": "sourcefirst", "api_prefix": "",
+		"source_provenance": map[string]any{
+			"manifest": "source-provenance-v1.json", "provider_root": "provider", "schema_root": ".", "openapi_root": ".",
+			"sdk_roots": map[string]any{"example.invalid/sourcefirst-sdk": "sdk"},
+		},
+	})
+	result, err := Run(context.Background(), RunOptions{RecipePath: recipePath})
+	if err != nil {
+		t.Fatalf("Run(qualified source-evidence OpenAPI map) error = %v, want nil", err)
+	}
+	var mapBytes []byte
+	for _, artifact := range result.Artifacts() {
+		if artifact.Name == openAPIMapArtifactName {
+			mapBytes = artifact.Bytes
+			break
+		}
+	}
+	if len(mapBytes) == 0 {
+		t.Fatal("Run(qualified source-evidence OpenAPI map) did not publish openapi-map.json")
+	}
+	value, err := canonjson.Decode(mapBytes)
+	if err != nil {
+		t.Fatalf("canonjson.Decode(openapi-map.json) error = %v, want nil", err)
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("openapi-map.json root = %T, want object", value)
+	}
+	read, ok := root["registry_read_coverage"].(map[string]any)
+	if !ok {
+		t.Fatalf("openapi-map.json registry_read_coverage = %T, want object", root["registry_read_coverage"])
+	}
+	resources, ok := read["resources"].([]any)
+	if !ok || len(resources) != 8 {
+		t.Fatalf("openapi-map.json source read resources = %#v, want eight rows", read["resources"])
+	}
+	statuses := map[string]string{}
+	for _, value := range resources {
+		row, ok := value.(map[string]any)
+		if !ok {
+			t.Fatalf("openapi-map.json source read row = %T, want object", value)
+		}
+		resource, _ := row["resource"].(string)
+		status, _ := row["status"].(string)
+		statuses[resource] = status
+	}
+	for resource, want := range map[string]string{
+		"sourcefirst_direct_http": "matched",
+		"sourcefirst_sdk_http":    "matched",
+		"sourcefirst_ambiguous":   "ambiguous_source_operation",
+		"sourcefirst_dynamic":     "dynamic",
+		"sourcefirst_no_source":   "no_source",
+		"sourcefirst_unresolved":  "unresolved",
+	} {
+		if got := statuses[resource]; got != want {
+			t.Errorf("openapi-map.json %s status = %q, want %q", resource, got, want)
+		}
+	}
+	summary, ok := read["summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("openapi-map.json source read summary = %T, want object", read["summary"])
+	}
+	if got, _ := summary["source_trust"].(string); got != "verified" {
+		t.Errorf("openapi-map.json source read trust = %q, want verified", got)
+	}
+	if got, _ := summary["source_selected_total"].(json.Number); got.String() != "8" {
+		t.Errorf("openapi-map.json source selected total = %q, want 8", got)
 	}
 }
 

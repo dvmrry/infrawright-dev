@@ -81,22 +81,48 @@ make openapi-map \
   PROVIDER_SOURCE=registry.terraform.io/example/example \
   RESOURCE_PREFIX=example \
   REGISTRY=reports/readiness/example-source-evidence/source-registry.json \
+  INPUT_PROVENANCE=reports/readiness/example-source-evidence/input-provenance.json \
   OUT=reports/readiness/example-openapi-map.json
 ```
 
-This does not replace a real pack registry, but it turns "provider source calls
-OpenAPI operation X" into deterministic read-path evidence. The derived JSON
-uses `read` and, when discoverable, `list` paths so a detail read endpoint is
-not confused with a pack `fetch.path` that enumerates live resources.
-`source-registry.json` in the artifact bundle is a full resource-keyed evidence
-registry: mapped resources include selected operation evidence, while ambiguous
-and unmapped resources stay present with `status` and `reason` so downstream
-coverage cannot silently drop them.
-The source evidence contract is documented at
-[`docs/schemas/source-operation-evidence.schema.json`](schemas/source-operation-evidence.schema.json).
-Each operation can carry a `hops` chain, such as provider call ->
-OpenAPI operation, and later analyzers can add SDK-operation hops for providers
-where the Terraform provider calls an SDK that constructs paths internally.
+This does not replace a real pack registry, but it turns a provider source call
+to OpenAPI operation X into deterministic source evidence. The canonical report
+keeps the source endpoint and its classification separate from pack `fetch`
+paths that enumerate live resources.
+`source-registry.json` in the qualified artifact bundle is the canonical
+`infrawright.source_evidence_report` document. Its resource rows preserve the
+source classification, every viable chain, and the reason code; it is distinct
+from the resource-keyed pack registry consumed by the legacy fetch/read
+coverage path. `openapi-map` validates this canonical report when it is supplied
+as `--registry` together with the matching input-provenance.json through
+`--input-provenance` (or by a qualified provider probe) and projects it into
+`registry_read_coverage`: only one `observed_http` chain with a GET endpoint can
+produce a read path, and only verified, legacy-mapped rows are eligible for
+that projection. Ambiguous, SDK-only, dynamic, unresolved, no-source, and
+not-applicable rows stay present with their source status and are included in
+the classification counts. The report's trust and manifest/input-provenance
+digests remain visible in the diagnostic summary; unverified or detached
+evidence is rejected at this readiness boundary.
+
+The direct CLI form for a source-evidence bundle is:
+
+```bash
+iw openapi-map \
+  --schema tmp/provider-schema.json \
+  --openapi tmp/openapi.json \
+  --provider-source registry.terraform.io/example/example \
+  --resource-prefix example \
+  --registry reports/readiness/example-source-evidence/source-registry.json \
+  --input-provenance reports/readiness/example-source-evidence/input-provenance.json \
+  --out reports/readiness/example-openapi-map.json
+```
+
+The older resource-keyed source-operation schema remains documented at
+[`docs/schemas/source-operation-evidence.schema.json`](schemas/source-operation-evidence.schema.json)
+for real pack registry inputs. Each legacy operation can carry a `hops` chain,
+such as provider call -> OpenAPI operation, and later analyzers can add
+SDK-operation hops for providers where the Terraform provider calls an SDK that
+constructs paths internally.
 The source pass also keeps non-OpenAPI evidence explicit. Direct
 `client.NewRequest("GET", ...)` calls can map to OpenAPI paths through raw REST
 path evidence, relationship resources can use list endpoints as

@@ -38,7 +38,9 @@ make provider-probe \
 
 - `summary.md`: human-readable probe result.
 - `summary.json`: compact machine-readable summary.
-- `source-registry.json`: source-derived read/list evidence.
+- `source-registry.json`: the canonical source-evidence report. It preserves
+  every selected resource's classification, viable chains, reason code, and
+  source trust/provenance binding.
 - `source-diagnostics.json`: mapper diagnostics for mapped, ambiguous, and
   unmapped resources.
 - `input-provenance.json`: the verified input bindings the evidence was
@@ -53,8 +55,15 @@ outputs uncommitted unless a PR is explicitly adding sanitized evidence.
 ## Reading Results
 
 Treat `registry_read_coverage` as the headline OpenAPI signal because it is
-backed by provider source evidence. Treat `generic_openapi_map` as candidate
-generation only.
+backed by provider source evidence. Its source rows preserve all canonical
+classifications; only a single verified, legacy-mapped observed HTTP GET chain
+becomes a path match. The standalone `openapi-map --registry` route requires
+the matching `input-provenance.json`; the qualified probe supplies that bound
+artifact internally.
+Read `source_trust`, `source_manifest_sha256`, and `input_provenance_sha256`
+alongside the classification counts and `source_endpoint_coverage` before
+using the map as readiness context.
+Treat `generic_openapi_map` as candidate generation only.
 
 For machine consumption, prefer `openapi-map.json.surface_map.records`: it keeps
 generic CRUD candidates, curated fetch paths, and source-derived read paths as

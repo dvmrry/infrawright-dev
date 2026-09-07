@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dvmrry/infrawright-dev/go/internal/authoring/contracts"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/openapiadapter"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/reconcile"
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -31,6 +32,13 @@ type Options struct {
 	// empty string is an explicit match-all prefix.
 	APIPrefix    *string
 	RegistryData *Object
+	// SourceEvidenceData is the canonical source-registry.json artifact. It is
+	// validated before being projected into read coverage; it cannot be mixed
+	// with the legacy pack registry input.
+	SourceEvidenceData []byte
+	// InputProvenanceData is the exact input-provenance.json artifact bound to
+	// SourceEvidenceData or a declared canonical RegistryData object.
+	InputProvenanceData []byte
 }
 
 // Report is a sealed generic diagnostic report from
@@ -165,14 +173,133 @@ func Build(ctx context.Context, options Options) (Report, error) {
 	profile := openAPIProfile(view, apiPrefix)
 	hints := providerHints(provider)
 	coverage := coverageDiagnostics(summary, families, profile, hints)
-	registry := Object{}
-	if options.RegistryData != nil {
-		registry = cloneObject(*options.RegistryData)
+	registry, sourceReport, err := registryInput(options, prefix)
+	if err != nil {
+		return Report{}, err
 	}
 	fetch := registryCoverage(view, apiPrefix, prefix, registry, "fetch")
-	read := registryCoverage(view, apiPrefix, prefix, registry, "read")
+	read := registryCoverageWithSource(view, apiPrefix, prefix, registry, "read", sourceReport)
 	result := Object{"api_prefix": apiPrefix, "coverage": coverage, "openapi": Object{"path_count": len(view.Paths), "profile": profile, "schema_count": view.ComponentSchemaCount, "version": pointerValue(view.Version)}, "provider_config_hints": hints, "provider_source": pointerValue(options.ProviderSource), "registry_fetch_coverage": fetch, "registry_read_coverage": read, "resource_prefix": prefix, "resources": resources, "summary": summary, "surface_map": surfaceMap(options.ProviderSource, prefix, resources, fetch, read, objects(coverage["warnings"])), "surfaces": intMapObject(surfaces)}
 	return Report{data: cloneObject(result)}, nil
+}
+
+const sourceEvidenceReportKind = "infrawright.source_evidence_report"
+
+// registryInput keeps the legacy resource-keyed pack registry path intact
+// while accepting the canonical source-registry.json artifact. A canonical
+// document is decoded and bound to its exact input-provenance artifact before
+// projection so malformed, unverified, or detached evidence cannot become
+// readiness coverage.
+func registryInput(options Options, prefix string) (Object, *contracts.SourceEvidenceReport, error) {
+	if options.RegistryData != nil && options.SourceEvidenceData != nil {
+		return nil, nil, fmt.Errorf("openapi map cannot combine legacy registry data with canonical source evidence")
+	}
+	if options.SourceEvidenceData != nil {
+		report, err := contracts.DecodeSourceEvidenceReport(options.SourceEvidenceData)
+		if err != nil {
+			return nil, nil, fmt.Errorf("decode canonical source evidence: %w", err)
+		}
+		if err := validateCanonicalSourceEvidence(report, options.InputProvenanceData); err != nil {
+			return nil, nil, err
+		}
+		return sourceEvidenceRegistry(report, prefix), &report, nil
+	}
+	if options.RegistryData == nil {
+		if len(options.InputProvenanceData) != 0 {
+			return nil, nil, fmt.Errorf("openapi map input provenance requires canonical source evidence")
+		}
+		return Object{}, nil, nil
+	}
+	registry := cloneObject(*options.RegistryData)
+	if kind, ok := registry["kind"].(string); ok && kind == sourceEvidenceReportKind {
+		rendered, err := canonjson.Render(registry)
+		if err != nil {
+			return nil, nil, fmt.Errorf("render declared canonical source evidence: %w", err)
+		}
+		report, err := contracts.DecodeSourceEvidenceReport([]byte(rendered))
+		if err != nil {
+			return nil, nil, fmt.Errorf("decode declared canonical source evidence: %w", err)
+		}
+		if err := validateCanonicalSourceEvidence(report, options.InputProvenanceData); err != nil {
+			return nil, nil, err
+		}
+		return sourceEvidenceRegistry(report, prefix), &report, nil
+	}
+	if len(options.InputProvenanceData) != 0 {
+		return nil, nil, fmt.Errorf("openapi map input provenance requires canonical source evidence")
+	}
+	return registry, nil, nil
+}
+
+func validateCanonicalSourceEvidence(report contracts.SourceEvidenceReport, provenanceData []byte) error {
+	if report.SourceTrust != contracts.SourceTrustVerified {
+		return fmt.Errorf("canonical source evidence requires verified source trust")
+	}
+	if len(provenanceData) == 0 {
+		return fmt.Errorf("canonical source evidence requires input provenance")
+	}
+	provenance, err := contracts.DecodeInputProvenance(provenanceData)
+	if err != nil {
+		return fmt.Errorf("decode canonical input provenance: %w", err)
+	}
+	if err := contracts.ValidateSourceEvidenceReportAgainstInput(report, provenance); err != nil {
+		return fmt.Errorf("bind canonical source evidence to input provenance: %w", err)
+	}
+	for resource, row := range report.Resources {
+		wantMapped := row.Classification == contracts.SourceObservedHTTP
+		if row.LegacyMapped != wantMapped {
+			return fmt.Errorf("canonical source evidence resource %q has invalid legacy mapping", resource)
+		}
+	}
+	return nil
+}
+
+func sourceEvidenceRegistry(report contracts.SourceEvidenceReport, prefix string) Object {
+	registry := make(Object, len(report.Resources))
+	for resource, row := range report.Resources {
+		classification := string(row.Classification)
+		status := classification
+		if row.Classification == contracts.SourceAmbiguous {
+			status = "ambiguous_source_operation"
+		}
+		entry := Object{
+			"product":               prefix,
+			"reason":                sourceEvidenceReason(row),
+			"source_classification": classification,
+			"source_chain_count":    len(row.Chains),
+			"source_reason_code":    sourceEvidenceReason(row),
+			"source_trust":          string(report.SourceTrust),
+			"source": Object{
+				"classification": classification,
+				"chain_count":    len(row.Chains),
+				"kind":           sourceEvidenceReportKind,
+			},
+			"status":  status,
+			"surface": prefix,
+		}
+		if report.SourceTrust == contracts.SourceTrustVerified && row.LegacyMapped &&
+			row.Classification == contracts.SourceObservedHTTP && len(row.Chains) == 1 && row.Chains[0].Endpoint != nil {
+			endpoint := row.Chains[0].Endpoint
+			if endpoint.Method == "GET" {
+				entry["status"] = "mapped"
+				entry["read"] = Object{"path": endpoint.PathTemplate}
+			} else {
+				entry["reason"] = "source_endpoint_method_not_get"
+			}
+		}
+		registry[resource] = entry
+	}
+	return registry
+}
+
+func sourceEvidenceReason(row contracts.SourceEvidenceRow) any {
+	if row.ReasonCode != nil {
+		return string(*row.ReasonCode)
+	}
+	if len(row.Chains) == 1 && row.Chains[0].ReasonCode != nil {
+		return string(*row.Chains[0].ReasonCode)
+	}
+	return nil
 }
 
 func providerFromSchema(data Object, providerSource *string) (Object, error) {
@@ -1024,6 +1151,10 @@ func matchRegistryPath(view openapiadapter.LegacyMap, prefix, fetch, product str
 	return matches[0]
 }
 func registryCoverage(view openapiadapter.LegacyMap, apiPrefix, prefix string, registry Object, key string) Object {
+	return registryCoverageWithSource(view, apiPrefix, prefix, registry, key, nil)
+}
+
+func registryCoverageWithSource(view openapiadapter.LegacyMap, apiPrefix, prefix string, registry Object, key string, sourceReport *contracts.SourceEvidenceReport) Object {
 	resources := []any{}
 	matches := productMatches(view, prefix)
 	for _, resource := range sortedKeys(registry) {
@@ -1033,15 +1164,19 @@ func registryCoverage(view openapiadapter.LegacyMap, apiPrefix, prefix string, r
 			continue
 		}
 		if key == "read" && jsTruthy(entry["status"]) && entry["status"] != "mapped" {
-			resources = append(resources, Object{"reason": nullish(entry, "reason", entry["status"]), "resource": resource, "status": entry["status"]})
+			resources = append(resources, sourceCoverageItem(entry, resource))
 			continue
 		}
 		pathEntry := object(entry[key])
 		path, ok := pathEntry["path"].(string)
 		if !ok {
+			if key == "read" && entry["source_classification"] != nil {
+				resources = append(resources, sourceCoverageItem(entry, resource))
+			}
 			continue
 		}
 		item := Object{key + "_path": path, "resource": resource}
+		copySourceCoverageFields(item, entry)
 		if key == "fetch" {
 			item["pagination"] = nullish(pathEntry, "pagination", prefix)
 		}
@@ -1121,7 +1256,50 @@ func registryCoverage(view openapiadapter.LegacyMap, apiPrefix, prefix string, r
 	} else {
 		summary["coverage_ratio"] = ratioNumber(matched, total)
 	}
+	if key == "read" && sourceReport != nil {
+		summary["source_classification_counts"] = sourceClassificationCountsObject(sourceReport.Summary.ClassificationCounts)
+		summary["source_trust"] = string(sourceReport.SourceTrust)
+		summary["source_manifest_sha256"] = pointerValue(sourceReport.SourceManifestSHA256)
+		summary["input_provenance_sha256"] = sourceReport.InputProvenanceSHA256
+		summary["source_selected_total"] = sourceReport.Summary.SelectedTotal
+		summary["source_applicable_total"] = sourceReport.Summary.ApplicableTotal
+		summary["source_endpoint_coverage"] = sourceEndpointCoverageObject(sourceReport.Summary.EndpointCoverage)
+	}
 	return Object{"resources": resources, "summary": summary, "warnings": warnings}
+}
+
+func sourceCoverageItem(entry Object, resource string) Object {
+	item := Object{"reason": nullish(entry, "reason", entry["status"]), "resource": resource, "status": entry["status"]}
+	copySourceCoverageFields(item, entry)
+	return item
+}
+
+func copySourceCoverageFields(destination, entry Object) {
+	for _, key := range []string{"source_classification", "source_chain_count", "source_reason_code", "source_trust"} {
+		if value, ok := entry[key]; ok {
+			destination[key] = value
+		}
+	}
+}
+
+func sourceClassificationCountsObject(counts contracts.SourceClassificationCounts) Object {
+	return Object{
+		"ambiguous":         counts.Ambiguous,
+		"dynamic":           counts.Dynamic,
+		"no_source":         counts.NoSource,
+		"not_applicable":    counts.NotApplicable,
+		"observed_http":     counts.ObservedHTTP,
+		"observed_sdk_call": counts.ObservedSDKCall,
+		"unresolved":        counts.Unresolved,
+	}
+}
+
+func sourceEndpointCoverageObject(coverage contracts.ExactCoverage) Object {
+	return Object{
+		"state":       string(coverage.State),
+		"numerator":   coverage.Numerator,
+		"denominator": coverage.Denominator,
+	}
 }
 
 func operationPath(value any) any {
@@ -1174,6 +1352,16 @@ func registrySurface(item Object, provider *string, prefix, key string) Object {
 	}
 	ambiguous := item["status"] == "ambiguous_source_operation"
 	unsupported := key == "read" && item["status"] == "graphql_source"
+	if classification := str(item["source_classification"]); classification != "" {
+		switch classification {
+		case string(contracts.SourceAmbiguous):
+			ambiguous = true
+		case string(contracts.SourceObservedSDKCall), string(contracts.SourceDynamic):
+			unsupported = key == "read"
+		case string(contracts.SourceUnresolved), string(contracts.SourceNoSource), string(contracts.SourceNotApplicable):
+			unsupported = false
+		}
+	}
 	state := "missing"
 	if matched {
 		state = "matched"
@@ -1191,6 +1379,11 @@ func registrySurface(item Object, provider *string, prefix, key string) Object {
 		evidence["operation_id"] = nullish(item, "operation_id", nil)
 		evidence["path_kind"] = nullish(item, "path_kind", nil)
 		evidence["read_path"] = nullish(item, "read_path", nil)
+		for _, field := range []string{"source_classification", "source_chain_count", "source_reason_code", "source_trust"} {
+			if value, ok := item[field]; ok {
+				evidence[field] = value
+			}
+		}
 	}
 	confidence := any(nil)
 	if matched {
