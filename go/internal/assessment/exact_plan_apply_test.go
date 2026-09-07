@@ -570,6 +570,16 @@ func exactApplyImportChange(address string) map[string]any {
 	}
 }
 
+func exactApplyImportReplacementChange(address string, actions ...string) map[string]any {
+	rawActions := make([]any, len(actions))
+	for index, action := range actions {
+		rawActions[index] = action
+	}
+	change := exactApplyImportChange(address)
+	change["change"].(map[string]any)["actions"] = rawActions
+	return change
+}
+
 func exactApplyUpdateChange(address string) map[string]any {
 	return map[string]any{
 		"address": address,
@@ -931,6 +941,73 @@ func TestApplyExactSavedPlansMatchesAssertStanceOnRefreshDrift(t *testing.T) {
 				t.Errorf("Apply called = %t, want %t", got, test.wantApply)
 			}
 		})
+	}
+}
+
+// TestApplyExactSavedPlansBlocksImportedReplacementActionsBeforeApply keeps
+// exact Apply aligned with the classifier: importing is a clean shortcut only
+// for a lone create, while valid replacement sequences remain blocked. The
+// destroy override reaches the classification gate for create/delete instead
+// of allowing the earlier destroy refusal to satisfy this test accidentally.
+func TestApplyExactSavedPlansBlocksImportedReplacementActionsBeforeApply(t *testing.T) {
+	const address = `sample_resource.this["one"]`
+	for _, test := range []struct {
+		name    string
+		actions []string
+	}{
+		{name: "create_delete", actions: []string{"create", "delete"}},
+		{name: "create_forget", actions: []string{"create", "forget"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newExactApplyFixture(t)
+			fixture.restoreSavedPair(t, fixture.roots[0])
+			planValue := exactApplyCleanPlan()
+			planValue["resource_changes"] = []any{
+				exactApplyImportReplacementChange(address, test.actions...),
+			}
+			fake := &fakeExactPlanApplyTerraform{currentPlan: planValue}
+			options := exactApplyOptions(fixture, fake)
+			options.AllowDestroy = true
+
+			_, err := applyExactSavedPlans(options, exactApplyTestHooks(fixture))
+			requireExactApplyFailure(t, err, "APPLY_BLOCKED_PLAN_REFUSED")
+			if got, want := len(fake.applied), 0; got != want {
+				t.Errorf("applyExactSavedPlans(actions=%#v, importing=true).Apply calls = %d, want %d", test.actions, got, want)
+			}
+		})
+	}
+}
+
+// TestApplyExactSavedPlansRechecksOpenSnapshotBeforeApply keeps the final
+// descriptor-bound snapshot check as an Apply barrier. The path-based
+// evidence recheck still succeeds after Show closes the descriptor, so a
+// failure here proves that the final RecheckSavedPlanSnapshot result itself
+// controls whether Terraform Apply may run.
+func TestApplyExactSavedPlansRechecksOpenSnapshotBeforeApply(t *testing.T) {
+	fixture := newExactApplyFixture(t)
+	fixture.restoreSavedPair(t, fixture.roots[0])
+	showClosed := false
+	fake := &fakeExactPlanApplyTerraform{currentPlan: exactApplyCleanPlan()}
+	fake.onShow = func(request ExactPlanApplyShowRequest) (canonjson.Value, error) {
+		if request.SnapshotFile == nil {
+			return nil, errors.New("missing snapshot descriptor")
+		}
+		if err := request.SnapshotFile.Close(); err != nil {
+			return nil, err
+		}
+		showClosed = true
+		return exactApplyCleanPlan(), nil
+	}
+	result, err := applyExactSavedPlans(exactApplyOptions(fixture, fake), exactApplyTestHooks(fixture))
+	failure := requireExactApplyFailure(t, err, "PLAN_SNAPSHOT_CHANGED")
+	if !showClosed {
+		t.Error("applyExactSavedPlans(final snapshot recheck) Show did not close descriptor, want test mutation")
+	}
+	if result.Applied != 0 {
+		t.Errorf("applyExactSavedPlans(final snapshot recheck).Applied = %d, want %d", result.Applied, 0)
+	}
+	if got, want := len(fake.applied), 0; got != want {
+		t.Errorf("applyExactSavedPlans(final snapshot recheck).Apply calls = %d, want %d; failure = %v", got, want, failure)
 	}
 }
 

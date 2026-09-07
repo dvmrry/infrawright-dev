@@ -310,7 +310,7 @@ projected provider state already contains the target, even as an empty list or
 object, the fill entry remains stale. It also refuses sensitive targets.
 
 The current ZIA pack intentionally does not use `projection_fill` for URL
-filtering ISOLATE rules. With the pinned `zscaler/zia` provider 4.8.0,
+filtering ISOLATE rules. With the pinned `zscaler/zia` provider 4.8.3,
 `cbi_profile` is required on write but a fresh import Read cannot reliably
 reconstruct the block when the API omits it. The pack therefore classifies
 `action = "ISOLATE"` as version-scoped unsupported before identity derivation
@@ -318,7 +318,7 @@ or any Oracle call. The earlier ZIA `cbi_profile` fill was removed; support for
 a later provider version requires new source/readback evidence and an updated
 provider scope rather than reusing that fill.
 
-The pinned ZIA 4.8.0 pack applies the same pre-Oracle rule to non-empty endpoint
+The pinned ZIA 4.8.3 pack applies the same pre-Oracle rule to non-empty endpoint
 application or application-group assignments on DNS, filtering, IPS, and SSL
 rules. DNS, filtering, and SSL can fail inside the provider's newly added Read
 setters before projection; IPS declares the blocks without implementing Read

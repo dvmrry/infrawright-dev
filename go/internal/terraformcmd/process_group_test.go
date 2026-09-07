@@ -20,6 +20,8 @@ import (
 const (
 	terraformSignalHarnessEnvironment      = "TERRAFORMCMD_SIGNAL_HARNESS"
 	terraformSignalOutputMarkerEnvironment = "TERRAFORMCMD_SIGNAL_OUTPUT_MARKER"
+	terraformSignalHarnessWaitTimeout      = 5 * time.Second
+	terraformSignalHarnessCleanupTimeout   = 2 * time.Second
 )
 
 // TestTerraformTerminationSignalHarness is both the isolated signal target and
@@ -31,8 +33,8 @@ func TestTerraformTerminationSignalHarness(t *testing.T) {
 		return
 	}
 
-	for _, signal := range []syscall.Signal{syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP} {
-		t.Run(signal.String(), func(t *testing.T) {
+	for _, terminationSignal := range []syscall.Signal{syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP} {
+		t.Run(terminationSignal.String(), func(t *testing.T) {
 			root, err := filepath.EvalSymlinks(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
@@ -66,32 +68,62 @@ func TestTerraformTerminationSignalHarness(t *testing.T) {
 
 			command := exec.Command(os.Args[0], "-test.run=^TestTerraformTerminationSignalHarness$")
 			command.Env = environment
+			inheritedSignal := make(chan os.Signal, 1)
+			signal.Notify(inheritedSignal, terminationSignal)
 			if err := command.Start(); err != nil {
+				signal.Stop(inheritedSignal)
 				t.Fatal(err)
 			}
+			signal.Stop(inheritedSignal)
+			waitResult := make(chan error, 1)
+			go func() { waitResult <- command.Wait() }()
+			pids := make([]int, 0, len(files))
+			var waitCompleted bool
+			var cleanupOnce sync.Once
+			cleanup := func() {
+				cleanupOnce.Do(func() {
+					for _, pid := range pids {
+						killTerraformProcessGroup(pid, nil)
+					}
+					if !waitCompleted {
+						_ = command.Process.Kill()
+						timer := time.NewTimer(terraformSignalHarnessCleanupTimeout)
+						defer timer.Stop()
+						select {
+						case <-waitResult:
+							waitCompleted = true
+						case <-timer.C:
+						}
+					}
+				})
+			}
 			t.Cleanup(func() {
-				if command.ProcessState == nil {
-					_ = command.Process.Kill()
-					_, _ = command.Process.Wait()
-				}
+				cleanup()
 			})
 
-			pids := make([]int, 0, len(files))
 			for _, file := range files {
 				pids = append(pids, waitForPIDFile(t, file))
 			}
 			waitForFile(t, outputMarker)
-			if err := command.Process.Signal(signal); err != nil {
+			if err := command.Process.Signal(terminationSignal); err != nil {
 				t.Fatalf("signal harness: %v", err)
 			}
-			err = command.Wait()
+			waitTimer := time.NewTimer(terraformSignalHarnessWaitTimeout)
+			select {
+			case err = <-waitResult:
+				waitCompleted = true
+			case <-waitTimer.C:
+				cleanup()
+				t.Fatalf("TestTerraformTerminationSignalHarness(%s) wait timed out after %s, want signal exit", terminationSignal, terraformSignalHarnessWaitTimeout)
+			}
+			waitTimer.Stop()
 			var exitError *exec.ExitError
 			if !errors.As(err, &exitError) {
 				t.Fatalf("harness wait = %v, want signal exit", err)
 			}
 			status, ok := exitError.Sys().(syscall.WaitStatus)
-			if !ok || !status.Signaled() || status.Signal() != signal {
-				t.Fatalf("harness status = %#v, want signal %s", exitError.Sys(), signal)
+			if !ok || !status.Signaled() || status.Signal() != terminationSignal {
+				t.Fatalf("harness status = %#v, want signal %s", exitError.Sys(), terminationSignal)
 			}
 			for _, pid := range pids {
 				waitForProcessMissing(t, pid)

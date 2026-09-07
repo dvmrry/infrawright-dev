@@ -7,6 +7,14 @@ on:
   workflow_dispatch:
 
 jobs:
+  schema-parity:
+    name: Published assessment schema parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the published schema against the engine test contract
+        run: make check-schema-parity
+
   scope:
     name: Determine runtime CI scope
     runs-on: ubuntu-latest
@@ -96,6 +104,22 @@ jobs:
           fi
           echo "No usable push base; checking the last commit."
           git diff --check HEAD~1 HEAD
+
+  race-check:
+    name: Concurrent runtime race checks
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go/go.sum
+      - name: Check collector and subprocess concurrency
+        working-directory: go
+        run: go test -race -count=1 -timeout=15m ./internal/collectors ./internal/httptransport ./internal/terraformcmd
 
   full-go-check:
     needs: scope

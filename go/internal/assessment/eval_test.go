@@ -136,6 +136,62 @@ func TestClassifyPlanPreservesCoreAndPartialToleranceSemantics(t *testing.T) {
 	}
 }
 
+// TestClassifyPlanBlocksImportedReplacementActions keeps the import shortcut
+// restricted to a lone create action. Terraform permits replacement imports
+// to carry create/delete and create/forget sequences; those are still writes
+// that the assessment gate must block.
+func TestClassifyPlanBlocksImportedReplacementActions(t *testing.T) {
+	const address = `sample_resource.this["one"]`
+	for _, test := range []struct {
+		name    string
+		actions []string
+	}{
+		{name: "create_delete", actions: []string{"create", "delete"}},
+		{name: "create_forget", actions: []string{"create", "forget"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rawActions := make([]any, len(test.actions))
+			for index, action := range test.actions {
+				rawActions[index] = action
+			}
+			planValue := map[string]any{
+				"format_version":    "1.2",
+				"terraform_version": "1.15.4",
+				"complete":          true,
+				"errored":           false,
+				"resource_changes": []any{map[string]any{
+					"address": address,
+					"type":    "sample_resource",
+					"change": map[string]any{
+						"actions":   rawActions,
+						"importing": map[string]any{"id": "external-id"},
+					},
+				}},
+				"output_changes": map[string]any{},
+			}
+
+			classification, err := ClassifyPlan(planValue, nil, nil)
+			if err != nil {
+				t.Fatalf("ClassifyPlan(actions=%#v, importing=true) error = %v, want nil", test.actions, err)
+			}
+			if got, want := classification.Status, Blocked; got != want {
+				t.Errorf("ClassifyPlan(actions=%#v, importing=true).Status = %q, want %q", test.actions, got, want)
+			}
+			if got, want := len(classification.Findings), 1; got != want {
+				t.Errorf("ClassifyPlan(actions=%#v, importing=true).Findings = %d, want %d; classification = %#v", test.actions, got, want, classification)
+				return
+			}
+			finding := classification.Findings[0]
+			if got, want := finding.Status, Blocked; got != want {
+				t.Errorf("ClassifyPlan(actions=%#v, importing=true).Findings[0].Status = %q, want %q", test.actions, got, want)
+			}
+			if got, want := finding.Actions, test.actions; !reflect.DeepEqual(got, want) {
+				t.Errorf("ClassifyPlan(actions=%#v, importing=true).Findings[0].Actions = %#v, want %#v", test.actions, got, want)
+			}
+		})
+	}
+}
+
 func TestClassifyPlanRejectsIncompleteBeforePolicyMatching(t *testing.T) {
 	policyValue := mustParseDataJSON(t, `{
 		"version":1,"resource_types":{"sample_resource":{"plan_tolerate":[{
