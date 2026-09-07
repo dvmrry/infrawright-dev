@@ -993,7 +993,14 @@ func fetchVariants(path, product, prefix string) []Object {
 	return filtered
 }
 func matchRegistryPath(view openapiadapter.LegacyMap, prefix, fetch, product string) Object {
-	matches := []Object{}
+	type rankedMatch struct {
+		candidate   Object
+		matchRank   int
+		variantRank int
+	}
+	ranks := map[string]int{"exact": 0, "suffix": 1}
+	variantRanks := map[string]int{"exact": 0, "api_prefix_stripped": 1, "product_prefix_stripped": 2, "api_prefix_stripped_product_prefix_stripped": 3}
+	matchesByEndpoint := map[string]rankedMatch{}
 	for _, variant := range fetchVariants(fetch, product, prefix) {
 		left := anyStrings(variant["parts"])
 		for _, path := range view.Paths {
@@ -1008,20 +1015,47 @@ func matchRegistryPath(view openapiadapter.LegacyMap, prefix, fetch, product str
 				kind = "suffix"
 			}
 			if kind != "" {
-				matches = append(matches, Object{"match": kind, "openapi_path": path.Template, "variant": variant["variant"]})
+				candidate := rankedMatch{
+					candidate:   Object{"match": kind, "openapi_path": path.Template, "variant": variant["variant"]},
+					matchRank:   ranks[kind],
+					variantRank: variantRanks[str(variant["variant"])],
+				}
+				previous, exists := matchesByEndpoint[path.Template]
+				if !exists || candidate.matchRank < previous.matchRank || (candidate.matchRank == previous.matchRank && candidate.variantRank < previous.variantRank) {
+					matchesByEndpoint[path.Template] = candidate
+				}
 			}
 		}
 	}
-	if len(matches) == 0 {
+	if len(matchesByEndpoint) == 0 {
 		return nil
 	}
-	rank := map[string]int{"exact": 0, "suffix": 1}
-	vrank := map[string]int{"exact": 0, "api_prefix_stripped": 1, "product_prefix_stripped": 2, "api_prefix_stripped_product_prefix_stripped": 3}
+	matches := make([]rankedMatch, 0, len(matchesByEndpoint))
+	for _, match := range matchesByEndpoint {
+		matches = append(matches, match)
+	}
 	sort.Slice(matches, func(i, j int) bool {
 		a, b := matches[i], matches[j]
-		return rank[str(a["match"])] < rank[str(b["match"])] || (rank[str(a["match"])] == rank[str(b["match"])] && (vrank[str(a["variant"])] < vrank[str(b["variant"])] || (vrank[str(a["variant"])] == vrank[str(b["variant"])] && canonjson.ComparePythonStrings(str(a["openapi_path"]), str(b["openapi_path"])) < 0)))
+		if a.matchRank != b.matchRank {
+			return a.matchRank < b.matchRank
+		}
+		if a.variantRank != b.variantRank {
+			return a.variantRank < b.variantRank
+		}
+		return canonjson.ComparePythonStrings(str(a.candidate["openapi_path"]), str(b.candidate["openapi_path"])) < 0
 	})
-	return matches[0]
+	best := matches[0]
+	tied := []Object{}
+	for _, match := range matches {
+		if match.matchRank != best.matchRank || match.variantRank != best.variantRank {
+			break
+		}
+		tied = append(tied, match.candidate)
+	}
+	if len(tied) > 1 {
+		return Object{"candidates": objectsFrom(tied), "reason": "multiple_equal_rank_matches", "status": "ambiguous"}
+	}
+	return best.candidate
 }
 func registryCoverage(view openapiadapter.LegacyMap, apiPrefix, prefix string, registry Object, key string) Object {
 	resources := []any{}
@@ -1063,7 +1097,7 @@ func registryCoverage(view openapiadapter.LegacyMap, apiPrefix, prefix string, r
 			item["reason"], item["status"] = reason, "unmatched"
 		} else {
 			merge(item, match)
-			item["status"] = "matched"
+			item["status"] = strOr(match["status"], "matched")
 		}
 		resources = append(resources, item)
 	}
@@ -1073,7 +1107,7 @@ func registryCoverage(view openapiadapter.LegacyMap, apiPrefix, prefix string, r
 		if status == "matched" {
 			matched++
 		}
-		if status == "ambiguous_source_operation" {
+		if status == "ambiguous" || status == "ambiguous_source_operation" {
 			ambiguous++
 		}
 	}
@@ -1091,12 +1125,18 @@ func registryCoverage(view openapiadapter.LegacyMap, apiPrefix, prefix string, r
 		}
 		warnings = append(warnings, Object{"code": mismatchCode, "detected_products": stringsToAny(sorted(detected)), "message": "The OpenAPI document advertises a different known product than the resource prefix; registry path suffix matches were suppressed."})
 	}
-	nonMapped, missing := []string{}, []string{}
+	nonMapped, pathAmbiguous, missing := []string{}, []string{}, []string{}
 	for _, v := range resources {
 		item := object(v)
 		status := str(item["status"])
-		if key == "read" && status != "matched" && status != "unmatched" {
-			nonMapped = append(nonMapped, str(item["resource"]))
+		if key == "read" {
+			switch status {
+			case "matched", "unmatched":
+			case "ambiguous":
+				pathAmbiguous = append(pathAmbiguous, str(item["resource"]))
+			default:
+				nonMapped = append(nonMapped, str(item["resource"]))
+			}
 		}
 		if status == "unmatched" {
 			missing = append(missing, str(item["resource"]))
@@ -1105,12 +1145,18 @@ func registryCoverage(view openapiadapter.LegacyMap, apiPrefix, prefix string, r
 	if key == "read" && len(nonMapped) > 0 {
 		warnings = append(warnings, Object{"code": "registry_read_entries_not_mapped", "message": "At least one source evidence entry did not produce a selected read path; inspect the source diagnostics before OpenAPI path matching.", "resources": stringsToAny(nonMapped[:min(50, len(nonMapped))])})
 	}
+	if key == "read" && len(pathAmbiguous) > 0 {
+		warnings = append(warnings, Object{"code": "registry_read_paths_ambiguous", "message": "At least one registry read path matched multiple equal-ranked OpenAPI GET endpoints; inspect candidate evidence before treating it as covered.", "resources": stringsToAny(pathAmbiguous[:min(50, len(pathAmbiguous))])})
+	}
 	if len(missing) > 0 {
 		warnings = append(warnings, Object{"code": label + "_paths_missing_from_openapi", "message": "At least one registry path was not present as an OpenAPI GET path.", "resources": stringsToAny(missing[:min(50, len(missing))])})
 	}
 	summary := Object{}
 	if key == "fetch" {
 		summary["fetch_resources"] = total
+		if ambiguous > 0 {
+			summary["ambiguous"] = ambiguous
+		}
 	} else {
 		summary["read_resources"] = total
 		summary["ambiguous"] = ambiguous
@@ -1172,7 +1218,7 @@ func registrySurface(item Object, provider *string, prefix, key string) Object {
 	if key == "read" {
 		source = "source_read_registry"
 	}
-	ambiguous := item["status"] == "ambiguous_source_operation"
+	ambiguous := item["status"] == "ambiguous" || item["status"] == "ambiguous_source_operation"
 	unsupported := key == "read" && item["status"] == "graphql_source"
 	state := "missing"
 	if matched {
@@ -1191,6 +1237,9 @@ func registrySurface(item Object, provider *string, prefix, key string) Object {
 		evidence["operation_id"] = nullish(item, "operation_id", nil)
 		evidence["path_kind"] = nullish(item, "path_kind", nil)
 		evidence["read_path"] = nullish(item, "read_path", nil)
+	}
+	if candidates, ok := item["candidates"]; ok {
+		evidence["candidates"] = candidates
 	}
 	confidence := any(nil)
 	if matched {
