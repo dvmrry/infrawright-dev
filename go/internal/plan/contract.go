@@ -393,18 +393,187 @@ func referenceOutputMatchesEvidence(actual any, expected map[string]any, waived 
 	return true
 }
 
+// referenceOutputEvidenceResult separates the values proven by planned or
+// prior-state resources from managed instances whose contracted attribute is
+// intentionally unknown until apply. Unknown entries are authorized only by
+// referenceOutputEvidence's exact-create check; they are not evidence by
+// themselves.
+type referenceOutputEvidenceResult struct {
+	values  map[string]any
+	unknown map[string]any
+}
+
+// referenceOutputUnknownTruePaths flattens a Terraform recursive unknown mask
+// into paths whose values are true. The path representation makes comparison
+// strict without treating false entries as claims of unknown values.
+func referenceOutputUnknownTruePaths(value any, prefix string, paths map[string]struct{}) {
+	switch typed := value.(type) {
+	case bool:
+		if typed {
+			paths[prefix] = struct{}{}
+		}
+	case []any:
+		for index, child := range typed {
+			path := fmt.Sprintf("%s[%d]", prefix, index)
+			referenceOutputUnknownTruePaths(child, path, paths)
+		}
+	case map[string]any:
+		for _, key := range assessmentObjectKeys(typed) {
+			path := strconv.Quote(key)
+			if prefix != "" {
+				path = prefix + "." + strconv.Quote(key)
+			}
+			referenceOutputUnknownTruePaths(typed[key], path, paths)
+		}
+	}
+}
+
+func referenceOutputUnknownMaskMatches(actual any, expected map[string]any) bool {
+	actualPaths := make(map[string]struct{})
+	referenceOutputUnknownTruePaths(actual, "", actualPaths)
+	expectedPaths := make(map[string]struct{})
+	referenceOutputUnknownTruePaths(expected, "", expectedPaths)
+	if len(actualPaths) != len(expectedPaths) {
+		return false
+	}
+	for path := range expectedPaths {
+		if _, present := actualPaths[path]; !present {
+			return false
+		}
+	}
+	return true
+}
+
+// referenceOutputMatchesEvidenceWithUnknown requires every known entry to
+// match provider evidence and permits only the exact unknown keys authorized
+// by managed create records. Unknown keys must be absent from after/value;
+// Terraform carries them in the separate after_unknown mask. The waived path
+// retains the targeted-import subset semantics of referenceOutputMatchesEvidence.
+func referenceOutputMatchesEvidenceWithUnknown(
+	actual any,
+	expected map[string]any,
+	unknown map[string]any,
+	waived bool,
+) bool {
+	if len(unknown) == 0 {
+		return referenceOutputMatchesEvidence(actual, expected, waived)
+	}
+	actualObject, ok := assessmentObject(actual)
+	if !ok {
+		return false
+	}
+	if !waived && len(actualObject) != len(expected) {
+		return false
+	}
+	for _, resourceType := range assessmentObjectKeys(actualObject) {
+		if _, declared := expected[resourceType]; !declared {
+			return false
+		}
+	}
+	for resourceType, rawExpected := range expected {
+		expectedObject, expectedOK := assessmentObject(rawExpected)
+		if !expectedOK {
+			return false
+		}
+		rawActual, present := actualObject[resourceType]
+		actualResource, actualOK := assessmentObject(rawActual)
+		unknownObject := map[string]any{}
+		if rawUnknown, hasUnknown := unknown[resourceType]; hasUnknown {
+			var unknownOK bool
+			unknownObject, unknownOK = assessmentObject(rawUnknown)
+			if !unknownOK {
+				return false
+			}
+		}
+		if !present || !actualOK {
+			if waived && len(expectedObject) == 0 && len(unknownObject) == 0 {
+				continue
+			}
+			return false
+		}
+		if !waived && len(actualResource) != len(expectedObject) {
+			return false
+		}
+		for key, expectedValue := range expectedObject {
+			actualValue, present := actualResource[key]
+			if !present || !canonjson.TerraformJSONEqual(actualValue, expectedValue) {
+				return false
+			}
+		}
+		for key := range unknownObject {
+			if _, present := actualResource[key]; present {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// managedReferenceAttributeUnknown reports whether a missing managed
+// attribute belongs to the exact resource instance represented by a genuine
+// single-create resource change. Import markers and replacement sequences are
+// deliberately ineligible, even when Terraform marks the attribute unknown.
+func managedReferenceAttributeUnknown(
+	plan map[string]any,
+	resourceAddress string,
+	resourceType string,
+	index string,
+	attribute string,
+) bool {
+	records := assessmentRecords(plan, "resource_changes")
+	matched := false
+	for _, rawRecord := range records {
+		record, ok := assessmentObject(rawRecord)
+		if !ok || record["address"] != resourceAddress || record["type"] != resourceType {
+			continue
+		}
+		if matched {
+			return false
+		}
+		matched = true
+		expectedAddress := "module." + resourceType + "." + resourceType + ".this[" + strconv.Quote(index) + "]"
+		if resourceAddress != expectedAddress {
+			return false
+		}
+		if record["mode"] != string(ReferenceOutputKindManaged) || record["index"] != index {
+			return false
+		}
+		change, ok := assessmentObject(record["change"])
+		if !ok {
+			return false
+		}
+		actions, ok := change["actions"].([]any)
+		if !ok || len(actions) != 1 || actions[0] != "create" {
+			return false
+		}
+		before, hasBefore := change["before"]
+		if !hasBefore || before != nil {
+			return false
+		}
+		if _, importing := change["importing"]; importing {
+			return false
+		}
+		afterUnknown, ok := assessmentObject(change["after_unknown"])
+		if !ok || afterUnknown[attribute] != true {
+			return false
+		}
+	}
+	return matched
+}
+
 // referenceOutputValue reconstructs managed authorization from
 // planned_values.root_module and data authorization from the refreshed
 // prior_state.values.root_module. Data authorization is deliberately keyed by
-// the resource instance index: the returned map is the exact key-to-ID map
-// that output_changes.after must carry. resource_changes and a prior-state
-// engine-output projection are never evidence sources.
+// the resource instance index: the returned evidence contains the exact
+// key-to-ID map that output_changes.after must carry, plus narrowly authorized
+// unknown keys for genuine managed creates. resource_changes and a prior-state
+// engine-output projection are never evidence sources for known IDs.
 func referenceOutputValue(
 	plan map[string]any,
 	resourceTypes []ReferenceOutputType,
 	waived bool,
-) map[string]any {
-	expected := referenceOutputEvidence(plan, resourceTypes, "id")
+) referenceOutputEvidenceResult {
+	evidence := referenceOutputEvidence(plan, resourceTypes, "id")
 
 	hasManagedType := false
 	for _, outputType := range resourceTypes {
@@ -427,12 +596,15 @@ func referenceOutputValue(
 			assessmentFail("reference output authorization requires the planned engine output")
 		}
 		outputValue, hasValue := plannedOutput["value"]
-		if plannedOutput["sensitive"] != true || !hasValue ||
-			!referenceOutputMatchesEvidence(outputValue, expected, waived) {
+		if plannedOutput["sensitive"] != true ||
+			(!hasValue && len(evidence.unknown) == 0) ||
+			(hasValue && !referenceOutputMatchesEvidenceWithUnknown(
+				outputValue, evidence.values, evidence.unknown, waived,
+			)) {
 			assessmentFail("planned engine reference output does not match provider-observed resource IDs")
 		}
 	}
-	return expected
+	return evidence
 }
 
 // referenceOutputEvidence reconstructs the per-resourceType id-by-key map
@@ -446,7 +618,7 @@ func referenceOutputEvidence(
 	plan map[string]any,
 	resourceTypes []ReferenceOutputType,
 	valueAttribute string,
-) map[string]any {
+) referenceOutputEvidenceResult {
 	seenTypes := make(map[string]struct{}, len(resourceTypes))
 	for _, outputType := range resourceTypes {
 		if _, duplicate := seenTypes[outputType.Type]; duplicate ||
@@ -462,7 +634,10 @@ func referenceOutputEvidence(
 		assessmentFail("reference output contract must contain unique Terraform resource types")
 	}
 
-	expected := make(map[string]any, len(resourceTypes))
+	evidence := referenceOutputEvidenceResult{
+		values:  make(map[string]any, len(resourceTypes)),
+		unknown: make(map[string]any),
+	}
 	for _, outputType := range resourceTypes {
 		resourceType := outputType.Type
 		rootModule := referenceOutputRootModule(plan, outputType.Kind)
@@ -480,6 +655,7 @@ func referenceOutputEvidence(
 		}
 		address := "module." + resourceType
 		ids := make(map[string]any)
+		unknownIDs := make(map[string]any)
 		matches := make([]map[string]any, 0, 1)
 		for _, rawChild := range childModules {
 			child, childOK := assessmentObject(rawChild)
@@ -526,7 +702,19 @@ func referenceOutputEvidence(
 					}
 					rawValue, present := values[valueAttribute]
 					if !present {
-						assessmentFailf("%s contains an invalid reference-output resource instance", address)
+						if _, duplicate := ids[index]; duplicate {
+							assessmentFailf("%s contains a duplicate reference-output key", address)
+						}
+						if _, duplicate := unknownIDs[index]; duplicate {
+							assessmentFailf("%s contains a duplicate reference-output key", address)
+						}
+						if !managedReferenceAttributeUnknown(
+							plan, resourceAddress, resourceType, index, valueAttribute,
+						) {
+							assessmentFailf("%s contains an invalid reference-output resource instance", address)
+						}
+						unknownIDs[index] = true
+						continue
 					}
 					if valueAttribute == "id" {
 						// Canonical output: preserve the exact pre-existing
@@ -577,16 +765,22 @@ func referenceOutputEvidence(
 				if _, duplicate := ids[index]; duplicate {
 					assessmentFailf("%s contains a duplicate reference-output key", address)
 				}
+				if _, duplicate := unknownIDs[index]; duplicate {
+					assessmentFailf("%s contains a duplicate reference-output key", address)
+				}
 				ids[index] = id
 			}
 		}
 		if len(ids) == 0 {
 			validateEmptyReferenceModule(plan, resourceType, outputType.Kind)
 		}
-		expected[resourceType] = ids
+		evidence.values[resourceType] = ids
+		if len(unknownIDs) > 0 {
+			evidence.unknown[resourceType] = unknownIDs
+		}
 	}
 
-	return expected
+	return evidence
 }
 
 func referenceOutputPriorValues(plan map[string]any) (map[string]any, bool) {
@@ -699,7 +893,7 @@ func validateReferenceOutputChange(
 		break
 	}
 	waived := AcceptIncompleteTargetedImportOnlyPlan(plan, attestation)
-	expected := referenceOutputValue(plan, resourceTypes, waived)
+	evidence := referenceOutputValue(plan, resourceTypes, waived)
 	actions, ok := change["actions"].([]any)
 	if !ok || len(actions) != 1 {
 		assessmentFail("engine reference output permits only create, update, or no-op actions")
@@ -709,7 +903,9 @@ func validateReferenceOutputChange(
 		assessmentFail("engine reference output permits only create, update, or no-op actions")
 	}
 	after, hasAfter := change["after"]
-	if !hasAfter || !referenceOutputMatchesEvidence(after, expected, waived) {
+	if !hasAfter || !referenceOutputMatchesEvidenceWithUnknown(
+		after, evidence.values, evidence.unknown, waived,
+	) {
 		assessmentFail("engine reference output does not match provider-observed resource IDs")
 	}
 	before, hasBefore := change["before"]
@@ -719,14 +915,22 @@ func validateReferenceOutputChange(
 	if action == "update" && !hasBefore {
 		assessmentFail("engine reference output update must bind its prior value")
 	}
-	if action == "no-op" && (!hasBefore || !referenceOutputMatchesEvidence(before, expected, waived)) {
+	if action == "no-op" && (!hasBefore || !referenceOutputMatchesEvidenceWithUnknown(
+		before, evidence.values, evidence.unknown, waived,
+	)) {
 		assessmentFail("engine reference output no-op must bind the provider-observed IDs")
 	}
 	if afterUnknown, present := change["after_unknown"]; present {
 		validateBooleanMask(afterUnknown, "output_changes after_unknown")
-		if booleanMaskHasTrue(afterUnknown) {
+		if len(evidence.unknown) == 0 && booleanMaskHasTrue(afterUnknown) {
 			assessmentFail("engine reference output must be fully known")
 		}
+		if len(evidence.unknown) > 0 &&
+			!referenceOutputUnknownMaskMatches(afterUnknown, evidence.unknown) {
+			assessmentFail("engine reference output does not match provider-observed resource IDs")
+		}
+	} else if len(evidence.unknown) > 0 {
+		assessmentFail("engine reference output does not match provider-observed resource IDs")
 	}
 	for _, field := range [...]string{"before_sensitive", "after_sensitive"} {
 		if mask, present := change[field]; present {
@@ -796,11 +1000,16 @@ func validateSiblingReferenceOutputChange(
 		}
 		claimed = append(claimed, outputType)
 	}
-	expected := map[string]any{}
-	if len(claimed) > 0 {
-		expected = referenceOutputEvidence(plan, claimed, field)
+	evidence := referenceOutputEvidenceResult{
+		values:  map[string]any{},
+		unknown: map[string]any{},
 	}
-	if !referenceOutputMatchesEvidence(after, expected, waived) {
+	if len(claimed) > 0 {
+		evidence = referenceOutputEvidence(plan, claimed, field)
+	}
+	if !referenceOutputMatchesEvidenceWithUnknown(
+		after, evidence.values, evidence.unknown, waived,
+	) {
 		assessmentFail("engine reference output does not match provider-observed resource IDs")
 	}
 
@@ -817,8 +1026,11 @@ func validateSiblingReferenceOutputChange(
 		assessmentFail("reference output authorization requires the planned engine output")
 	}
 	outputValue, hasValue := plannedOutput["value"]
-	if plannedOutput["sensitive"] != true || !hasValue ||
-		!referenceOutputMatchesEvidence(outputValue, expected, waived) {
+	if plannedOutput["sensitive"] != true ||
+		(!hasValue && len(evidence.unknown) == 0) ||
+		(hasValue && !referenceOutputMatchesEvidenceWithUnknown(
+			outputValue, evidence.values, evidence.unknown, waived,
+		)) {
 		assessmentFail("planned engine reference output does not match provider-observed resource IDs")
 	}
 
@@ -829,14 +1041,22 @@ func validateSiblingReferenceOutputChange(
 	if action == "update" && !hasBefore {
 		assessmentFail("engine reference output update must bind its prior value")
 	}
-	if action == "no-op" && (!hasBefore || !referenceOutputMatchesEvidence(before, expected, waived)) {
+	if action == "no-op" && (!hasBefore || !referenceOutputMatchesEvidenceWithUnknown(
+		before, evidence.values, evidence.unknown, waived,
+	)) {
 		assessmentFail("engine reference output no-op must bind the provider-observed IDs")
 	}
 	if afterUnknown, present := change["after_unknown"]; present {
 		validateBooleanMask(afterUnknown, "output_changes after_unknown")
-		if booleanMaskHasTrue(afterUnknown) {
+		if len(evidence.unknown) == 0 && booleanMaskHasTrue(afterUnknown) {
 			assessmentFail("engine reference output must be fully known")
 		}
+		if len(evidence.unknown) > 0 &&
+			!referenceOutputUnknownMaskMatches(afterUnknown, evidence.unknown) {
+			assessmentFail("engine reference output does not match provider-observed resource IDs")
+		}
+	} else if len(evidence.unknown) > 0 {
+		assessmentFail("engine reference output does not match provider-observed resource IDs")
 	}
 	for _, changeField := range [...]string{"before_sensitive", "after_sensitive"} {
 		if mask, present := change[changeField]; present {

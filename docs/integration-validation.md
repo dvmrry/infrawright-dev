@@ -98,10 +98,18 @@ reclassifies saved plans before execution and should only proceed for clean,
 import-only, or explicitly policy-tolerated saved plans.
 
 For an opted-in cross-state referent, the engine-owned
-`iw_reference_ids` create/update/no-op is also clean only when the loaded
-topology names that referent and the sensitive, fully known output exactly
-matches provider-observed IDs reconstructed from Terraform's planned child
-modules. Arbitrary output changes remain outside the assessment contract.
+`iw_reference_ids` output is authorized only when the loaded topology names
+that referent and its sensitive output matches the reference evidence.
+Known IDs must match exactly. A create/update output may omit an ID for a new
+managed instance only when a matching genuine create and its resource unknown
+mask authorize that exact entry; the output unknown mask must agree. No-op
+outputs remain fully known. This metadata exception does not bypass resource
+action policy or Apply guards. Arbitrary output changes remain outside the
+assessment contract.
+
+The committed `managed_create_capture` fixtures exercise initial and mixed
+managed creates using real Terraform 1.15.4 JSON. They establish the plan shape;
+downstream validation must still use the deployed provider versions and inputs.
 
 Cross-state validation is limited to the conditional pre-production cohort and
 dependency-state restrictions in
