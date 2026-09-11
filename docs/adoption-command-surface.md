@@ -512,9 +512,15 @@ The saved-plan assessor and exact-plan Apply do not trust that output by name.
 For a referent root selected from the loaded pack/deployment context, they bind
 the expected referent resource types from the cross-state topology and rebuild
 the exact stable-key-to-provider-ID map from Terraform's planned child-module
-resources. Only a fully known, sensitive create/update matching that map is
-treated as engine-owned plan metadata. Every other non-no-op output remains
-outside the saved-plan contract.
+resources. Known entries must match that map exactly, and the output must
+remain sensitive. For a new managed instance, a contracted ID may be unknown
+until Apply only when the exact instance has a single create action, no import
+marker, a null prior value, and that attribute marked unknown. The output's
+nested unknown mask must identify exactly those entries; existing IDs remain
+checked. This also applies to declared managed alternate-ID outputs.
+Authorizing this metadata does not authorize the underlying resource action:
+the existing assessment policy and Apply guards still apply. Every other
+non-no-op output remains outside the saved-plan contract.
 
 ## Provider Readiness And Probe Commands
 
